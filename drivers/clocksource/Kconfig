@@ -504,6 +504,11 @@ config MTK_CPUX_TIMER
 	help
 	  Support for MediaTek CPUXGPT timer driver.
 
+config SC9830_TIMER
+	bool
+	select CLKSRC_MMIO
+	select TIMER_OF
+
 config SPRD_TIMER
 	bool "Spreadtrum timer driver" if EXPERT
 	depends on HAS_IOMEM
