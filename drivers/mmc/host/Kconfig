@@ -700,6 +700,17 @@ config MMC_SDRICOH_CS
 	  To compile this driver as a module, choose M here: the
 	  module will be called sdricoh_cs.
 
+config MMC_SDHCI_SC9830
+	tristate "Spreadtrum SC9830 SDHCI controller"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on MMC_SDHCI_PLTFM
+	select MMC_SDHCI_IO_ACCESSORS
+	help
+	  Enable conservative PIO eMMC access on SC9830 using the SDHCI core.
+	  This variant handles the legacy clock divider and reset behavior.
+	  Board power and pads must be initialized before the host is probed.
+	  High-speed tuning and DMA are not enabled by this driver.
+
 config MMC_SDHCI_SPRD
 	tristate "Spreadtrum SDIO host Controller"
 	depends on ARCH_SPRD || COMPILE_TEST

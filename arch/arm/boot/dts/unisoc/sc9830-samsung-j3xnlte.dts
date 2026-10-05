@@ -36,6 +36,12 @@
 		clock-frequency = <32768>;
 	};
 
+	emmc_parent: clock-384m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <384000000>;
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -72,6 +78,18 @@
 			dr_mode = "peripheral";
 			maximum-speed = "full-speed";
 			phy_type = "utmi";
+		};
+
+		mmc@20600000 {
+			compatible = "sprd,sc9830-sdhci";
+			reg = <0x20600000 0x1000>;
+			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&emmc_parent>;
+			bus-width = <1>;
+			max-frequency = <12000000>;
+			non-removable;
+			no-sd;
+			no-sdio;
 		};
 	};
 };
