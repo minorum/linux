@@ -70,6 +70,7 @@
 			clocks = <&usb_clock>;
 			clock-names = "otg";
 			dr_mode = "peripheral";
+			maximum-speed = "full-speed";
 			phy_type = "utmi";
 		};
 	};
