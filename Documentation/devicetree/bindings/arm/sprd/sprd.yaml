@@ -18,6 +18,9 @@ properties:
   compatible:
     oneOf:
       - items:
+          - const: samsung,j3xnlte
+          - const: sprd,sc9830
+      - items:
           - enum:
               - sprd,sc9836-openphone
           - const: sprd,sc9836
