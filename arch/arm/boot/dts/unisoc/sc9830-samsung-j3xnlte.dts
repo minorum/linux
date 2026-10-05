@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	model = "Samsung Galaxy J3 SM-J320FN RAM bring-up";
+	compatible = "samsung,j3xnlte", "sprd,sc9830";
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&gic>;
+
+	chosen {
+		bootargs = "earlycon=j320fn_usb,0x20200000 console=ttyGS0 loglevel=8";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x07800000>;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@f00 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0xf00>;
+		};
+	};
+
+	ext_32k: clock-32k {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		usb_clock: clock-controller@20e00000 {
+			compatible = "sprd,sc9830-usb-clock";
+			reg = <0x20e00000 0x4>;
+			#clock-cells = <0>;
+		};
+
+		gic: interrupt-controller@12001000 {
+			compatible = "arm,cortex-a15-gic";
+			#interrupt-cells = <3>;
+			#address-cells = <0>;
+			interrupt-controller;
+			reg = <0x12001000 0x1000>, <0x12002000 0x1000>;
+		};
+
+		timer@40050000 {
+			compatible = "sprd,sc9830-timer";
+			reg = <0x40050000 0x60>;
+			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ext_32k>;
+		};
+
+		usb@20200000 {
+			compatible = "snps,dwc2";
+			reg = <0x20200000 0x1000>;
+			interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&usb_clock>;
+			clock-names = "otg";
+			dr_mode = "peripheral";
+			phy_type = "utmi";
+		};
+	};
+};

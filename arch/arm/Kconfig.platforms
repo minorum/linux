@@ -159,6 +159,21 @@ config ARCH_RDA
 	help
 	  This enables support for the RDA Micro 8810PL SoC family.
 
+config ARCH_SC9830
+	bool "Spreadtrum SC9830 RAM bring-up"
+	depends on ARCH_MULTI_V7
+	select ARM_GIC
+	select COMMON_CLK
+	select SC9830_TIMER
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	select SERIAL_EARLYCON
+	help
+	  Temporary single-CPU support for SM-J320FN RAM boot experiments.
+	  Enables the GIC, SC9830 timer and inherited USB early console.
+	  Peripheral gates are initialized from the selected vendor sources.
+	  PHY power and the parent clock tree remain firmware-initialized.
+
 menuconfig ARCH_SUNPLUS
 	bool "Sunplus SoCs"
 	depends on ARCH_MULTI_V7
