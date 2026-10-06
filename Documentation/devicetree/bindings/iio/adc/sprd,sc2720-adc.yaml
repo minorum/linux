@@ -52,11 +52,13 @@ allOf:
     then:
       properties:
         nvmem-cells:
-          maxItems: 2
+          minItems: 3
+          maxItems: 3
         nvmem-cell-names:
           items:
             - const: calibration_state
             - const: big_scale_calib
+            - const: small_scale_calib
       required:
         - clocks
         - clock-names

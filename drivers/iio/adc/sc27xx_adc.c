@@ -103,6 +103,7 @@ struct sc27xx_adc_data {
 	int irq;
 	const struct sc27xx_adc_variant_data *var_data;
 	struct sc27xx_adc_linear_graph battery_graph;
+	struct sc27xx_adc_linear_graph small_graph;
 	u32 saved_module;
 	u32 saved_clk;
 	u32 saved_xtl;
@@ -653,6 +654,24 @@ static int sc27xx_adc_to_volt(struct sc27xx_adc_linear_graph *graph,
 	return tmp < 0 ? 0 : tmp;
 }
 
+static int sc2723_adc_set_small_calibration(struct sc27xx_adc_data *data,
+					    u8 state, u16 calibration)
+{
+	struct sc27xx_adc_linear_graph graph = {
+		.volt0 = 1000,
+		.volt1 = 100,
+	};
+
+	if (state || !calibration)
+		return -ENODATA;
+	graph.adc0 = ((calibration >> 8) + 819 - 128) * 4;
+	graph.adc1 = ((calibration & 0xff) + 82 - 128) * 4;
+	if (graph.adc1 < 0 || graph.adc0 <= graph.adc1)
+		return -ENODATA;
+	data->small_graph = graph;
+	return 0;
+}
+
 static int sc27xx_adc_convert_volt(struct sc27xx_adc_data *data, int channel,
 				   int scale, int raw_adc)
 {
@@ -673,6 +692,8 @@ static int sc27xx_adc_convert_volt(struct sc27xx_adc_data *data, int channel,
 		return sc27xx_adc_to_volt(&big_scale_graph, raw_adc);
 
 	case 1:
+		if (data->var_data->legacy)
+			return sc27xx_adc_to_volt(&data->small_graph, raw_adc);
 		return sc27xx_adc_to_volt(&small_scale_graph, raw_adc);
 
 	default:
@@ -754,6 +775,8 @@ static int sc27xx_adc_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		if (data->var_data->legacy && (val2 || val < 0 || val > 1))
 			return -EINVAL;
+		if (data->var_data->legacy && chan->channel == 1 && val)
+			return -EINVAL;
 		mutex_lock(&data->lock);
 		data->channel_scale[chan->channel] = val;
 		mutex_unlock(&data->lock);
@@ -813,6 +836,8 @@ static const struct iio_chan_spec sc27xx_channels[] = {
 };
 
 static const struct iio_chan_spec sc2723_channels[] = {
+	SC27XX_ADC_CHANNEL(1, BIT(IIO_CHAN_INFO_RAW) |
+			    BIT(IIO_CHAN_INFO_PROCESSED)),
 	SC27XX_ADC_CHANNEL(5, BIT(IIO_CHAN_INFO_RAW) |
 			    BIT(IIO_CHAN_INFO_PROCESSED)),
 };
@@ -852,6 +877,13 @@ static int sc2723_adc_enable(struct sc27xx_adc_data *data)
 		return ret;
 	ret = sc2723_adc_set_calibration(data, state,
 				       le16_to_cpu((__force __le16)calibration));
+	if (ret)
+		return ret;
+	ret = nvmem_cell_read_u16(data->dev, "small_scale_calib", &calibration);
+	if (ret)
+		return ret;
+	ret = sc2723_adc_set_small_calibration(data, state,
+					       le16_to_cpu((__force __le16)calibration));
 	if (ret)
 		return ret;
 
