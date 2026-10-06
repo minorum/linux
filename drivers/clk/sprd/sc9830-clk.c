@@ -7,10 +7,21 @@
 #include "common.h"
 #include "gate.h"
 
-static SPRD_SC_GATE_CLK(adi_eb, "sc9830-adi-eb", NULL, 0, 0x1000,
-			BIT(16), CLK_IGNORE_UNUSED, 0);
-static SPRD_SC_GATE_CLK(splk_eb, "sc9830-splk-eb", NULL, 0, 0x1000,
-			BIT(22), CLK_IGNORE_UNUSED, 0);
+static struct sprd_gate adi_eb = {
+	.enable_mask = BIT(16),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-adi-eb",
+					       &sprd_sc_gate_ops,
+					       CLK_IGNORE_UNUSED),
+};
+
+static struct sprd_gate splk_eb = {
+	.enable_mask = BIT(22),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-splk-eb",
+					       &sprd_sc_gate_ops,
+					       CLK_IGNORE_UNUSED),
+};
 
 static struct sprd_clk_common *sc9830_aon_clks[] = {
 	&adi_eb.common,
