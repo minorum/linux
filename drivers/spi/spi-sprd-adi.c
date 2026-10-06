@@ -276,7 +276,8 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	 * address to validate data.
 	 */
 	if (sadi->data->legacy) {
-		ret = sprd_adi_read_check(val, addr & sadi->readback_mask);
+		ret = sprd_adi_read_check(val & (sadi->readback_mask << RD_ADDR_SHIFT),
+					  addr & sadi->readback_mask);
 		if (ret)
 			goto out;
 	} else if (sadi->data->read_check) {
