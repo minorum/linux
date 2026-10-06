@@ -30,7 +30,7 @@ config HWSPINLOCK_QCOM
 
 config HWSPINLOCK_SPRD
 	tristate "SPRD Hardware Spinlock device"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SPRD || ARCH_SC9830 || COMPILE_TEST
 	help
 	  Say y here to support the SPRD Hardware Spinlock device.
 

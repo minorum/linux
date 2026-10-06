@@ -5,6 +5,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/clk.h>
 #include <linux/hwspinlock.h>
 #include <linux/init.h>
 #include <linux/io.h>
@@ -137,6 +138,7 @@ struct sprd_adi_wdg {
 struct sprd_adi_data {
 	u32 slave_offset;
 	u32 slave_addr_size;
+	bool legacy;
 	int (*read_check)(u32 val, u32 reg);
 	int (*restart)(struct sys_off_data *data);
 	void (*wdg_rst)(void *p);
@@ -150,11 +152,12 @@ struct sprd_adi {
 	unsigned long		slave_vbase;
 	unsigned long		slave_pbase;
 	const struct sprd_adi_data *data;
+	u32 readback_mask;
 };
 
 static int sprd_adi_check_addr(struct sprd_adi *sadi, u32 reg)
 {
-	if (reg >= sadi->data->slave_addr_size) {
+	if (reg >= sadi->data->slave_addr_size || !IS_ALIGNED(reg, 4)) {
 		dev_err(sadi->dev,
 			"slave address offset is incorrect, reg = 0x%x\n",
 			reg);
@@ -170,7 +173,8 @@ static int sprd_adi_drain_fifo(struct sprd_adi *sadi)
 	u32 sts;
 
 	do {
-		sts = readl_relaxed(sadi->base + REG_ADI_ARM_FIFO_STS);
+		sts = readl_relaxed(sadi->base + REG_ADI_ARM_FIFO_STS -
+				    (sadi->data->legacy ? 4 : 0));
 		if (sts & BIT_FIFO_EMPTY)
 			break;
 
@@ -187,7 +191,8 @@ static int sprd_adi_drain_fifo(struct sprd_adi *sadi)
 
 static int sprd_adi_fifo_is_full(struct sprd_adi *sadi)
 {
-	return readl_relaxed(sadi->base + REG_ADI_ARM_FIFO_STS) & BIT_FIFO_FULL;
+	return readl_relaxed(sadi->base + REG_ADI_ARM_FIFO_STS -
+			    (sadi->data->legacy ? 4 : 0)) & BIT_FIFO_FULL;
 }
 
 static int sprd_adi_read_check(u32 val, u32 addr)
@@ -219,6 +224,7 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	int read_timeout = ADI_READ_TIMEOUT;
 	unsigned long flags;
 	u32 val;
+	u32 addr = sadi->data->legacy ? sadi->slave_pbase + reg : reg;
 	int ret = 0;
 
 	if (sadi->hwlock) {
@@ -239,7 +245,8 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	 * Set the slave address offset need to read into RD_CMD register,
 	 * then ADI controller will start to transfer automatically.
 	 */
-	writel_relaxed(reg, sadi->base + REG_ADI_RD_CMD);
+	writel_relaxed(addr, sadi->base + REG_ADI_RD_CMD -
+		       (sadi->data->legacy ? 4 : 0));
 
 	/*
 	 * Wait read operation complete, the BIT_RD_CMD_BUSY will be set
@@ -248,7 +255,8 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	 * completed.
 	 */
 	do {
-		val = readl_relaxed(sadi->base + REG_ADI_RD_DATA);
+		val = readl_relaxed(sadi->base + REG_ADI_RD_DATA -
+				    (sadi->data->legacy ? 4 : 0));
 		if (!(val & BIT_RD_CMD_BUSY))
 			break;
 
@@ -267,7 +275,11 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	 * are read register address. Then we can check the returned register
 	 * address to validate data.
 	 */
-	if (sadi->data->read_check) {
+	if (sadi->data->legacy) {
+		ret = sprd_adi_read_check(val, addr & sadi->readback_mask);
+		if (ret)
+			goto out;
+	} else if (sadi->data->read_check) {
 		ret = sadi->data->read_check(val, reg);
 		if (ret < 0)
 			goto out;
@@ -341,7 +353,8 @@ static int sprd_adi_transfer_one(struct spi_controller *ctlr,
 	if (t->rx_buf) {
 		reg = *(u32 *)t->rx_buf;
 		ret = sprd_adi_read(sadi, reg, &val);
-		*(u32 *)t->rx_buf = val;
+		if (!ret)
+			*(u32 *)t->rx_buf = val;
 	} else if (t->tx_buf) {
 		u32 *p = (u32 *)t->tx_buf;
 		reg = *p++;
@@ -456,12 +469,24 @@ static int sprd_adi_restart_sc9860(struct sys_off_data *data)
 	return sprd_adi_restart(data->cb_data, data->mode, data->cmd, &wdg);
 }
 
-static void sprd_adi_hw_init(struct sprd_adi *sadi)
+static int sprd_adi_hw_init(struct sprd_adi *sadi)
 {
 	struct device_node *np = sadi->dev->of_node;
 	int i, size, chn_cnt;
 	const __be32 *list;
 	u32 tmp;
+	int bits;
+
+	if (sadi->data->legacy) {
+		tmp = readl_relaxed(sadi->base + REG_ADI_GSSI_CFG0 - 4);
+		bits = (tmp & 0x3f) - ((tmp >> 11) & 0x1f) + 1;
+		if (bits < 1 || bits > 15)
+			return dev_err_probe(sadi->dev, -EINVAL,
+					     "invalid ADI address width\n");
+		sadi->readback_mask = GENMASK(bits - 1, 0);
+		writel_relaxed(0, sadi->base + REG_ADI_CHN_PRIL);
+		return 0;
+	}
 
 	/* Set all channels as default priority */
 	writel_relaxed(0, sadi->base + REG_ADI_CHN_PRIL);
@@ -476,7 +501,7 @@ static void sprd_adi_hw_init(struct sprd_adi *sadi)
 	list = of_get_property(np, "sprd,hw-channels", &size);
 	if (!list || !size) {
 		dev_info(sadi->dev, "no hw channels setting in node\n");
-		return;
+		return 0;
 	}
 
 	chn_cnt = size / 8;
@@ -502,6 +527,7 @@ static void sprd_adi_hw_init(struct sprd_adi *sadi)
 			writel_relaxed(value, sadi->base + REG_ADI_CHN_EN1);
 		}
 	}
+	return 0;
 }
 
 static int sprd_adi_probe(struct platform_device *pdev)
@@ -511,6 +537,7 @@ static int sprd_adi_probe(struct platform_device *pdev)
 	struct spi_controller *ctlr;
 	struct sprd_adi *sadi;
 	struct resource *res;
+	struct clk *clk;
 	u16 num_chipselect;
 	int ret;
 
@@ -545,6 +572,10 @@ static int sprd_adi_probe(struct platform_device *pdev)
 	sadi->ctlr = ctlr;
 	sadi->dev = &pdev->dev;
 	sadi->data = data;
+	clk = devm_clk_get_optional_enabled(&pdev->dev, NULL);
+	if (IS_ERR(clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(clk),
+				     "failed to enable ADI clock\n");
 	ret = of_hwspin_lock_get_id(np, 0);
 	if (ret > 0 || (IS_ENABLED(CONFIG_HWSPINLOCK) && ret == 0)) {
 		sadi->hwlock =
@@ -561,7 +592,9 @@ static int sprd_adi_probe(struct platform_device *pdev)
 		}
 	}
 
-	sprd_adi_hw_init(sadi);
+	ret = sprd_adi_hw_init(sadi);
+	if (ret)
+		return ret;
 
 	if (sadi->data->wdg_rst)
 		sadi->data->wdg_rst(sadi);
@@ -587,6 +620,12 @@ static int sprd_adi_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct sprd_adi_data sc9830_data = {
+	.slave_offset = ADI_10BIT_SLAVE_OFFSET,
+	.slave_addr_size = ADI_10BIT_SLAVE_ADDR_SIZE,
+	.legacy = true,
+};
+
 static struct sprd_adi_data sc9860_data = {
 	.slave_offset = ADI_10BIT_SLAVE_OFFSET,
 	.slave_addr_size = ADI_10BIT_SLAVE_ADDR_SIZE,
@@ -608,6 +647,10 @@ static struct sprd_adi_data ums512_data = {
 };
 
 static const struct of_device_id sprd_adi_of_match[] = {
+	{
+		.compatible = "sprd,sc9830-adi",
+		.data = &sc9830_data,
+	},
 	{
 		.compatible = "sprd,sc9860-adi",
 		.data = &sc9860_data,

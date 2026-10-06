@@ -88,6 +88,7 @@ static int sprd_hwspinlock_probe(struct platform_device *pdev)
 	struct sprd_hwspinlock_dev *sprd_hwlock;
 	struct hwspinlock *lock;
 	int i, ret;
+	u32 version;
 
 	if (!pdev->dev.of_node)
 		return -ENODEV;
@@ -120,6 +121,14 @@ static int sprd_hwspinlock_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	if (of_device_is_compatible(pdev->dev.of_node,
+				    "sprd,sc9830-hwspinlock")) {
+		version = readl(sprd_hwlock->base + 0xffc);
+		if (version != 0x100 && version != 0x200 && version != 0x300)
+			return dev_err_probe(&pdev->dev, -ENODEV,
+					     "unsupported hardware lock version\n");
+	}
+
 	/* set the hwspinlock to record user id to identify subsystems */
 	writel(HWSPINLOCK_USER_BITS, sprd_hwlock->base + HWSPINLOCK_RECCTRL);
 
@@ -136,6 +145,7 @@ static int sprd_hwspinlock_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sprd_hwspinlock_of_match[] = {
+	{ .compatible = "sprd,sc9830-hwspinlock", },
 	{ .compatible = "sprd,hwspinlock-r3p0", },
 	{ /* sentinel */ }
 };

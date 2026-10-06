@@ -17,6 +17,7 @@
 enum sprd_pmic_type {
 	PMIC_TYPE_SC2730 = 1,
 	PMIC_TYPE_SC2731,
+	PMIC_TYPE_SC2723,
 };
 
 #define SPRD_PMIC_INT_MASK_STATUS	0x0
@@ -29,6 +30,11 @@ enum sprd_pmic_type {
 #define SPRD_SC2731_IRQ_BASE		0x140
 #define SPRD_SC2731_IRQ_NUMS		16
 #define SPRD_SC2731_CHG_DET		0xedc
+#define SPRD_SC2723_IRQ_BASE		0x380
+#define SPRD_SC2723_IRQ_NUMS		11
+#define SPRD_SC2723_CHG_DET		0x914
+#define SPRD_SC2723_CHIP_ID_LOW		0x93c
+#define SPRD_SC2723_CHIP_ID_HIGH		0x940
 
 /* PMIC charger detection definition */
 #define SPRD_PMIC_CHG_DET_DELAY_US	200000
@@ -65,6 +71,13 @@ static const struct mfd_cell sc2730_devices[] = {
 	MFD_CELL_OF("sc2730-vibrator", NULL, NULL, 0, 0, "sprd,sc2730-vibrator"),
 };
 
+static const struct mfd_cell sc2723_devices[] = {
+	MFD_CELL_OF("sc2723-adc", NULL, NULL, 0, 0, "sprd,sc2723-adc"),
+	MFD_CELL_OF("sc2723-efuse", NULL, NULL, 0, 0, "sprd,sc2723-efuse"),
+	MFD_CELL_OF("sc2723-eic", NULL, NULL, 0, 0, "sprd,sc2723-eic"),
+	MFD_CELL_OF("sc2723-fgu", NULL, NULL, 0, 0, "sprd,sc2723-fgu"),
+};
+
 static const struct mfd_cell sc2731_devices[] = {
 	MFD_CELL_OF("sc2731-adc", NULL, NULL, 0, 0, "sprd,sc2731-adc"),
 	MFD_CELL_OF("sc2731-bltc", NULL, NULL, 0, 0, "sprd,sc2731-bltc"),
@@ -87,6 +100,12 @@ static const struct sprd_pmic_data sc2730_data = {
 	.irq_base = SPRD_SC2730_IRQ_BASE,
 	.num_irqs = SPRD_SC2730_IRQ_NUMS,
 	.charger_det = SPRD_SC2730_CHG_DET,
+};
+
+static const struct sprd_pmic_data sc2723_data = {
+	.irq_base = SPRD_SC2723_IRQ_BASE,
+	.num_irqs = SPRD_SC2723_IRQ_NUMS,
+	.charger_det = SPRD_SC2723_CHG_DET,
 };
 
 static const struct sprd_pmic_data sc2731_data = {
@@ -177,17 +196,32 @@ static const struct regmap_config sprd_pmic_config = {
 	.max_register = 0xffff,
 };
 
+static const struct regmap_config sc2723_pmic_config = {
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.max_register = 0xffc,
+};
+
 static int sprd_pmic_probe(struct spi_device *spi)
 {
 	struct sprd_pmic *ddata;
 	enum sprd_pmic_type pmic_type;
 	const struct sprd_pmic_data *pdata;
 	const struct mfd_cell *cells;
+	const struct regmap_config *config = &sprd_pmic_config;
+	u32 id_high, id_low;
 	int ret, i, num_cells;
 
 	pmic_type = (uintptr_t)of_device_get_match_data(&spi->dev);
 
 	switch (pmic_type) {
+	case PMIC_TYPE_SC2723:
+		pdata = &sc2723_data;
+		cells = sc2723_devices;
+		num_cells = ARRAY_SIZE(sc2723_devices);
+		config = &sc2723_pmic_config;
+		break;
 	case PMIC_TYPE_SC2730:
 		pdata = &sc2730_data;
 		cells = sc2730_devices;
@@ -208,7 +242,7 @@ static int sprd_pmic_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	ddata->regmap = devm_regmap_init(&spi->dev, &sprd_pmic_regmap,
-					 &spi->dev, &sprd_pmic_config);
+					 &spi->dev, config);
 	if (IS_ERR(ddata->regmap)) {
 		ret = PTR_ERR(ddata->regmap);
 		dev_err(&spi->dev, "Failed to allocate register map %d\n", ret);
@@ -219,6 +253,21 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	ddata->dev = &spi->dev;
 	ddata->irq = spi->irq;
 	ddata->pdata = pdata;
+	if (pmic_type == PMIC_TYPE_SC2723) {
+		ret = regmap_read(ddata->regmap, SPRD_SC2723_CHIP_ID_HIGH,
+				  &id_high);
+		if (ret)
+			return ret;
+		ret = regmap_read(ddata->regmap, SPRD_SC2723_CHIP_ID_LOW,
+				  &id_low);
+		if (ret)
+			return ret;
+		if (id_high != 0x2723)
+			return dev_err_probe(&spi->dev, -ENODEV,
+					     "unexpected SC2723 chip ID\n");
+		dev_info(&spi->dev, "SC2723 chip ID %04x:%04x\n", id_high,
+			 id_low);
+	}
 
 	ddata->irq_chip.name = dev_name(&spi->dev);
 	ddata->irq_chip.status_base =
@@ -285,6 +334,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(sprd_pmic_pm_ops,
 				sprd_pmic_suspend, sprd_pmic_resume);
 
 static const struct of_device_id sprd_pmic_match[] = {
+	{ .compatible = "sprd,sc2723", .data = (void *)PMIC_TYPE_SC2723 },
 	{ .compatible = "sprd,sc2730", .data = (void *)PMIC_TYPE_SC2730 },
 	{ .compatible = "sprd,sc2731", .data = (void *)PMIC_TYPE_SC2731 },
 	{},
@@ -292,6 +342,7 @@ static const struct of_device_id sprd_pmic_match[] = {
 MODULE_DEVICE_TABLE(of, sprd_pmic_match);
 
 static const struct spi_device_id sprd_pmic_spi_ids[] = {
+	{ .name = "sc2723", .driver_data = PMIC_TYPE_SC2723 },
 	{ .name = "sc2730", .driver_data = PMIC_TYPE_SC2730 },
 	{ .name = "sc2731", .driver_data = PMIC_TYPE_SC2731 },
 	{},

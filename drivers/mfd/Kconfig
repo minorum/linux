@@ -1530,7 +1530,7 @@ config MFD_SKY81452
 
 config MFD_SC27XX_PMIC
 	tristate "Spreadtrum SC27xx PMICs"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SPRD || ARCH_SC9830 || COMPILE_TEST
 	depends on SPI_MASTER
 	select MFD_CORE
 	select REGMAP_SPI

@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/sprd,sc9830-clk.h>
 
 / {
 	model = "Samsung Galaxy J3 SM-J320FN";
@@ -9,6 +10,10 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 	interrupt-parent = <&gic>;
+
+	aliases {
+		spi0 = &adi;
+	};
 
 	chosen {
 		bootargs = "earlycon=j320fn_usb,0x20200000 console=ttyGS0 loglevel=8 sdhci_sprd.sc9830_probe_enabled=0";
@@ -47,6 +52,41 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		aon_gate: clock-controller@402e0000 {
+			compatible = "sprd,sc9830-aon-gate";
+			reg = <0x402e0000 0x3000>;
+			#clock-cells = <1>;
+		};
+
+		hwlock: hwlock@40060000 {
+			compatible = "sprd,sc9830-hwspinlock";
+			reg = <0x40060000 0x1000>;
+			clocks = <&aon_gate CLK_SPLK_EB>;
+			clock-names = "enable";
+			#hwlock-cells = <1>;
+		};
+
+		adi: spi@40030000 {
+			compatible = "sprd,sc9830-adi";
+			reg = <0x40030000 0x10000>;
+			clocks = <&aon_gate CLK_ADI_EB>;
+			hwlocks = <&hwlock 0>;
+			hwlock-names = "adi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			pmic: pmic@0 {
+				compatible = "sprd,sc2723";
+				reg = <0>;
+				spi-max-frequency = <26000000>;
+				interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
 
 		usb_clock: clock-controller@20e00000 {
 			compatible = "sprd,sc9830-usb-clock";
