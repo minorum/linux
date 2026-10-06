@@ -46,20 +46,28 @@ static void sc9830_set_power(struct sdhci_host *host, unsigned char mode,
 {
 }
 
+static unsigned int sc9830_get_min_clock(struct sdhci_host *host)
+{
+	return DIV_ROUND_UP(sdhci_pltfm_clk_get_max_clock(host), 2048);
+}
+
 static const struct sdhci_ops sc9830_ops = {
 	.write_b = sc9830_writeb,
 	.set_clock = sc9830_set_clock,
 	.set_power = sc9830_set_power,
 	.set_bus_width = sdhci_set_bus_width,
 	.get_max_clock = sdhci_pltfm_clk_get_max_clock,
+	.get_min_clock = sc9830_get_min_clock,
 	.reset = sc9830_reset,
+	.set_uhs_signaling = sdhci_set_uhs_signaling,
 };
 
 static const struct sdhci_pltfm_data sc9830_data = {
 	.ops = &sc9830_ops,
 	.quirks = SDHCI_QUIRK_BROKEN_DMA | SDHCI_QUIRK_BROKEN_ADMA |
 		  SDHCI_QUIRK_FORCE_1_BIT_DATA | SDHCI_QUIRK_NO_MULTIBLOCK |
-		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK,
+		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
+		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
 };
 
@@ -92,6 +100,9 @@ static int sc9830_probe(struct platform_device *pdev)
 	host->mmc->ocr_avail = MMC_VDD_30_31;
 	ret = sdhci_add_host(host);
 	dev_info(&pdev->dev, "add host returned %d\n", ret);
+	if (!ret)
+		dev_info(&pdev->dev, "base clock %u minimum %u maximum %u\n",
+			 host->max_clk, host->mmc->f_min, host->mmc->f_max);
 	return ret;
 }
 
