@@ -65,7 +65,7 @@ static const struct sdhci_ops sc9830_ops = {
 static const struct sdhci_pltfm_data sc9830_data = {
 	.ops = &sc9830_ops,
 	.quirks = SDHCI_QUIRK_BROKEN_DMA | SDHCI_QUIRK_BROKEN_ADMA |
-		  SDHCI_QUIRK_FORCE_1_BIT_DATA | SDHCI_QUIRK_NO_MULTIBLOCK |
+		  SDHCI_QUIRK_FORCE_1_BIT_DATA |
 		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
 		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
