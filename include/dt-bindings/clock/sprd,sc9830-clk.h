@@ -7,4 +7,10 @@
 #define CLK_SINDRV	2
 #define CLK_AON_GATE_NUM	3
 
+#define CLK_I2C2		0
+#define CLK_AP_CLK_NUM	1
+
+#define CLK_I2C2_EB		0
+#define CLK_AP_APB_GATE_NUM	1
+
 #endif

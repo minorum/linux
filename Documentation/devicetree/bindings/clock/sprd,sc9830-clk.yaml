@@ -4,20 +4,73 @@
 $id: http://devicetree.org/schemas/clock/sprd,sc9830-clk.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Spreadtrum SC9830 always-on peripheral gates
+title: Spreadtrum SC9830 clock controllers
 
 maintainers:
   - minorum <mit.mis@gmail.com>
 
 properties:
   compatible:
-    const: sprd,sc9830-aon-gate
+    enum:
+      - sprd,sc9830-aon-gate
+      - sprd,sc9830-ap-clk
+      - sprd,sc9830-apapb-gate
 
   reg:
     maxItems: 1
 
   '#clock-cells':
     const: 1
+
+  clocks:
+    minItems: 1
+    maxItems: 4
+
+  clock-names:
+    minItems: 1
+    maxItems: 4
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-ap-clk
+    then:
+      properties:
+        clocks:
+          minItems: 4
+          maxItems: 4
+        clock-names:
+          items:
+            - const: ext-26m
+            - const: twpll-48m
+            - const: twpll-51m2
+            - const: twpll-153m6
+      required:
+        - clocks
+        - clock-names
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-apapb-gate
+    then:
+      properties:
+        clocks:
+          maxItems: 1
+        clock-names:
+          items:
+            - const: i2c2
+      required:
+        - clocks
+        - clock-names
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-aon-gate
+    then:
+      properties:
+        clocks: false
+        clock-names: false
 
 required:
   - compatible
