@@ -11,7 +11,7 @@
 	interrupt-parent = <&gic>;
 
 	chosen {
-		bootargs = "earlycon=j320fn_usb,0x20200000 console=ttyGS0 loglevel=8 sdhci_sc9830.probe_enabled=0";
+		bootargs = "earlycon=j320fn_usb,0x20200000 console=ttyGS0 loglevel=8 sdhci_sprd.sc9830_probe_enabled=0";
 	};
 
 	memory@80000000 {
