@@ -6,6 +6,11 @@
 #define CLK_SPLK_EB	1
 #define CLK_SINDRV	2
 #define CLK_AON_GATE_NUM	3
+#define CLK_TWPLL	3
+#define CLK_TWPLL_48M	4
+#define CLK_TWPLL_51M2	5
+#define CLK_TWPLL_153M6	6
+#define CLK_AON_CLK_NUM	7
 
 #define CLK_I2C2		0
 #define CLK_AP_CLK_NUM	1

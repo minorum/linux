@@ -13,6 +13,7 @@ properties:
   compatible:
     enum:
       - sprd,sc9830-aon-gate
+      - sprd,sc9830-aon-clk
       - sprd,sc9830-ap-clk
       - sprd,sc9830-apapb-gate
 
@@ -31,6 +32,20 @@ properties:
     maxItems: 4
 
 allOf:
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-aon-clk
+    then:
+      properties:
+        clocks:
+          maxItems: 1
+        clock-names:
+          items:
+            - const: ext-26m
+      required:
+        - clocks
+        - clock-names
   - if:
       properties:
         compatible:
