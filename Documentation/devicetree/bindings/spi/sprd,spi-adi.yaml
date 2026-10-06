@@ -44,10 +44,21 @@ description: |
 
 allOf:
   - $ref: /schemas/spi/spi-controller.yaml#
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-adi
+    then:
+      required:
+        - clocks
+        - hwlocks
+      properties:
+        sprd,hw-channels: false
 
 properties:
   compatible:
     enum:
+      - sprd,sc9830-adi
       - sprd,sc9860-adi
       - sprd,sc9863-adi
       - sprd,ums512-adi
@@ -60,6 +71,9 @@ properties:
 
   hwlock-names:
     const: adi
+
+  clocks:
+    maxItems: 1
 
   sprd,hw-channels:
     $ref: /schemas/types.yaml#/definitions/uint32-matrix
@@ -83,6 +97,7 @@ required:
   - '#size-cells'
 
 unevaluatedProperties: false
+
 
 examples:
   - |
