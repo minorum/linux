@@ -198,6 +198,40 @@ static int sc2723_fgu_read_stable(struct sc27xx_fgu_data *data, u32 reg,
 	return -EAGAIN;
 }
 
+static int sc2723_fgu_read_counter(struct sc27xx_fgu_data *data, u32 *value)
+{
+	u32 low, high, first, second;
+	int ret, i;
+
+	for (i = 0; i < 16; i++) {
+		ret = regmap_read(data->regmap,
+				  data->base + SC27XX_FGU_CLBCNT_VALL, &low);
+		if (ret)
+			return ret;
+		ret = regmap_read(data->regmap,
+				  data->base + SC27XX_FGU_CLBCNT_VALH, &high);
+		if (ret)
+			return ret;
+		first = (low & SC27XX_FGU_CLBCNT_MASK) |
+			((high & SC27XX_FGU_CLBCNT_MASK) << 16);
+		ret = regmap_read(data->regmap,
+				  data->base + SC27XX_FGU_CLBCNT_VALL, &low);
+		if (ret)
+			return ret;
+		ret = regmap_read(data->regmap,
+				  data->base + SC27XX_FGU_CLBCNT_VALH, &high);
+		if (ret)
+			return ret;
+		second = (low & SC27XX_FGU_CLBCNT_MASK) |
+			 ((high & SC27XX_FGU_CLBCNT_MASK) << 16);
+		if (first == second) {
+			*value = first;
+			return 0;
+		}
+	}
+	return -EAGAIN;
+}
+
 static int sc2723_fgu_restore(struct sc27xx_fgu_data *data)
 {
 	int ret, err;
@@ -577,7 +611,15 @@ static int sc27xx_fgu_set_clbcnt(struct sc27xx_fgu_data *data, int clbcnt)
 
 static int sc27xx_fgu_get_clbcnt(struct sc27xx_fgu_data *data, int *clb_cnt)
 {
+	u32 counter;
 	int ccl, cch, ret;
+
+	if (data->legacy) {
+		ret = sc2723_fgu_read_counter(data, &counter);
+		if (!ret)
+			*clb_cnt = (s32)counter;
+		return ret;
+	}
 
 	ret = regmap_read(data->regmap, data->base + SC27XX_FGU_CLBCNT_VALL,
 			  &ccl);
