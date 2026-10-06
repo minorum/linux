@@ -73,7 +73,7 @@ static void __init sc9830_emmc_setup(void)
 	u32 reset;
 	int i;
 
-	if (!IS_ENABLED(CONFIG_MMC_SDHCI_SC9830))
+	if (!IS_ENABLED(CONFIG_MMC_SDHCI_SPRD))
 		return;
 	ahb = ioremap(0x20e00000, 8);
 	clock = ioremap(0x21500048, 4);
