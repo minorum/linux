@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pinctrl/sprd,sc9830-pinctrl.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 pin multiplexer
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  The controller has per-pad registers and separate global controls.
+  Currently only the SCL2 and SDA2 alternate functions are supported. GPIO
+  mode selects the pad function and does not configure the GPIO controller.
+
+allOf:
+  - $ref: pinctrl.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-pinctrl
+
+  reg:
+    maxItems: 1
+
+patternProperties:
+  '-pins$':
+    type: object
+    $ref: pinmux-node.yaml#
+    additionalProperties: false
+    properties:
+      function:
+        enum: [i2c2, gpio]
+      groups:
+        items:
+          enum: [i2c2]
+        maxItems: 1
+    required:
+      - function
+      - groups
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    pinctrl@402a0000 {
+        compatible = "sprd,sc9830-pinctrl";
+        reg = <0x402a0000 0x1000>;
+
+        i2c2-pins {
+            function = "i2c2";
+            groups = "i2c2";
+        };
+    };

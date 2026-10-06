@@ -3,6 +3,15 @@
 # Spreadtrum pin control drivers
 #
 
+config PINCTRL_SC9830
+	tristate "Spreadtrum SC9830 pin multiplexer"
+	depends on OF
+	depends on ARCH_SC9830 || COMPILE_TEST
+	select PINMUX
+	select GENERIC_PINCONF
+	help
+	  Enable the SC9830 I2C2 pad multiplexer.
+
 config PINCTRL_SPRD
 	tristate
 	select PINMUX
