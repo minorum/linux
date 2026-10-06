@@ -1166,6 +1166,13 @@ config I2C_SPRD
 	  If you say yes to this option, support will be included for the
 	  Spreadtrum I2C interface.
 
+config I2C_SC9830
+	tristate "Spreadtrum SC9830 I2C interface"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on COMMON_CLK
+	help
+	  Support the command-register I2C controller in Spreadtrum SC9830.
+
 config I2C_ST
 	tristate "STMicroelectronics SSC I2C support"
 	depends on ARCH_STI || COMPILE_TEST

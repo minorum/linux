@@ -25555,12 +25555,14 @@ M:	minorum <mit.mis@gmail.com>
 S:	Odd Fixes
 F:	Documentation/devicetree/bindings/clock/sprd,sc9830-clk.yaml
 F:	Documentation/devicetree/bindings/clock/sprd,sc9830-usb-clock.yaml
+F:	Documentation/devicetree/bindings/i2c/sprd,sc9830-i2c.yaml
 F:	Documentation/devicetree/bindings/mmc/sprd,sc9830-sdhci.yaml
 F:	Documentation/devicetree/bindings/timer/sprd,sc9830-timer.yaml
 F:	arch/arm/boot/dts/unisoc/sc9830-samsung-j3xnlte.dts
 F:	arch/arm/mach-sc9830/
 F:	drivers/clk/sprd/sc9830-clk.c
 F:	drivers/clocksource/timer-sc9830.c
+F:	drivers/i2c/busses/i2c-sc9830.c
 F:	drivers/mmc/host/sdhci-sc9830.c
 F:	include/dt-bindings/clock/sprd,sc9830-clk.h
 
