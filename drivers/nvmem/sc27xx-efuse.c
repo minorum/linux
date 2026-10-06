@@ -12,6 +12,8 @@
 #define SC27XX_MODULE_EN		0xc08
 #define SC2730_MODULE_EN		0x1808
 #define SC27XX_EFUSE_EN			BIT(6)
+#define SC2723_MODULE_EN		0x800
+#define SC2723_EFUSE_EN			BIT(7)
 
 /* Efuse controller registers definition */
 #define SC27XX_EFUSE_GLB_CTRL		0x0
@@ -56,6 +58,7 @@
  */
 struct sc27xx_efuse_variant_data {
 	u32 module_en;
+	bool legacy;
 };
 
 struct sc27xx_efuse {
@@ -74,6 +77,76 @@ static const struct sc27xx_efuse_variant_data sc2731_edata = {
 static const struct sc27xx_efuse_variant_data sc2730_edata = {
 	.module_en = SC2730_MODULE_EN,
 };
+
+static const struct sc27xx_efuse_variant_data sc2723_edata = {
+	.module_en = SC2723_MODULE_EN,
+	.legacy = true,
+};
+
+static int sc2723_efuse_read(void *context, u32 offset, void *val, size_t bytes)
+{
+	struct sc27xx_efuse *efuse = context;
+	u8 data[SC27XX_EFUSE_BLOCK_MAX];
+	u32 module, status, raw;
+	size_t i;
+	int ret, restore;
+
+	if (offset >= SC27XX_EFUSE_BLOCK_MAX ||
+	    bytes > SC27XX_EFUSE_BLOCK_MAX - offset)
+		return -EINVAL;
+
+	mutex_lock(&efuse->mutex);
+	ret = regmap_read(efuse->regmap, SC2723_MODULE_EN, &module);
+	if (ret)
+		goto unlock;
+
+	ret = regmap_update_bits(efuse->regmap, SC2723_MODULE_EN,
+				 SC2723_EFUSE_EN, SC2723_EFUSE_EN);
+	if (ret)
+		goto restore;
+
+	for (i = 0; i < bytes; i++) {
+		ret = regmap_write(efuse->regmap,
+				   efuse->base + SC27XX_EFUSE_BLOCK_INDEX,
+				   offset + i);
+		if (ret)
+			goto restore;
+
+		ret = regmap_write(efuse->regmap,
+				   efuse->base + SC27XX_EFUSE_MODE_CTRL,
+				   SC27XX_EFUSE_RD_START);
+		if (ret)
+			goto restore;
+
+		ret = regmap_read_poll_timeout(efuse->regmap,
+					       efuse->base + SC27XX_EFUSE_STATUS,
+					       status,
+					       !(status & SC27XX_EFUSE_READ_BUSY),
+					       SC27XX_EFUSE_POLL_DELAY_US,
+					       SC27XX_EFUSE_POLL_TIMEOUT);
+		if (ret)
+			goto restore;
+
+		ret = regmap_read(efuse->regmap,
+				  efuse->base + SC27XX_EFUSE_DATA_RD, &raw);
+		if (ret)
+			goto restore;
+
+		data[i] = ~raw;
+	}
+
+restore:
+	restore = regmap_update_bits(efuse->regmap, SC2723_MODULE_EN,
+				     SC2723_EFUSE_EN, module & SC2723_EFUSE_EN);
+	if (!ret)
+		ret = restore;
+unlock:
+	mutex_unlock(&efuse->mutex);
+	if (!ret)
+		memcpy(val, data, bytes);
+
+	return ret;
+}
 
 /*
  * On Spreadtrum platform, we have multi-subsystems will access the unique
@@ -223,28 +296,32 @@ static int sc27xx_efuse_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = of_hwspin_lock_get_id(np, 0);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to get hwspinlock id\n");
-		return ret;
-	}
+	efuse->var_data = of_device_get_match_data(&pdev->dev);
+	if (!efuse->var_data->legacy) {
+		ret = of_hwspin_lock_get_id(np, 0);
+		if (ret < 0) {
+			dev_err(&pdev->dev, "failed to get hwspinlock id\n");
+			return ret;
+		}
 
-	efuse->hwlock = devm_hwspin_lock_request_specific(&pdev->dev, ret);
-	if (!efuse->hwlock) {
-		dev_err(&pdev->dev, "failed to request hwspinlock\n");
-		return -ENXIO;
+		efuse->hwlock = devm_hwspin_lock_request_specific(&pdev->dev, ret);
+		if (!efuse->hwlock) {
+			dev_err(&pdev->dev, "failed to request hwspinlock\n");
+			return -ENXIO;
+		}
 	}
 
 	mutex_init(&efuse->mutex);
 	efuse->dev = &pdev->dev;
-	efuse->var_data = of_device_get_match_data(&pdev->dev);
 
 	econfig.stride = 1;
 	econfig.word_size = 1;
 	econfig.read_only = true;
 	econfig.name = "sc27xx-efuse";
-	econfig.size = SC27XX_EFUSE_BLOCK_MAX * SC27XX_EFUSE_BLOCK_WIDTH;
-	econfig.reg_read = sc27xx_efuse_read;
+	econfig.size = SC27XX_EFUSE_BLOCK_MAX *
+		(efuse->var_data->legacy ? 1 : SC27XX_EFUSE_BLOCK_WIDTH);
+	econfig.reg_read = efuse->var_data->legacy ? sc2723_efuse_read :
+						   sc27xx_efuse_read;
 	econfig.priv = efuse;
 	econfig.dev = &pdev->dev;
 	econfig.add_legacy_fixed_of_cells = true;
@@ -258,6 +335,7 @@ static int sc27xx_efuse_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sc27xx_efuse_of_match[] = {
+	{ .compatible = "sprd,sc2723-efuse", .data = &sc2723_edata },
 	{ .compatible = "sprd,sc2731-efuse", .data = &sc2731_edata},
 	{ .compatible = "sprd,sc2730-efuse", .data = &sc2730_edata},
 	{ }
