@@ -85,6 +85,38 @@
 				#interrupt-cells = <1>;
 				#address-cells = <1>;
 				#size-cells = <0>;
+
+				efuse@200 {
+					compatible = "sprd,sc2723-efuse";
+					reg = <0x200>;
+					#address-cells = <1>;
+					#size-cells = <1>;
+					status = "disabled";
+
+					calibration-state@0 {
+						reg = <0 1>;
+						bits = <7 1>;
+					};
+
+					adc-calibration@7 {
+						reg = <7 2>;
+					};
+
+					fgu-voltage@c {
+						reg = <12 2>;
+						bits = <0 9>;
+					};
+
+					fgu-current@d {
+						reg = <13 2>;
+						bits = <1 9>;
+					};
+
+					fgu-voltage-delta@e {
+						reg = <14 1>;
+						bits = <2 6>;
+					};
+				};
 			};
 		};
 
