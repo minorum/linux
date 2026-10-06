@@ -7,6 +7,9 @@
 
 #include "sdhci-pltfm.h"
 
+static bool probe_enabled = true;
+module_param(probe_enabled, bool, 0644);
+
 static void sc9830_writeb(struct sdhci_host *host, u8 val, int reg)
 {
 	if (reg == SDHCI_SOFTWARE_RESET)
@@ -66,6 +69,9 @@ static int sc9830_probe(struct platform_device *pdev)
 	struct sdhci_pltfm_host *pltfm;
 	int ret;
 
+	if (!probe_enabled)
+		return -ENODEV;
+	dev_info(&pdev->dev, "probe start\n");
 	host = sdhci_pltfm_init(pdev, &sc9830_data, 0);
 	if (IS_ERR(host))
 		return PTR_ERR(host);
@@ -73,15 +79,20 @@ static int sc9830_probe(struct platform_device *pdev)
 	pltfm->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(pltfm->clk))
 		return PTR_ERR(pltfm->clk);
+	dev_info(&pdev->dev, "clock rate %lu\n", clk_get_rate(pltfm->clk));
 	ret = mmc_of_parse(host->mmc);
 	if (ret)
 		return ret;
 	sdhci_get_property(pdev);
+	dev_info(&pdev->dev, "reading capabilities\n");
 	sdhci_read_caps(host);
+	dev_info(&pdev->dev, "version %x caps %x\n", host->version, host->caps);
 	host->caps &= ~(SDHCI_CAN_DO_HISPD | SDHCI_CAN_DO_8BIT);
 	host->caps1 = 0;
 	host->mmc->ocr_avail = MMC_VDD_30_31;
-	return sdhci_add_host(host);
+	ret = sdhci_add_host(host);
+	dev_info(&pdev->dev, "add host returned %d\n", ret);
+	return ret;
 }
 
 static const struct of_device_id sc9830_match[] = {
