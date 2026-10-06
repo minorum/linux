@@ -12,6 +12,7 @@
 	interrupt-parent = <&gic>;
 
 	aliases {
+		i2c2 = &i2c2;
 		spi0 = &adi;
 	};
 
@@ -140,6 +141,17 @@
 			status = "disabled";
 		};
 
+		pinctrl: pinctrl@402a0000 {
+			compatible = "sprd,sc9830-pinctrl";
+			reg = <0x402a0000 0x1000>;
+			status = "disabled";
+
+			i2c2_default: i2c2-pins {
+				function = "i2c2";
+				groups = "i2c2";
+			};
+		};
+
 		i2c2: i2c@70700000 {
 			compatible = "sprd,sc9830-i2c";
 			reg = <0x70700000 0x1000>;
@@ -150,6 +162,8 @@
 			assigned-clock-parents = <&ext_26m>;
 			assigned-clock-rates = <26000000>;
 			clock-frequency = <100000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c2_default>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
