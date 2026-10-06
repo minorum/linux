@@ -130,7 +130,7 @@ struct sc27xx_fgu_data {
 };
 
 static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
-				    u8 state, u16 calibration)
+				      u8 state, u16 calibration)
 {
 	int voltage;
 	u64 current_coefficient;
@@ -142,7 +142,7 @@ static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
 
 	voltage = DIV_ROUND_CLOSEST((calibration + 6963 - 4096 - 256) * 10, 42);
 	current_coefficient = DIV_ROUND_CLOSEST_ULL((u64)voltage * 4 * data->calib_resist,
-				      SC27XX_FGU_IDEAL_RESISTANCE);
+						    SC27XX_FGU_IDEAL_RESISTANCE);
 	if (!current_coefficient || current_coefficient > INT_MAX)
 		return -EINVAL;
 
@@ -152,7 +152,7 @@ static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
 }
 
 static int sc2723_fgu_convert(struct sc27xx_fgu_data *data, bool is_current,
-			     u32 raw, int *val)
+			      u32 raw, int *val)
 {
 	s64 value;
 	int adc, coefficient;
@@ -178,7 +178,7 @@ static int sc2723_fgu_convert(struct sc27xx_fgu_data *data, bool is_current,
 }
 
 static int sc2723_fgu_read_stable(struct sc27xx_fgu_data *data, u32 reg,
-				u32 mask, int *val)
+				  u32 mask, int *val)
 {
 	u32 first, second;
 	int ret, i;
@@ -251,8 +251,8 @@ static void sc2723_fgu_disable(void *arg)
 }
 
 static int sc2723_fgu_get_property(struct power_supply *psy,
-				 enum power_supply_property property,
-				 union power_supply_propval *val)
+				   enum power_supply_property property,
+				   union power_supply_propval *val)
 {
 	struct sc27xx_fgu_data *data = power_supply_get_drvdata(psy);
 	u32 reg, mask;
@@ -296,7 +296,7 @@ static const struct power_supply_desc sc2723_fgu_desc = {
 };
 
 static int sc2723_fgu_probe(struct platform_device *pdev,
-			  struct sc27xx_fgu_data *data)
+			    struct sc27xx_fgu_data *data)
 {
 	struct device *dev = &pdev->dev;
 	struct power_supply_config config = { };
@@ -315,7 +315,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read FGU calibration\n");
 	ret = sc2723_fgu_set_calibration(data, state,
-				       le16_to_cpu((__force __le16)calibration));
+					 le16_to_cpu((__force __le16)calibration));
 	if (ret)
 		return dev_err_probe(dev, ret, "invalid FGU calibration\n");
 	ret = sc2723_fgu_enable(data);
