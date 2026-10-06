@@ -68,7 +68,8 @@ static const struct sdhci_pltfm_data sc9830_data = {
 		  SDHCI_QUIRK_FORCE_1_BIT_DATA |
 		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
 		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+		   SDHCI_QUIRK2_CLEAR_TRANSFERMODE_REG_BEFORE_CMD,
 };
 
 static int sc9830_probe(struct platform_device *pdev)
