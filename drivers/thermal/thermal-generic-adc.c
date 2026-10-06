@@ -22,6 +22,7 @@ struct gadc_thermal_info {
 	struct iio_channel *channel;
 	s32 *lookup_table;
 	int nlookup_table;
+	bool lookup_raw;
 };
 
 static int gadc_thermal_adc_to_temp(struct gadc_thermal_info *gti, int val)
@@ -61,7 +62,10 @@ static int gadc_thermal_get_temp(struct thermal_zone_device *tz, int *temp)
 	int val;
 	int ret;
 
-	ret = iio_read_channel_processed(gti->channel, &val);
+	if (gti->lookup_raw)
+		ret = iio_read_channel_raw(gti->channel, &val);
+	else
+		ret = iio_read_channel_processed(gti->channel, &val);
 	if (ret < 0)
 		return ret;
 
@@ -136,6 +140,9 @@ static int gadc_thermal_read_linear_lookup_table(struct device *dev,
 
 	ntable = of_property_count_elems_of_size(np, "temperature-lookup-table",
 						 sizeof(u32));
+	gti->lookup_raw = of_property_read_bool(np, "temperature-lookup-table-raw");
+	if (gti->lookup_raw && ntable <= 0)
+		return -EINVAL;
 	if (ntable <= 0) {
 		ret = iio_get_channel_type(gti->channel, &chan_type);
 		if (ret || chan_type != IIO_TEMP)
@@ -164,6 +171,15 @@ static int gadc_thermal_read_linear_lookup_table(struct device *dev,
 	}
 
 	gti->nlookup_table = ntable / 2;
+	if (gti->lookup_raw) {
+		int i;
+
+		for (i = 1; i < gti->nlookup_table; i++) {
+			if (gti->lookup_table[2 * i + 1] >=
+			    gti->lookup_table[2 * i - 1])
+				return -EINVAL;
+		}
+	}
 
 	return 0;
 }

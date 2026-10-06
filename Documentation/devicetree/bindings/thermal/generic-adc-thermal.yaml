@@ -24,6 +24,9 @@ properties:
   '#thermal-sensor-cells':
     const: 0
 
+  '#io-channel-cells':
+    const: 0
+
   io-channels:
     maxItems: 1
 
@@ -43,6 +46,18 @@ properties:
       items:
         - description: Temperature in milliCelsius
         - description: ADC read value
+
+  temperature-lookup-table-raw:
+    type: boolean
+    description:
+      The lookup table describes unscaled ADC conversion codes instead of
+      processed channel values. Conversion codes must be strictly descending.
+      The codes correspond to the ADC resolution and input configuration used
+      for the sensor. Calibrated channel values remain a separate interface.
+
+dependentRequired:
+  temperature-lookup-table-raw:
+    - temperature-lookup-table
 
 required:
   - compatible
