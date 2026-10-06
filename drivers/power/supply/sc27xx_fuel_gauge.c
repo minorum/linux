@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (C) 2018 Spreadtrum Communications Inc.
 
+#include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/iio/consumer.h>
 #include <linux/interrupt.h>
@@ -19,6 +20,10 @@
 #define SC27XX_CLK_EN0			0xc18
 #define SC27XX_FGU_EN			BIT(7)
 #define SC27XX_FGU_RTC_EN		BIT(6)
+#define SC2723_MODULE_EN		0x800
+#define SC2723_RTC_CLK_EN		0x808
+#define SC2723_FGU_EN		BIT(8)
+#define SC2723_FGU_RTC_EN		(BIT(6) | BIT(7))
 
 /* FGU registers definition */
 #define SC27XX_FGU_START		0x0
@@ -119,7 +124,215 @@ struct sc27xx_fgu_data {
 	int calib_resist;
 	struct power_supply_battery_ocv_table *cap_table;
 	struct power_supply_resistance_temp_table *resist_table;
+	bool legacy;
+	u32 saved_module;
+	u32 saved_rtc;
 };
+
+static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
+				    u8 state, u16 calibration)
+{
+	int voltage;
+	u64 current_coefficient;
+
+	if (state)
+		return -ENODATA;
+	if (calibration > 0x1ff || data->calib_resist <= 0)
+		return -EINVAL;
+
+	voltage = DIV_ROUND_CLOSEST((calibration + 6963 - 4096 - 256) * 10, 42);
+	current_coefficient = DIV_ROUND_CLOSEST_ULL((u64)voltage * 4 * data->calib_resist,
+				      SC27XX_FGU_IDEAL_RESISTANCE);
+	if (!current_coefficient || current_coefficient > INT_MAX)
+		return -EINVAL;
+
+	data->vol_1000mv_adc = voltage;
+	data->cur_1000ma_adc = current_coefficient;
+	return 0;
+}
+
+static int sc2723_fgu_convert(struct sc27xx_fgu_data *data, bool is_current,
+			     u32 raw, int *val)
+{
+	s64 value;
+	int adc, coefficient;
+
+	if (is_current) {
+		adc = raw & GENMASK(13, 0);
+		adc -= SC27XX_FGU_CUR_BASIC_ADC;
+		coefficient = data->cur_1000ma_adc;
+	} else {
+		adc = raw & GENMASK(12, 0);
+		if (!adc)
+			return -EAGAIN;
+		coefficient = data->vol_1000mv_adc;
+	}
+	if (coefficient <= 0)
+		return -EINVAL;
+
+	value = div_s64((s64)adc * 1000, coefficient) * 1000;
+	if (value > INT_MAX || value < INT_MIN)
+		return -ERANGE;
+	*val = value;
+	return 0;
+}
+
+static int sc2723_fgu_read_stable(struct sc27xx_fgu_data *data, u32 reg,
+				u32 mask, int *val)
+{
+	u32 first, second;
+	int ret, i;
+
+	for (i = 0; i < 16; i++) {
+		ret = regmap_read(data->regmap, data->base + reg, &first);
+		if (ret)
+			return ret;
+		ret = regmap_read(data->regmap, data->base + reg, &second);
+		if (ret)
+			return ret;
+		if ((first & mask) == (second & mask)) {
+			*val = first & mask;
+			return 0;
+		}
+	}
+	return -EAGAIN;
+}
+
+static int sc2723_fgu_restore(struct sc27xx_fgu_data *data)
+{
+	int ret, err;
+
+	ret = regmap_update_bits(data->regmap, SC2723_RTC_CLK_EN,
+				 SC2723_FGU_RTC_EN,
+				 data->saved_rtc & SC2723_FGU_RTC_EN);
+	err = regmap_update_bits(data->regmap, SC2723_MODULE_EN,
+				 SC2723_FGU_EN,
+				 data->saved_module & SC2723_FGU_EN);
+	return ret ? ret : err;
+}
+
+static int sc2723_fgu_enable(struct sc27xx_fgu_data *data)
+{
+	int ret, restore;
+
+	ret = regmap_read(data->regmap, SC2723_MODULE_EN, &data->saved_module);
+	if (ret)
+		return ret;
+	ret = regmap_read(data->regmap, SC2723_RTC_CLK_EN, &data->saved_rtc);
+	if (ret)
+		return ret;
+	ret = regmap_update_bits(data->regmap, SC2723_MODULE_EN,
+				 SC2723_FGU_EN, SC2723_FGU_EN);
+	if (ret)
+		goto restore;
+	ret = regmap_update_bits(data->regmap, SC2723_RTC_CLK_EN,
+				 SC2723_FGU_RTC_EN, SC2723_FGU_RTC_EN);
+	if (ret)
+		goto restore;
+	usleep_range(130, 200);
+	return 0;
+restore:
+	restore = sc2723_fgu_restore(data);
+	if (restore)
+		dev_err(data->dev, "FGU restore failed: %d\n", restore);
+	return ret;
+}
+
+static void sc2723_fgu_disable(void *arg)
+{
+	struct sc27xx_fgu_data *data = arg;
+	int ret;
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_restore(data);
+	mutex_unlock(&data->lock);
+	if (ret)
+		dev_err(data->dev, "FGU restore failed: %d\n", ret);
+}
+
+static int sc2723_fgu_get_property(struct power_supply *psy,
+				 enum power_supply_property property,
+				 union power_supply_propval *val)
+{
+	struct sc27xx_fgu_data *data = power_supply_get_drvdata(psy);
+	u32 reg, mask;
+	int ret, raw;
+	bool is_current;
+
+	switch (property) {
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		is_current = false;
+		reg = SC27XX_FGU_VOLTAGE;
+		mask = GENMASK(12, 0);
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		is_current = true;
+		reg = SC27XX_FGU_CURRENT;
+		mask = GENMASK(13, 0);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_read_stable(data, reg, mask, &raw);
+	if (!ret)
+		ret = sc2723_fgu_convert(data, is_current, raw, &val->intval);
+	mutex_unlock(&data->lock);
+	return ret;
+}
+
+static const enum power_supply_property sc2723_fgu_props[] = {
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+};
+
+static const struct power_supply_desc sc2723_fgu_desc = {
+	.name = "sc2723-fgu",
+	.type = POWER_SUPPLY_TYPE_BATTERY,
+	.properties = sc2723_fgu_props,
+	.num_properties = ARRAY_SIZE(sc2723_fgu_props),
+	.get_property = sc2723_fgu_get_property,
+};
+
+static int sc2723_fgu_probe(struct platform_device *pdev,
+			  struct sc27xx_fgu_data *data)
+{
+	struct device *dev = &pdev->dev;
+	struct power_supply_config config = { };
+	u16 calibration;
+	u8 state;
+	int ret;
+
+	data->dev = dev;
+	data->legacy = true;
+	mutex_init(&data->lock);
+	platform_set_drvdata(pdev, data);
+	ret = nvmem_cell_read_u8(dev, "calibration_state", &state);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read calibration state\n");
+	ret = nvmem_cell_read_u16(dev, "fgu_calib", &calibration);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read FGU calibration\n");
+	ret = sc2723_fgu_set_calibration(data, state,
+				       le16_to_cpu((__force __le16)calibration));
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid FGU calibration\n");
+	ret = sc2723_fgu_enable(data);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to enable FGU\n");
+	ret = devm_add_action_or_reset(dev, sc2723_fgu_disable, data);
+	if (ret)
+		return ret;
+
+	config.drv_data = data;
+	config.fwnode = dev_fwnode(dev);
+	data->battery = devm_power_supply_register(dev, &sc2723_fgu_desc, &config);
+	if (IS_ERR(data->battery))
+		return dev_err_probe(dev, PTR_ERR(data->battery),
+				     "failed to register FGU supply\n");
+	return 0;
+}
 
 static int sc27xx_fgu_cap_to_clbcnt(struct sc27xx_fgu_data *data, int capacity);
 static void sc27xx_fgu_capacity_calibration(struct sc27xx_fgu_data *data,
@@ -1169,6 +1382,9 @@ static int sc27xx_fgu_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	if (of_device_is_compatible(dev->of_node, "sprd,sc2723-fgu"))
+		return sc2723_fgu_probe(pdev, data);
+
 	data->channel = devm_iio_channel_get(dev, "bat-temp");
 	if (IS_ERR(data->channel)) {
 		dev_err(dev, "failed to get IIO channel\n");
@@ -1261,6 +1477,9 @@ static int sc27xx_fgu_resume(struct device *dev)
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret;
 
+	if (data->legacy)
+		return 0;
+
 	ret = regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
 				 SC27XX_FGU_LOW_OVERLOAD_INT |
 				 SC27XX_FGU_CLBCNT_DELTA_INT, 0);
@@ -1276,6 +1495,9 @@ static int sc27xx_fgu_suspend(struct device *dev)
 {
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret, status, ocv;
+
+	if (data->legacy)
+		return -EBUSY;
 
 	ret = sc27xx_fgu_get_status(data, &status);
 	if (ret)
@@ -1332,6 +1554,7 @@ static const struct dev_pm_ops sc27xx_fgu_pm_ops = {
 };
 
 static const struct of_device_id sc27xx_fgu_of_match[] = {
+	{ .compatible = "sprd,sc2723-fgu" },
 	{ .compatible = "sprd,sc2731-fgu", },
 	{ }
 };

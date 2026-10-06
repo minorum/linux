@@ -9,9 +9,6 @@ title: Spreadtrum SC27XX PMICs Fuel Gauge Unit Power Supply
 maintainers:
   - Sebastian Reichel <sre@kernel.org>
 
-allOf:
-  - $ref: power-supply.yaml#
-
 properties:
   compatible:
     enum:
@@ -46,11 +43,13 @@ properties:
       - const: charge-vol
 
   nvmem-cells:
-    maxItems: 1
+    minItems: 1
+    maxItems: 2
     description: Calibration cells provided by eFuse device
 
   nvmem-cell-names:
-    const: fgu_calib
+    minItems: 1
+    maxItems: 2
 
   sprd,calib-resistance-micro-ohms:
     description: real resistance of coulomb counter chip in micro Ohms
@@ -60,14 +59,37 @@ properties:
 required:
   - compatible
   - reg
-  - battery-detect-gpios
   - interrupts
-  - io-channels
-  - io-channel-names
   - nvmem-cells
   - nvmem-cell-names
   - sprd,calib-resistance-micro-ohms
-  - monitored-battery
+
+allOf:
+  - $ref: power-supply.yaml#
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc2723-fgu
+    then:
+      properties:
+        nvmem-cells:
+          minItems: 2
+          maxItems: 2
+        nvmem-cell-names:
+          items:
+            - const: calibration_state
+            - const: fgu_calib
+    else:
+      properties:
+        nvmem-cells:
+          maxItems: 1
+        nvmem-cell-names:
+          const: fgu_calib
+      required:
+        - battery-detect-gpios
+        - io-channels
+        - io-channel-names
+        - monitored-battery
 
 additionalProperties: false
 ...

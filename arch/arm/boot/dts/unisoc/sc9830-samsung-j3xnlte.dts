@@ -100,6 +100,16 @@
 							   "big_scale_calib";
 				};
 
+				fgu@500 {
+					compatible = "sprd,sc2723-fgu";
+					reg = <0x500>;
+					interrupts = <4>;
+					nvmem-cells = <&calibration_state>,
+						      <&fgu_voltage_calibration>;
+					nvmem-cell-names = "calibration_state", "fgu_calib";
+					sprd,calib-resistance-micro-ohms = <19900>;
+				};
+
 				efuse@200 {
 					compatible = "sprd,sc2723-efuse";
 					reg = <0x200>;
@@ -115,7 +125,7 @@
 						reg = <7 2>;
 					};
 
-					fgu-voltage@c {
+					fgu_voltage_calibration: fgu-voltage@c {
 						reg = <12 2>;
 						bits = <0 9>;
 					};
