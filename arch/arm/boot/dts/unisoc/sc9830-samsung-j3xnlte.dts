@@ -4,7 +4,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
 / {
-	model = "Samsung Galaxy J3 SM-J320FN RAM bring-up";
+	model = "Samsung Galaxy J3 SM-J320FN";
 	compatible = "samsung,j3xnlte", "sprd,sc9830";
 	#address-cells = <1>;
 	#size-cells = <1>;
