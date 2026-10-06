@@ -41,6 +41,12 @@
 		clock-frequency = <32768>;
 	};
 
+	ext_26m: clock-26m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
 	emmc_parent: clock-384m {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -107,9 +113,46 @@
 		ranges;
 
 		aon_gate: clock-controller@402e0000 {
-			compatible = "sprd,sc9830-aon-gate";
+			compatible = "sprd,sc9830-aon-clk";
 			reg = <0x402e0000 0x3000>;
 			#clock-cells = <1>;
+			clocks = <&ext_26m>;
+			clock-names = "ext-26m";
+		};
+
+		ap_clk: clock-controller@21500000 {
+			compatible = "sprd,sc9830-ap-clk";
+			reg = <0x21500000 0x1000>;
+			#clock-cells = <1>;
+			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_48M>,
+				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>;
+			clock-names = "ext-26m", "twpll-48m", "twpll-51m2",
+				      "twpll-153m6";
+			status = "disabled";
+		};
+
+		apapb: clock-controller@71300000 {
+			compatible = "sprd,sc9830-apapb-gate";
+			reg = <0x71300000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&ap_clk CLK_I2C2>;
+			clock-names = "i2c2";
+			status = "disabled";
+		};
+
+		i2c2: i2c@70700000 {
+			compatible = "sprd,sc9830-i2c";
+			reg = <0x70700000 0x1000>;
+			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ap_clk CLK_I2C2>, <&apapb CLK_I2C2_EB>;
+			clock-names = "i2c", "enable";
+			assigned-clocks = <&ap_clk CLK_I2C2>;
+			assigned-clock-parents = <&ext_26m>;
+			assigned-clock-rates = <26000000>;
+			clock-frequency = <100000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
 		};
 
 		hwlock: hwlock@40060000 {
