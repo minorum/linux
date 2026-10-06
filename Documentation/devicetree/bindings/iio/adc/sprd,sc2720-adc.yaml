@@ -34,17 +34,44 @@ properties:
   hwlocks:
     maxItems: 1
 
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: reference
+
   nvmem-cells: true
 
   nvmem-cell-names: true
 
 allOf:
   - if:
+      properties:
+        compatible:
+          const: sprd,sc2723-adc
+    then:
+      properties:
+        nvmem-cells:
+          maxItems: 2
+        nvmem-cell-names:
+          items:
+            - const: calibration_state
+            - const: big_scale_calib
+      required:
+        - clocks
+        - clock-names
+    else:
+      properties:
+        clocks: false
+        clock-names: false
+
+  - if:
       not:
         properties:
           compatible:
             contains:
               enum:
+                - sprd,sc2723-adc
                 - sprd,ump9620-adc
     then:
       properties:
@@ -55,7 +82,11 @@ allOf:
             - const: big_scale_calib
             - const: small_scale_calib
 
-    else:
+  - if:
+      properties:
+        compatible:
+          const: sprd,ump9620-adc
+    then:
       properties:
         nvmem-cells:
           maxItems: 6

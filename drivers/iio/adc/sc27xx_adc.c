@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (C) 2018 Spreadtrum Communications Inc.
 
+#include <linux/clk.h>
 #include <linux/hwspinlock.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
@@ -79,6 +80,13 @@
 /* ADC default channel reference voltage is 2.8V */
 #define SC27XX_ADC_REFVOL_VDD28		2800000
 
+struct sc27xx_adc_linear_graph {
+	int volt0;
+	int adc0;
+	int volt1;
+	int adc1;
+};
+
 struct sc27xx_adc_data {
 	struct device *dev;
 	struct regulator *volref;
@@ -94,6 +102,11 @@ struct sc27xx_adc_data {
 	u32 base;
 	int irq;
 	const struct sc27xx_adc_variant_data *var_data;
+	struct sc27xx_adc_linear_graph battery_graph;
+	u32 saved_module;
+	u32 saved_clk;
+	u32 saved_xtl;
+	u32 saved_irq;
 };
 
 /*
@@ -111,14 +124,28 @@ struct sc27xx_adc_variant_data {
 	void (*init_scale)(struct sc27xx_adc_data *data);
 	int (*get_ratio)(int channel, int scale);
 	bool set_volref;
+	bool legacy;
 };
 
-struct sc27xx_adc_linear_graph {
-	int volt0;
-	int adc0;
-	int volt1;
-	int adc1;
-};
+static int sc2723_adc_set_calibration(struct sc27xx_adc_data *data,
+				    u8 state, u16 calibration)
+{
+	struct sc27xx_adc_linear_graph graph = {
+		.volt0 = 4200,
+		.volt1 = 3600,
+	};
+
+	if (state || !calibration)
+		return -ENODATA;
+
+	graph.adc0 = ((calibration & 0xff) + 830 - 128) * 4;
+	graph.adc1 = ((calibration >> 8) + 711 - 128) * 4;
+	if (graph.adc0 <= graph.adc1)
+		return -ENODATA;
+
+	data->battery_graph = graph;
+	return 0;
+}
 
 /*
  * According to the datasheet, we can convert one ADC value to one voltage value
@@ -484,7 +511,7 @@ static void sc2731_adc_scale_init(struct sc27xx_adc_data *data)
 static int sc27xx_adc_read(struct sc27xx_adc_data *data, int channel,
 			   int scale, int *val)
 {
-	int ret, ret_volref;
+	int ret, ret_volref, cleanup;
 	u32 tmp, value, status;
 
 	ret = hwspin_lock_timeout_raw(data->hwlock, SC27XX_ADC_HWLOCK_TIMEOUT);
@@ -510,8 +537,11 @@ static int sc27xx_adc_read(struct sc27xx_adc_data *data, int channel,
 
 	ret = regmap_set_bits(data->regmap, data->base + SC27XX_ADC_CTL,
 			      SC27XX_ADC_EN);
-	if (ret)
+	if (ret) {
+		if (data->var_data->legacy)
+			goto disable_adc;
 		goto regulator_restore;
+	}
 
 	ret = regmap_set_bits(data->regmap, data->base + SC27XX_ADC_INT_CLR,
 			      SC27XX_ADC_IRQ_CLR);
@@ -523,7 +553,8 @@ static int sc27xx_adc_read(struct sc27xx_adc_data *data, int channel,
 	tmp |= channel & SC27XX_ADC_CHN_ID_MASK;
 	ret = regmap_update_bits(data->regmap, data->base + SC27XX_ADC_CH_CFG,
 				 SC27XX_ADC_CHN_ID_MASK |
-				 data->var_data->scale_mask,
+				 data->var_data->scale_mask |
+				 (data->var_data->legacy ? GENMASK(8, 6) : 0),
 				 tmp);
 	if (ret)
 		goto disable_adc;
@@ -559,8 +590,17 @@ static int sc27xx_adc_read(struct sc27xx_adc_data *data, int channel,
 	value &= SC27XX_ADC_DATA_MASK;
 
 disable_adc:
-	regmap_clear_bits(data->regmap, data->base + SC27XX_ADC_CTL,
-			  SC27XX_ADC_EN);
+	if (data->var_data->legacy) {
+		cleanup = regmap_write(data->regmap,
+				       data->base + SC27XX_ADC_INT_CLR,
+				       SC27XX_ADC_IRQ_CLR);
+		if (!ret)
+			ret = cleanup;
+	}
+	cleanup = regmap_clear_bits(data->regmap, data->base + SC27XX_ADC_CTL,
+				    SC27XX_ADC_EN);
+	if (data->var_data->legacy && !ret)
+		ret = cleanup;
 regulator_restore:
 	if ((data->var_data->set_volref) && (channel == 30 || channel == 31)) {
 		ret_volref = regulator_set_voltage(data->volref,
@@ -628,6 +668,8 @@ static int sc27xx_adc_convert_volt(struct sc27xx_adc_data *data, int channel,
 	 */
 	switch (channel) {
 	case 5:
+		if (data->var_data->legacy)
+			return sc27xx_adc_to_volt(&data->battery_graph, raw_adc);
 		return sc27xx_adc_to_volt(&big_scale_graph, raw_adc);
 
 	case 1:
@@ -661,12 +703,13 @@ static int sc27xx_adc_read_raw(struct iio_dev *indio_dev,
 			       int *val, int *val2, long mask)
 {
 	struct sc27xx_adc_data *data = iio_priv(indio_dev);
-	int scale = data->channel_scale[chan->channel];
+	int scale;
 	int ret, tmp;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
 		mutex_lock(&data->lock);
+		scale = data->channel_scale[chan->channel];
 		ret = sc27xx_adc_read(data, chan->channel, scale, &tmp);
 		mutex_unlock(&data->lock);
 
@@ -678,6 +721,7 @@ static int sc27xx_adc_read_raw(struct iio_dev *indio_dev,
 
 	case IIO_CHAN_INFO_PROCESSED:
 		mutex_lock(&data->lock);
+		scale = data->channel_scale[chan->channel];
 		ret = sc27xx_adc_read_processed(data, chan->channel, scale,
 						&tmp);
 		mutex_unlock(&data->lock);
@@ -689,7 +733,10 @@ static int sc27xx_adc_read_raw(struct iio_dev *indio_dev,
 		return IIO_VAL_INT;
 
 	case IIO_CHAN_INFO_SCALE:
+		mutex_lock(&data->lock);
+		scale = data->channel_scale[chan->channel];
 		*val = scale;
+		mutex_unlock(&data->lock);
 		return IIO_VAL_INT;
 
 	default:
@@ -705,7 +752,11 @@ static int sc27xx_adc_write_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_SCALE:
+		if (data->var_data->legacy && (val2 || val < 0 || val > 1))
+			return -EINVAL;
+		mutex_lock(&data->lock);
 		data->channel_scale[chan->channel] = val;
+		mutex_unlock(&data->lock);
 		return IIO_VAL_INT;
 
 	default:
@@ -761,9 +812,112 @@ static const struct iio_chan_spec sc27xx_channels[] = {
 	SC27XX_ADC_CHANNEL(31, BIT(IIO_CHAN_INFO_PROCESSED)),
 };
 
+static const struct iio_chan_spec sc2723_channels[] = {
+	SC27XX_ADC_CHANNEL(5, BIT(IIO_CHAN_INFO_RAW) |
+			    BIT(IIO_CHAN_INFO_PROCESSED)),
+};
+
+static int sc2723_adc_restore(struct sc27xx_adc_data *data)
+{
+	int ret, err;
+
+	ret = regmap_update_bits(data->regmap,
+				 data->base + SC27XX_ADC_INT_EN,
+				 SC27XX_ADC_IRQ_EN,
+				 data->saved_irq & SC27XX_ADC_IRQ_EN);
+	err = regmap_update_bits(data->regmap, 0x8e8, BIT(8),
+				 data->saved_xtl & BIT(8));
+	if (!ret)
+		ret = err;
+	err = regmap_update_bits(data->regmap, 0x804, BIT(8) | BIT(9),
+				 data->saved_clk & (BIT(8) | BIT(9)));
+	if (!ret)
+		ret = err;
+	err = regmap_update_bits(data->regmap, 0x800, BIT(6),
+				 data->saved_module & BIT(6));
+	return ret ? ret : err;
+}
+
+static int sc2723_adc_enable(struct sc27xx_adc_data *data)
+{
+	u16 calibration;
+	u8 state;
+	int ret, restore;
+
+	ret = nvmem_cell_read_u8(data->dev, "calibration_state", &state);
+	if (ret)
+		return ret;
+	ret = nvmem_cell_read_u16(data->dev, "big_scale_calib", &calibration);
+	if (ret)
+		return ret;
+	ret = sc2723_adc_set_calibration(data, state,
+				       le16_to_cpu((__force __le16)calibration));
+	if (ret)
+		return ret;
+
+	ret = hwspin_lock_timeout_raw(data->hwlock, SC27XX_ADC_HWLOCK_TIMEOUT);
+	if (ret)
+		return ret;
+
+	ret = regmap_read(data->regmap, 0x800, &data->saved_module);
+	if (ret)
+		goto unlock;
+	ret = regmap_read(data->regmap, 0x804, &data->saved_clk);
+	if (ret)
+		goto unlock;
+	ret = regmap_read(data->regmap, 0x8e8, &data->saved_xtl);
+	if (ret)
+		goto unlock;
+	ret = regmap_read(data->regmap, data->base + SC27XX_ADC_INT_EN,
+			  &data->saved_irq);
+	if (ret)
+		goto unlock;
+
+	ret = regmap_set_bits(data->regmap, 0x800, BIT(6));
+	if (ret)
+		goto restore;
+	ret = regmap_set_bits(data->regmap, 0x804, BIT(8) | BIT(9));
+	if (ret)
+		goto restore;
+	ret = regmap_set_bits(data->regmap, 0x8e8, BIT(8));
+	if (ret)
+		goto restore;
+	ret = regmap_clear_bits(data->regmap,
+				data->base + SC27XX_ADC_INT_EN,
+				SC27XX_ADC_IRQ_EN);
+	if (ret)
+		goto restore;
+	ret = regmap_write(data->regmap, data->base + SC27XX_ADC_INT_CLR,
+			   SC27XX_ADC_IRQ_CLR);
+	if (!ret)
+		goto unlock;
+restore:
+	restore = sc2723_adc_restore(data);
+	if (restore)
+		dev_err(data->dev, "ADC restore failed: %d\n", restore);
+unlock:
+	hwspin_unlock_raw(data->hwlock);
+	return ret;
+}
+
+static int sc2723_adc_disable(struct sc27xx_adc_data *data)
+{
+	int ret;
+
+	ret = hwspin_lock_timeout_raw(data->hwlock, SC27XX_ADC_HWLOCK_TIMEOUT);
+	if (ret)
+		return ret;
+	ret = sc2723_adc_restore(data);
+	hwspin_unlock_raw(data->hwlock);
+	return ret;
+}
+
 static int sc27xx_adc_enable(struct sc27xx_adc_data *data)
 {
 	int ret;
+
+	if (data->var_data->legacy)
+		return sc2723_adc_enable(data);
 
 	ret = regmap_set_bits(data->regmap, data->var_data->module_en,
 			      SC27XX_MODULE_ADC_EN);
@@ -800,6 +954,14 @@ disable_adc:
 static void sc27xx_adc_disable(void *_data)
 {
 	struct sc27xx_adc_data *data = _data;
+	int ret;
+
+	if (data->var_data->legacy) {
+		ret = sc2723_adc_disable(data);
+		if (ret)
+			dev_err(data->dev, "ADC restore failed: %d\n", ret);
+		return;
+	}
 
 	/* Disable ADC work clock and controller clock */
 	regmap_clear_bits(data->regmap, data->var_data->clk_en,
@@ -808,6 +970,18 @@ static void sc27xx_adc_disable(void *_data)
 	regmap_clear_bits(data->regmap, data->var_data->module_en,
 			  SC27XX_MODULE_ADC_EN);
 }
+
+static void sc2723_adc_scale_init(struct sc27xx_adc_data *data)
+{
+	data->channel_scale[5] = 0;
+}
+
+static const struct sc27xx_adc_variant_data sc2723_data = {
+	.scale_shift = SC2721_ADC_SCALE_SHIFT,
+	.scale_mask = SC2721_ADC_SCALE_MASK,
+	.init_scale = sc2723_adc_scale_init,
+	.legacy = true,
+};
 
 static const struct sc27xx_adc_variant_data sc2731_data = {
 	.module_en = SC2731_MODULE_EN,
@@ -897,6 +1071,14 @@ static int sc27xx_adc_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, -ENXIO, "failed to request hwspinlock\n");
 
 	sc27xx_data->dev = dev;
+	if (pdata->legacy) {
+		struct clk *clk;
+
+		clk = devm_clk_get_enabled(dev, "reference");
+		if (IS_ERR(clk))
+			return dev_err_probe(dev, PTR_ERR(clk),
+					     "failed to enable ADC reference\n");
+	}
 	if (pdata->set_volref) {
 		sc27xx_data->volref = devm_regulator_get(dev, "vref");
 		if (IS_ERR(sc27xx_data->volref))
@@ -920,6 +1102,10 @@ static int sc27xx_adc_probe(struct platform_device *pdev)
 	indio_dev->info = &sc27xx_info;
 	indio_dev->channels = sc27xx_channels;
 	indio_dev->num_channels = ARRAY_SIZE(sc27xx_channels);
+	if (pdata->legacy) {
+		indio_dev->channels = sc2723_channels;
+		indio_dev->num_channels = ARRAY_SIZE(sc2723_channels);
+	}
 
 	mutex_init(&sc27xx_data->lock);
 
@@ -931,6 +1117,7 @@ static int sc27xx_adc_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sc27xx_adc_of_match[] = {
+	{ .compatible = "sprd,sc2723-adc", .data = &sc2723_data },
 	{ .compatible = "sprd,sc2731-adc", .data = &sc2731_data},
 	{ .compatible = "sprd,sc2730-adc", .data = &sc2730_data},
 	{ .compatible = "sprd,sc2721-adc", .data = &sc2721_data},

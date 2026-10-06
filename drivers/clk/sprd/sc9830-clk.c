@@ -23,15 +23,25 @@ static struct sprd_gate splk_eb = {
 					       CLK_IGNORE_UNUSED),
 };
 
+static struct sprd_gate sindrv = {
+	.enable_mask = BIT(0),
+	.common.reg = 0x18,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-sindrv",
+					       &sprd_gate_ops,
+					       CLK_IS_CRITICAL),
+};
+
 static struct sprd_clk_common *sc9830_aon_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
+	&sindrv.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_hws = {
 	.hws = {
 		[CLK_ADI_EB] = &adi_eb.common.hw,
 		[CLK_SPLK_EB] = &splk_eb.common.hw,
+		[CLK_SINDRV] = &sindrv.common.hw,
 	},
 	.num = CLK_AON_GATE_NUM,
 };

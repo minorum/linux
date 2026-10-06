@@ -4,6 +4,7 @@
 
 #define CLK_ADI_EB	0
 #define CLK_SPLK_EB	1
-#define CLK_AON_GATE_NUM	2
+#define CLK_SINDRV	2
+#define CLK_AON_GATE_NUM	3
 
 #endif

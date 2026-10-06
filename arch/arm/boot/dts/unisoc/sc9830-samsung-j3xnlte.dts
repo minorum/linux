@@ -86,18 +86,32 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
+				adc@300 {
+					compatible = "sprd,sc2723-adc";
+					reg = <0x300>;
+					interrupts = <0>;
+					#io-channel-cells = <1>;
+					hwlocks = <&hwlock 4>;
+					clocks = <&aon_gate CLK_SINDRV>;
+					clock-names = "reference";
+					nvmem-cells = <&calibration_state>,
+						      <&adc_calibration>;
+					nvmem-cell-names = "calibration_state",
+							   "big_scale_calib";
+				};
+
 				efuse@200 {
 					compatible = "sprd,sc2723-efuse";
 					reg = <0x200>;
 					#address-cells = <1>;
 					#size-cells = <1>;
 
-					calibration-state@0 {
+					calibration_state: calibration-state@0 {
 						reg = <0 1>;
 						bits = <7 1>;
 					};
 
-					adc-calibration@7 {
+					adc_calibration: adc-calibration@7 {
 						reg = <7 2>;
 					};
 
