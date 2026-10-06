@@ -33,11 +33,13 @@ properties:
     maxItems: 1
 
   io-channels:
+    minItems: 1
     items:
       - description: Battery Temperature ADC
       - description: Battery Charge Voltage ADC
 
   io-channel-names:
+    minItems: 1
     items:
       - const: bat-temp
       - const: charge-vol
@@ -72,6 +74,10 @@ allOf:
           const: sprd,sc2723-fgu
     then:
       properties:
+        io-channels:
+          maxItems: 1
+        io-channel-names:
+          maxItems: 1
         nvmem-cells:
           minItems: 2
           maxItems: 2
@@ -79,8 +85,15 @@ allOf:
           items:
             - const: calibration_state
             - const: fgu_calib
+      required:
+        - io-channels
+        - io-channel-names
     else:
       properties:
+        io-channels:
+          minItems: 2
+        io-channel-names:
+          minItems: 2
         nvmem-cells:
           maxItems: 1
         nvmem-cell-names:

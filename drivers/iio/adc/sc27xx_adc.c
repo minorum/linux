@@ -792,6 +792,26 @@ static const struct iio_info sc27xx_info = {
 	.write_raw = &sc27xx_adc_write_raw,
 };
 
+static int sc2723_adc_fwnode_xlate(struct iio_dev *indio_dev,
+				   const struct fwnode_reference_args *args)
+{
+	int i;
+
+	if (args->nargs != 1)
+		return -EINVAL;
+	for (i = 0; i < indio_dev->num_channels; i++) {
+		if (args->args[0] == indio_dev->channels[i].channel)
+			return i;
+	}
+	return -EINVAL;
+}
+
+static const struct iio_info sc2723_info = {
+	.read_raw = sc27xx_adc_read_raw,
+	.write_raw = sc27xx_adc_write_raw,
+	.fwnode_xlate = sc2723_adc_fwnode_xlate,
+};
+
 #define SC27XX_ADC_CHANNEL(index, mask) {			\
 	.type = IIO_VOLTAGE,					\
 	.channel = index,					\
@@ -1135,6 +1155,7 @@ static int sc27xx_adc_probe(struct platform_device *pdev)
 	indio_dev->channels = sc27xx_channels;
 	indio_dev->num_channels = ARRAY_SIZE(sc27xx_channels);
 	if (pdata->legacy) {
+		indio_dev->info = &sc2723_info;
 		indio_dev->channels = sc2723_channels;
 		indio_dev->num_channels = ARRAY_SIZE(sc2723_channels);
 	}

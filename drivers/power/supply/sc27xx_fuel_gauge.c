@@ -284,6 +284,17 @@ static void sc2723_fgu_disable(void *arg)
 		dev_err(data->dev, "FGU restore failed: %d\n", ret);
 }
 
+static int sc2723_fgu_get_temperature(struct sc27xx_fgu_data *data, int *value)
+{
+	int ret, temperature;
+
+	ret = iio_read_channel_processed(data->channel, &temperature);
+	if (ret < 0)
+		return ret;
+	*value = DIV_ROUND_CLOSEST((s64)temperature, 100);
+	return 0;
+}
+
 static int sc2723_fgu_get_property(struct power_supply *psy,
 				   enum power_supply_property property,
 				   union power_supply_propval *val)
@@ -294,6 +305,8 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 	bool is_current;
 
 	switch (property) {
+	case POWER_SUPPLY_PROP_TEMP:
+		return sc2723_fgu_get_temperature(data, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		is_current = false;
 		reg = SC27XX_FGU_VOLTAGE;
@@ -317,6 +330,7 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 }
 
 static const enum power_supply_property sc2723_fgu_props[] = {
+	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 };
@@ -334,6 +348,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 {
 	struct device *dev = &pdev->dev;
 	struct power_supply_config config = { };
+	enum iio_chan_type channel_type;
 	u16 calibration;
 	u8 state;
 	int ret;
@@ -342,6 +357,15 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	data->legacy = true;
 	mutex_init(&data->lock);
 	platform_set_drvdata(pdev, data);
+	data->channel = devm_iio_channel_get(dev, "bat-temp");
+	if (IS_ERR(data->channel))
+		return dev_err_probe(dev, PTR_ERR(data->channel),
+				     "failed to get battery temperature\n");
+	ret = iio_get_channel_type(data->channel, &channel_type);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read temperature type\n");
+	if (channel_type != IIO_TEMP)
+		return dev_err_probe(dev, -EINVAL, "battery input is not temperature\n");
 	ret = nvmem_cell_read_u8(dev, "calibration_state", &state);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read calibration state\n");
