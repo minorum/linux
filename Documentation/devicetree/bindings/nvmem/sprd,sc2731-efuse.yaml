@@ -29,11 +29,20 @@ properties:
 required:
   - compatible
   - reg
-  - hwlocks
 
 allOf:
   - $ref: nvmem.yaml#
   - $ref: nvmem-deprecated-cells.yaml#
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc2723-efuse
+    then:
+      properties:
+        hwlocks: false
+    else:
+      required:
+        - hwlocks
 
 unevaluatedProperties: false
 ...
