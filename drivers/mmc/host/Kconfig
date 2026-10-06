@@ -710,7 +710,7 @@ config MMC_SDHCI_SPRD
 	  This selects the SDIO Host Controller in Spreadtrum
 	  SoCs, supporting R11(IP version: R11P0) and older SC9830 controllers.
 	  SC9830 requires firmware-initialized power and pads; it currently
-	  uses one-bit PIO without high-speed tuning or suspend support.
+	  uses one-bit SDMA without high-speed tuning or suspend support.
 
 	  If you have a controller with this interface, say Y or M here.
 
