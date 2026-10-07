@@ -121,7 +121,7 @@ static irqreturn_t sc9830_i2c_irq(int irq, void *data)
 				 !(command & CMD_BUSY), 10, 5000);
 	writel((command & CMD_DATA) | CMD_INT_ACK, i2c->base + REG_CMD);
 	if (!ret) {
-		readl_poll_timeout(i2c->base + REG_CMD, status,
+		ret = readl_poll_timeout(i2c->base + REG_CMD, status,
 				   !(status & CMD_ACK), 10, 5000);
 		command = (command & CMD_DATA) | (status & CMD_ACK);
 	}
