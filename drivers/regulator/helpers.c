@@ -144,9 +144,13 @@ int regulator_get_voltage_sel_pickable_regmap(struct regulator_dev *rdev)
 	if (ret != 0)
 		return ret;
 
-	ret = regmap_read(rdev->regmap, rdev->desc->vsel_range_reg, &r_val);
-	if (ret != 0)
-		return ret;
+	if (rdev->desc->vsel_reg == rdev->desc->vsel_range_reg) {
+		r_val = val;
+	} else {
+		ret = regmap_read(rdev->regmap, rdev->desc->vsel_range_reg, &r_val);
+		if (ret != 0)
+			return ret;
+	}
 
 	val &= rdev->desc->vsel_mask;
 	val >>= ffs(rdev->desc->vsel_mask) - 1;
