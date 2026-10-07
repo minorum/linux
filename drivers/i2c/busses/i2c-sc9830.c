@@ -222,7 +222,7 @@ static const struct i2c_algorithm sc9830_i2c_algorithm = {
 };
 
 static const struct i2c_adapter_quirks sc9830_i2c_quirks = {
-	.flags = I2C_AQ_NO_ZERO_LEN,
+	.flags = I2C_AQ_COMB_WRITE_THEN_READ | I2C_AQ_NO_ZERO_LEN,
 };
 
 static int sc9830_i2c_probe(struct platform_device *pdev)
