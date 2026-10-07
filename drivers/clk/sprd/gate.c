@@ -10,25 +10,28 @@
 
 #include "gate.h"
 
-static void clk_gate_toggle(const struct sprd_gate *sg, bool en)
+static int clk_gate_toggle(const struct sprd_gate *sg, bool en)
 {
 	const struct sprd_clk_common *common = &sg->common;
 	unsigned int reg;
+	int ret;
 	bool set = sg->flags & CLK_GATE_SET_TO_DISABLE ? true : false;
 
 	set ^= en;
 
-	regmap_read(common->regmap, common->reg, &reg);
+	ret = regmap_read(common->regmap, common->reg, &reg);
+	if (ret)
+		return ret;
 
 	if (set)
 		reg |= sg->enable_mask;
 	else
 		reg &= ~sg->enable_mask;
 
-	regmap_write(common->regmap, common->reg, reg);
+	return regmap_write(common->regmap, common->reg, reg);
 }
 
-static void clk_sc_gate_toggle(const struct sprd_gate *sg, bool en)
+static int clk_sc_gate_toggle(const struct sprd_gate *sg, bool en)
 {
 	const struct sprd_clk_common *common = &sg->common;
 	bool set = sg->flags & CLK_GATE_SET_TO_DISABLE ? 1 : 0;
@@ -44,8 +47,8 @@ static void clk_sc_gate_toggle(const struct sprd_gate *sg, bool en)
 	 */
 	offset = set ? sg->sc_offset : sg->sc_offset * 2;
 
-	regmap_write(common->regmap, common->reg + offset,
-			  sg->enable_mask);
+	return regmap_write(common->regmap, common->reg + offset,
+			    sg->enable_mask);
 }
 
 static void sprd_gate_disable(struct clk_hw *hw)
@@ -59,9 +62,7 @@ static int sprd_gate_enable(struct clk_hw *hw)
 {
 	struct sprd_gate *sg = hw_to_sprd_gate(hw);
 
-	clk_gate_toggle(sg, true);
-
-	return 0;
+	return clk_gate_toggle(sg, true);
 }
 
 static void sprd_sc_gate_disable(struct clk_hw *hw)
@@ -75,16 +76,17 @@ static int sprd_sc_gate_enable(struct clk_hw *hw)
 {
 	struct sprd_gate *sg = hw_to_sprd_gate(hw);
 
-	clk_sc_gate_toggle(sg, true);
-
-	return 0;
+	return clk_sc_gate_toggle(sg, true);
 }
 
 static int sprd_pll_sc_gate_prepare(struct clk_hw *hw)
 {
 	struct sprd_gate *sg = hw_to_sprd_gate(hw);
+	int ret;
 
-	clk_sc_gate_toggle(sg, true);
+	ret = clk_sc_gate_toggle(sg, true);
+	if (ret)
+		return ret;
 	udelay(sg->udelay);
 
 	return 0;
@@ -96,6 +98,7 @@ static int sprd_gate_is_enabled(struct clk_hw *hw)
 	struct sprd_clk_common *common = &sg->common;
 	struct clk_hw *parent;
 	unsigned int reg;
+	int ret;
 
 	if (sg->flags & SPRD_GATE_NON_AON) {
 		parent = clk_hw_get_parent(hw);
@@ -103,7 +106,9 @@ static int sprd_gate_is_enabled(struct clk_hw *hw)
 			return 0;
 	}
 
-	regmap_read(common->regmap, common->reg, &reg);
+	ret = regmap_read(common->regmap, common->reg, &reg);
+	if (ret)
+		return ret;
 
 	if (sg->flags & CLK_GATE_SET_TO_DISABLE)
 		reg ^= sg->enable_mask;
