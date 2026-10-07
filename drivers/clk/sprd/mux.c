@@ -19,7 +19,8 @@ u8 sprd_mux_helper_get_parent(const struct sprd_clk_common *common,
 	int num_parents;
 	int i;
 
-	regmap_read(common->regmap, common->reg, &reg);
+	if (regmap_read(common->regmap, common->reg, &reg))
+		return clk_hw_get_num_parents(&common->hw);
 	parent = reg >> mux->shift;
 	parent &= (1 << mux->width) - 1;
 
@@ -48,16 +49,17 @@ int sprd_mux_helper_set_parent(const struct sprd_clk_common *common,
 			       u8 index)
 {
 	unsigned int reg;
+	int ret;
 
 	if (mux->table)
 		index = mux->table[index];
 
-	regmap_read(common->regmap, common->reg, &reg);
+	ret = regmap_read(common->regmap, common->reg, &reg);
+	if (ret)
+		return ret;
 	reg &= ~GENMASK(mux->width + mux->shift - 1, mux->shift);
-	regmap_write(common->regmap, common->reg,
-			  reg | (index << mux->shift));
-
-	return 0;
+	return regmap_write(common->regmap, common->reg,
+			    reg | (index << mux->shift));
 }
 EXPORT_SYMBOL_GPL(sprd_mux_helper_set_parent);
 
