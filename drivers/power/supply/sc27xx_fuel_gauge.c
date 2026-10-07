@@ -170,7 +170,7 @@ static int sc2723_fgu_convert(struct sc27xx_fgu_data *data, bool is_current,
 	if (coefficient <= 0)
 		return -EINVAL;
 
-	value = div_s64((s64)adc * 1000, coefficient) * 1000;
+	value = div_s64((s64)adc * 1000000, coefficient);
 	if (value > INT_MAX || value < INT_MIN)
 		return -ERANGE;
 	*val = value;
