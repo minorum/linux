@@ -43,7 +43,6 @@ struct sc9830_i2c {
 	int error;
 	int irq;
 	bool active;
-	bool suspended;
 };
 
 static int sc9830_i2c_divider(u64 rate, u32 frequency, u32 *divider)
@@ -162,8 +161,6 @@ static int sc9830_i2c_xfer(struct i2c_adapter *adapter,
 	struct sc9830_i2c *i2c = i2c_get_adapdata(adapter);
 	int ret, index, byte;
 
-	if (i2c->suspended)
-		return -ESHUTDOWN;
 	for (index = 0; index < count; index++) {
 		if (messages[index].addr > 0x7f || !messages[index].len ||
 		    messages[index].flags & ~(I2C_M_RD | I2C_M_STOP | I2C_M_DMA_SAFE))
@@ -283,9 +280,7 @@ static int sc9830_i2c_suspend(struct device *dev)
 {
 	struct sc9830_i2c *i2c = dev_get_drvdata(dev);
 
-	i2c_lock_bus(&i2c->adapter, I2C_LOCK_ROOT_ADAPTER);
-	i2c->suspended = true;
-	i2c_unlock_bus(&i2c->adapter, I2C_LOCK_ROOT_ADAPTER);
+	i2c_mark_adapter_suspended(&i2c->adapter);
 	return 0;
 }
 
@@ -293,9 +288,7 @@ static int sc9830_i2c_resume(struct device *dev)
 {
 	struct sc9830_i2c *i2c = dev_get_drvdata(dev);
 
-	i2c_lock_bus(&i2c->adapter, I2C_LOCK_ROOT_ADAPTER);
-	i2c->suspended = false;
-	i2c_unlock_bus(&i2c->adapter, I2C_LOCK_ROOT_ADAPTER);
+	i2c_mark_adapter_resumed(&i2c->adapter);
 	return 0;
 }
 
