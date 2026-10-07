@@ -24,7 +24,8 @@ unsigned long sprd_div_helper_recalc_rate(struct sprd_clk_common *common,
 	unsigned long val;
 	unsigned int reg;
 
-	regmap_read(common->regmap, common->reg + div->offset, &reg);
+	if (regmap_read(common->regmap, common->reg + div->offset, &reg))
+		return 0;
 	val = reg >> div->shift;
 	val &= (1 << div->width) - 1;
 
@@ -48,18 +49,18 @@ int sprd_div_helper_set_rate(const struct sprd_clk_common *common,
 {
 	unsigned long val;
 	unsigned int reg;
+	int ret;
 
 	val = divider_get_val(rate, parent_rate, NULL,
 			      div->width, 0);
 
-	regmap_read(common->regmap, common->reg + div->offset, &reg);
+	ret = regmap_read(common->regmap, common->reg + div->offset, &reg);
+	if (ret)
+		return ret;
 	reg &= ~GENMASK(div->width + div->shift - 1, div->shift);
 
-	regmap_write(common->regmap, common->reg + div->offset,
-			  reg | (val << div->shift));
-
-	return 0;
-
+	return regmap_write(common->regmap, common->reg + div->offset,
+			    reg | (val << div->shift));
 }
 EXPORT_SYMBOL_GPL(sprd_div_helper_set_rate);
 
