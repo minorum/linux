@@ -210,7 +210,7 @@
 							   "big_scale_calib", "small_scale_calib";
 				};
 
-				fgu@500 {
+				fuel-gauge@500 {
 					io-channels = <&battery_thermistor>;
 					io-channel-names = "bat-temp";
 					compatible = "sprd,sc2723-fgu";
