@@ -1186,4 +1186,16 @@ config MACSMC_POWER
 
 	  Say Y or M here if you have an Apple Silicon based Mac.
 
+config CHARGER_SM5701
+	tristate "Silicon Mitus SM5701 input supply monitor"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to monitor charger input presence on the SM5701.
+	  This driver provides read-only input status. It does not configure
+	  charging, boost or flash LED operation.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called sm5701.
+
 endif # POWER_SUPPLY

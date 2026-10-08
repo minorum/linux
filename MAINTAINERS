@@ -24807,6 +24807,7 @@ M:	minorum <mit.mis@gmail.com>
 L:	linux-pm@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/power/supply/siliconmitus,sm5701.yaml
+F:	drivers/power/supply/sm5701.c
 
 SILICON MOTION SM712 FRAME BUFFER DRIVER
 M:	Sudip Mukherjee <sudipm.mukherjee@gmail.com>
