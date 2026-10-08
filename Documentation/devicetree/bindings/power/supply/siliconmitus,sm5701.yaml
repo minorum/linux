@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/siliconmitus,sm5701.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Silicon Mitus SM5701 charger
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  The SM5701 integrates a battery charger, a boost converter and flash LED
+  control. The charger input status is accessible over I2C.
+
+properties:
+  compatible:
+    const: siliconmitus,sm5701
+
+  reg:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      charger@49 {
+        compatible = "siliconmitus,sm5701";
+        reg = <0x49>;
+      };
+    };
