@@ -470,6 +470,80 @@ static int sprd_adi_restart_sc9860(struct sys_off_data *data)
 	return sprd_adi_restart(data->cb_data, data->mode, data->cmd, &wdg);
 }
 
+static int sprd_adi_restart_sc9830(struct sys_off_data *data)
+{
+	struct sprd_adi terminal = *(struct sprd_adi *)data->cb_data;
+	struct hwspinlock *lock = terminal.hwlock;
+	static const struct {
+		u32 reg;
+		u32 clear;
+		u32 value;
+		bool update;
+	} steps[] = {
+		{ 0x800, 0, BIT(2), true },
+		{ 0x808, 0, BIT(2), true },
+		{ 0x60, 0, WDG_UNLOCK_KEY, false },
+		{ 0x48, BIT(0) | BIT(1) | BIT(3), BIT(2), true },
+		{ 0x44, 0, 0, false },
+		{ 0x40, 0, DIV_ROUND_UP(50 * 32768, 1000), false },
+	};
+	u32 value;
+	int ret;
+	unsigned int i;
+
+	if (!lock)
+		return NOTIFY_DONE;
+	ret = hwspin_lock_timeout_in_atomic(lock, 2);
+	if (ret)
+		return NOTIFY_DONE;
+	terminal.hwlock = NULL;
+	ret = sprd_adi_read(&terminal, 0x940, &value);
+	if (ret || value != 0x2723)
+		goto out;
+	for (i = 0; i < ARRAY_SIZE(steps); i++) {
+		value = 0;
+		if (steps[i].update) {
+			ret = sprd_adi_read(&terminal, steps[i].reg, &value);
+			if (ret)
+				goto out;
+		}
+		value = (value & ~steps[i].clear) | steps[i].value;
+		ret = sprd_adi_write(&terminal, steps[i].reg, value);
+		if (ret)
+			goto out;
+		ret = sprd_adi_drain_fifo(&terminal);
+		if (ret)
+			goto out;
+	}
+	for (i = 0; i < 1000; i++) {
+		ret = sprd_adi_read(&terminal, 0x50, &value);
+		if (ret)
+			goto out;
+		if (!(value & BIT(4)))
+			break;
+		udelay(1);
+	}
+	if (i == 1000)
+		goto out;
+	ret = sprd_adi_read(&terminal, 0x48, &value);
+	if (ret)
+		goto out;
+	ret = sprd_adi_write(&terminal, 0x48, value | BIT_WDG_RUN | BIT_WDG_RST);
+	if (ret)
+		goto out;
+	ret = sprd_adi_write(&terminal, 0x60, (~WDG_UNLOCK_KEY) & 0xffff);
+	if (ret)
+		goto out;
+	ret = sprd_adi_drain_fifo(&terminal);
+	if (ret)
+		goto out;
+	mdelay(100);
+out:
+	hwspin_unlock_in_atomic(lock);
+	dev_emerg(terminal.dev, "SC2723 restart failed\n");
+	return NOTIFY_DONE;
+}
+
 static int sprd_adi_hw_init(struct sprd_adi *sadi)
 {
 	struct device_node *np = sadi->dev->of_node;
@@ -625,6 +699,7 @@ static const struct sprd_adi_data sc9830_data = {
 	.slave_offset = ADI_10BIT_SLAVE_OFFSET,
 	.slave_addr_size = ADI_10BIT_SLAVE_ADDR_SIZE,
 	.legacy = true,
+	.restart = sprd_adi_restart_sc9830,
 };
 
 static struct sprd_adi_data sc9860_data = {
