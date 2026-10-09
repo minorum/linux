@@ -129,8 +129,10 @@ static int sprd_hwspinlock_probe(struct platform_device *pdev)
 					     "unsupported hardware lock version\n");
 	}
 
-	/* set the hwspinlock to record user id to identify subsystems */
-	writel(HWSPINLOCK_USER_BITS, sprd_hwlock->base + HWSPINLOCK_RECCTRL);
+	if (!of_device_is_compatible(pdev->dev.of_node,
+				     "sprd,sc9830-hwspinlock"))
+		writel(HWSPINLOCK_USER_BITS,
+		       sprd_hwlock->base + HWSPINLOCK_RECCTRL);
 
 	for (i = 0; i < SPRD_HWLOCKS_NUM; i++) {
 		lock = &sprd_hwlock->bank.lock[i];
