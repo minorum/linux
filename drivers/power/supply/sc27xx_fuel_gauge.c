@@ -108,6 +108,7 @@ struct sc27xx_fgu_data {
 	struct gpio_desc *gpiod;
 	struct iio_channel *channel;
 	struct iio_channel *charge_chan;
+	struct iio_channel *voltage_chan;
 	bool bat_present;
 	int internal_resist;
 	int total_cap;
@@ -295,6 +296,19 @@ static int sc2723_fgu_get_temperature(struct sc27xx_fgu_data *data, int *value)
 	return 0;
 }
 
+static int sc2723_fgu_get_adc_voltage(struct sc27xx_fgu_data *data, int *value)
+{
+	int ret, voltage;
+
+	ret = iio_read_channel_processed(data->voltage_chan, &voltage);
+	if (ret < 0)
+		return ret;
+	if (voltage <= 0 || voltage > INT_MAX / 1000)
+		return -ERANGE;
+	*value = voltage * 1000;
+	return 0;
+}
+
 static int sc2723_fgu_get_property(struct power_supply *psy,
 				   enum power_supply_property property,
 				   union power_supply_propval *val)
@@ -308,6 +322,8 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TEMP:
 		return sc2723_fgu_get_temperature(data, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		if (data->voltage_chan)
+			return sc2723_fgu_get_adc_voltage(data, &val->intval);
 		is_current = false;
 		reg = SC27XX_FGU_VOLTAGE;
 		mask = GENMASK(12, 0);
@@ -366,6 +382,19 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 		return dev_err_probe(dev, ret, "failed to read temperature type\n");
 	if (channel_type != IIO_TEMP)
 		return dev_err_probe(dev, -EINVAL, "battery input is not temperature\n");
+	data->voltage_chan = devm_iio_channel_get(dev, "bat-voltage");
+	if (IS_ERR(data->voltage_chan)) {
+		ret = PTR_ERR(data->voltage_chan);
+		if (ret != -ENODEV)
+			return dev_err_probe(dev, ret, "failed to get battery voltage\n");
+		data->voltage_chan = NULL;
+	} else {
+		ret = iio_get_channel_type(data->voltage_chan, &channel_type);
+		if (ret)
+			return dev_err_probe(dev, ret, "failed to read voltage type\n");
+		if (channel_type != IIO_VOLTAGE)
+			return dev_err_probe(dev, -EINVAL, "battery input is not voltage\n");
+	}
 	ret = nvmem_cell_read_u8(dev, "calibration_state", &state);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read calibration state\n");
