@@ -58,6 +58,8 @@
 		compatible = "simple-battery";
 		device-chemistry = "lithium-ion";
 		charge-full-design-microamp-hours = <2600000>;
+		charge-full-design-temp-table = <25 2600000>, <10 2400000>,
+					       <0 2350000>;
 		ocv-capacity-celsius = <25>;
 		ocv-capacity-table-0 = <4285000 100>, <4247000 95>,
 			<4192000 90>, <4139000 85>, <4088000 80>,
