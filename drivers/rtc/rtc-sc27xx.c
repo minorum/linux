@@ -13,6 +13,14 @@
 #include <linux/regmap.h>
 #include <linux/rtc.h>
 
+#define SC2723_ARM_MODULE_EN		0x800
+#define SC2723_RTC_CLK_EN			0x808
+#define SC2723_RTC_EN			BIT(1)
+#define SC2723_RTC_RST1			0x960
+#define SC2723_RTC_RST2			0x964
+#define SC2723_RTC_RESET_VALUE		0xa596
+#define SC2723_RTC_RESET_CLEAR		0xff
+
 #define SPRD_RTC_SEC_CNT_VALUE		0x0
 #define SPRD_RTC_MIN_CNT_VALUE		0x4
 #define SPRD_RTC_HOUR_CNT_VALUE		0x8
@@ -107,6 +115,7 @@ struct sprd_rtc {
 	u32			base;
 	int			irq;
 	bool			valid;
+	bool			sc2723;
 };
 
 /*
@@ -168,7 +177,7 @@ static int sprd_rtc_get_secs(struct sprd_rtc *rtc, enum sprd_rtc_reg_types type,
 {
 	u32 sec_reg, min_reg, hour_reg, day_reg;
 	u32 val, sec, min, hour, day;
-	int ret;
+	int ret, i;
 
 	switch (type) {
 	case SPRD_RTC_TIME:
@@ -193,30 +202,41 @@ static int sprd_rtc_get_secs(struct sprd_rtc *rtc, enum sprd_rtc_reg_types type,
 		return -EINVAL;
 	}
 
-	ret = regmap_read(rtc->regmap, rtc->base + sec_reg, &val);
-	if (ret)
-		return ret;
+	for (i = 0; i < 10; i++) {
+		ret = regmap_read(rtc->regmap, rtc->base + sec_reg, &val);
+		if (ret)
+			return ret;
+		sec = val & SPRD_RTC_SEC_MASK;
 
-	sec = val & SPRD_RTC_SEC_MASK;
+		ret = regmap_read(rtc->regmap, rtc->base + min_reg, &val);
+		if (ret)
+			return ret;
+		min = val & SPRD_RTC_MIN_MASK;
 
-	ret = regmap_read(rtc->regmap, rtc->base + min_reg, &val);
-	if (ret)
-		return ret;
+		ret = regmap_read(rtc->regmap, rtc->base + hour_reg, &val);
+		if (ret)
+			return ret;
+		hour = val & SPRD_RTC_HOUR_MASK;
 
-	min = val & SPRD_RTC_MIN_MASK;
+		ret = regmap_read(rtc->regmap, rtc->base + day_reg, &val);
+		if (ret)
+			return ret;
+		day = val & SPRD_RTC_DAY_MASK;
 
-	ret = regmap_read(rtc->regmap, rtc->base + hour_reg, &val);
-	if (ret)
-		return ret;
-
-	hour = val & SPRD_RTC_HOUR_MASK;
-
-	ret = regmap_read(rtc->regmap, rtc->base + day_reg, &val);
-	if (ret)
-		return ret;
-
-	day = val & SPRD_RTC_DAY_MASK;
-	*secs = (((time64_t)(day * 24) + hour) * 60 + min) * 60 + sec;
+		if (!rtc->sc2723 || type != SPRD_RTC_TIME)
+			break;
+		ret = regmap_read(rtc->regmap, rtc->base + sec_reg, &val);
+		if (ret)
+			return ret;
+		if (sec == (val & SPRD_RTC_SEC_MASK))
+			break;
+	}
+	if (i == 10)
+		return -EAGAIN;
+	if (sec >= 60 || min >= 60 || hour >= 24)
+		return -EINVAL;
+	*secs = (((time64_t)(day * 24) + hour) * 60 + min) * 60 + sec +
+		rtc->rtc->range_min;
 	return 0;
 }
 
@@ -226,6 +246,10 @@ static int sprd_rtc_set_secs(struct sprd_rtc *rtc, enum sprd_rtc_reg_types type,
 	u32 sec_reg, min_reg, hour_reg, day_reg, sts_mask;
 	u32 sec, min, hour, day, val;
 	int ret, rem;
+
+	if (secs < rtc->rtc->range_min || secs > rtc->rtc->range_max)
+		return -EINVAL;
+	secs -= rtc->rtc->range_min;
 
 	/* convert seconds to RTC time format */
 	day = div_s64_rem(secs, 86400, &rem);
@@ -359,6 +383,14 @@ static int sprd_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return ret;
 
 	if (!rtc->valid) {
+		if (rtc->sc2723) {
+			ret = regmap_write(rtc->regmap, SC2723_RTC_RST1,
+					   SC2723_RTC_RESET_CLEAR);
+			if (ret)
+				return ret;
+			rtc->valid = true;
+			return 0;
+		}
 		/* Clear RTC power status firstly */
 		ret = regmap_write(rtc->regmap, rtc->base + SPRD_RTC_PWR_CTRL,
 				   SPRD_RTC_POWER_STS_CLEAR);
@@ -520,7 +552,9 @@ static int sprd_rtc_check_power_down(struct sprd_rtc *rtc)
 	u32 val;
 	int ret;
 
-	ret = regmap_read(rtc->regmap, rtc->base + SPRD_RTC_PWR_STS, &val);
+	ret = regmap_read(rtc->regmap,
+			  rtc->sc2723 ? SC2723_RTC_RST2 :
+			  rtc->base + SPRD_RTC_PWR_STS, &val);
 	if (ret)
 		return ret;
 
@@ -529,7 +563,8 @@ static int sprd_rtc_check_power_down(struct sprd_rtc *rtc)
 	 * means the RTC has been powered down, so the RTC time values are
 	 * invalid.
 	 */
-	rtc->valid = val != SPRD_RTC_POWER_RESET_VALUE;
+	rtc->valid = val != (rtc->sc2723 ? SC2723_RTC_RESET_VALUE :
+			    SPRD_RTC_POWER_RESET_VALUE);
 	return 0;
 }
 
@@ -537,6 +572,9 @@ static int sprd_rtc_check_alarm_int(struct sprd_rtc *rtc)
 {
 	u32 val;
 	int ret;
+
+	if (rtc->sc2723 && !rtc->valid)
+		return 0;
 
 	ret = regmap_read(rtc->regmap, rtc->base + SPRD_RTC_SPG_VALUE, &val);
 	if (ret)
@@ -563,6 +601,7 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct sprd_rtc *rtc;
+	u32 start_year;
 	int ret;
 
 	rtc = devm_kzalloc(&pdev->dev, sizeof(*rtc), GFP_KERNEL);
@@ -588,19 +627,35 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 		return PTR_ERR(rtc->rtc);
 
 	rtc->dev = &pdev->dev;
+	rtc->sc2723 = of_device_is_compatible(node, "sprd,sc2723-rtc");
 	platform_set_drvdata(pdev, rtc);
+	rtc->rtc->range_min = 0;
+	if (rtc->sc2723) {
+		ret = of_property_read_u32(node, "start-year", &start_year);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret, "missing RTC epoch\n");
+		if (start_year < 1970 || start_year > 9999)
+			return -EINVAL;
+		rtc->rtc->range_min = mktime64(start_year, 1, 1, 0, 0, 0);
+		ret = regmap_update_bits(rtc->regmap, SC2723_ARM_MODULE_EN,
+					 SC2723_RTC_EN, SC2723_RTC_EN);
+		if (ret)
+			return ret;
+		ret = regmap_update_bits(rtc->regmap, SC2723_RTC_CLK_EN,
+					 SC2723_RTC_EN, SC2723_RTC_EN);
+		if (ret)
+			return ret;
+	}
+	rtc->rtc->range_max = rtc->rtc->range_min + 5662310399LL;
+
+	ret = sprd_rtc_check_power_down(rtc);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "failed to check RTC validity\n");
 
 	/* check if we need set the alarm interrupt */
 	ret = sprd_rtc_check_alarm_int(rtc);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to check RTC alarm interrupt\n");
-		return ret;
-	}
-
-	/* check if RTC time values are valid */
-	ret = sprd_rtc_check_power_down(rtc);
-	if (ret) {
-		dev_err(&pdev->dev, "failed to check RTC time values\n");
 		return ret;
 	}
 
@@ -616,8 +671,6 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 	device_init_wakeup(&pdev->dev, true);
 
 	rtc->rtc->ops = &sprd_rtc_ops;
-	rtc->rtc->range_min = 0;
-	rtc->rtc->range_max = 5662310399LL;
 	ret = devm_rtc_register_device(rtc->rtc);
 	if (ret) {
 		device_init_wakeup(&pdev->dev, false);
@@ -628,6 +681,7 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sprd_rtc_of_match[] = {
+	{ .compatible = "sprd,sc2723-rtc", },
 	{ .compatible = "sprd,sc2731-rtc", },
 	{ },
 };
