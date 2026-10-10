@@ -14,6 +14,7 @@
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/timekeeping.h>
 
 /* PMIC global control registers definition */
 #define SC27XX_MODULE_EN0		0xc08
@@ -131,7 +132,7 @@ struct sc27xx_fgu_data {
 	u32 saved_module;
 	u32 saved_rtc;
 	u32 soc_counter;
-	unsigned long soc_time;
+	u64 soc_time;
 	s64 soc_counts;
 	bool soc_valid;
 };
@@ -350,7 +351,7 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 {
 	s64 delta, full_counts;
 	u32 counter;
-	unsigned long elapsed;
+	u64 elapsed, now;
 	int ret, ocv, capacity;
 
 	if (!data->cap_table || data->total_cap <= 0)
@@ -361,8 +362,9 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 		return -ERANGE;
 	ret = sc2723_fgu_get_ocv(data, &ocv);
 	mutex_lock(&data->lock);
-	elapsed = jiffies - data->soc_time;
-	if (data->soc_valid && elapsed > 3600 * HZ)
+	now = ktime_get_boottime_seconds();
+	elapsed = now - data->soc_time;
+	if (data->soc_valid && elapsed > 3600)
 		data->soc_valid = false;
 	if (!data->soc_valid && ret)
 		goto out;
@@ -380,7 +382,7 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 		delta = (counter - data->soc_counter) & GENMASK(29, 0);
 		if (delta & BIT(29))
 			delta -= BIT_ULL(30);
-		if (abs(delta) > (s64)(elapsed / HZ + 1) * 8192 *
+		if (abs(delta) > (s64)(elapsed + 1) * 8192 *
 		    SC27XX_FGU_SAMPLE_HZ) {
 			data->soc_valid = false;
 			ret = -ENODATA;
@@ -390,7 +392,7 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 					   0, full_counts);
 	}
 	data->soc_counter = counter;
-	data->soc_time = jiffies;
+	data->soc_time = now;
 	*value = div64_s64(data->soc_counts * 100 + (full_counts >> 1),
 			   full_counts);
 	ret = 0;
