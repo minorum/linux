@@ -166,7 +166,12 @@
 			pinctrl-0 = <&i2c2_default>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			status = "disabled";
+			status = "okay";
+
+			charger@49 {
+				compatible = "siliconmitus,sm5701";
+				reg = <0x49>;
+			};
 		};
 
 		hwlock: hwlock@40060000 {
