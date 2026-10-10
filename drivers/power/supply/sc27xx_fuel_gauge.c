@@ -355,6 +355,10 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 
 	if (!data->cap_table || data->total_cap <= 0)
 		return -ENODATA;
+	if (data->cur_1000ma_adc <= 0 ||
+	    (s64)data->total_cap * data->cur_1000ma_adc >
+	    S64_MAX / (3600 * SC27XX_FGU_SAMPLE_HZ))
+		return -ERANGE;
 	ret = sc2723_fgu_get_ocv(data, &ocv);
 	mutex_lock(&data->lock);
 	elapsed = jiffies - data->soc_time;
