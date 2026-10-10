@@ -319,6 +319,8 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 	bool is_current;
 
 	switch (property) {
+	case POWER_SUPPLY_PROP_STATUS:
+		return power_supply_get_property_from_supplier(psy, property, val);
 	case POWER_SUPPLY_PROP_TEMP:
 		return sc2723_fgu_get_temperature(data, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
@@ -346,10 +348,16 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 }
 
 static const enum power_supply_property sc2723_fgu_props[] = {
+	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 };
+
+static void sc2723_fgu_external_power_changed(struct power_supply *psy)
+{
+	power_supply_changed(psy);
+}
 
 static const struct power_supply_desc sc2723_fgu_desc = {
 	.name = "sc2723-fgu",
@@ -357,6 +365,7 @@ static const struct power_supply_desc sc2723_fgu_desc = {
 	.properties = sc2723_fgu_props,
 	.num_properties = ARRAY_SIZE(sc2723_fgu_props),
 	.get_property = sc2723_fgu_get_property,
+	.external_power_changed = sc2723_fgu_external_power_changed,
 };
 
 static int sc2723_fgu_probe(struct platform_device *pdev,
