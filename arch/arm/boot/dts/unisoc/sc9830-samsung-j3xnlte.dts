@@ -181,6 +181,8 @@
 			charger: charger@49 {
 				compatible = "siliconmitus,sm5701";
 				reg = <0x49>;
+				interrupt-parent = <&gpio>;
+				interrupts = <92 IRQ_TYPE_EDGE_FALLING>;
 			};
 		};
 
