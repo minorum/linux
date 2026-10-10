@@ -1813,8 +1813,10 @@ static int sc27xx_fgu_resume(struct device *dev)
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret;
 
-	if (data->legacy)
+	if (data->legacy) {
+		schedule_delayed_work(&data->soc_work, 0);
 		return 0;
+	}
 
 	ret = regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
 				 SC27XX_FGU_LOW_OVERLOAD_INT |
@@ -1832,8 +1834,10 @@ static int sc27xx_fgu_suspend(struct device *dev)
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret, status, ocv;
 
-	if (data->legacy)
-		return -EBUSY;
+	if (data->legacy) {
+		cancel_delayed_work_sync(&data->soc_work);
+		return 0;
+	}
 
 	ret = sc27xx_fgu_get_status(data, &status);
 	if (ret)
