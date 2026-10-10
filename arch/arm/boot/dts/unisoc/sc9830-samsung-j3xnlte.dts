@@ -113,6 +113,16 @@
 		#size-cells = <1>;
 		ranges;
 
+		gpio: gpio@40280000 {
+			compatible = "sprd,sc9830-gpio", "sprd,sc9860-gpio";
+			reg = <0x40280000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		aon_gate: clock-controller@402e0000 {
 			compatible = "sprd,sc9830-aon-clk";
 			reg = <0x402e0000 0x3000>;
