@@ -15,6 +15,7 @@
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/timekeeping.h>
+#include <linux/workqueue.h>
 
 /* PMIC global control registers definition */
 #define SC27XX_MODULE_EN0		0xc08
@@ -137,6 +138,9 @@ struct sc27xx_fgu_data {
 	bool soc_valid;
 	struct power_supply_charge_full_temp_table *charge_full_table;
 	int charge_full_table_size;
+	struct delayed_work soc_work;
+	int last_soc_error;
+	int last_soc_capacity;
 };
 
 static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
@@ -506,6 +510,30 @@ static const enum power_supply_property sc2723_fgu_props[] = {
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 };
 
+static void sc2723_fgu_poll(struct work_struct *work)
+{
+	struct sc27xx_fgu_data *data = container_of(to_delayed_work(work),
+						  struct sc27xx_fgu_data, soc_work);
+	int ret, capacity;
+
+	ret = sc2723_fgu_get_capacity(data, &capacity);
+	if (ret != data->last_soc_error ||
+	    (!ret && capacity != data->last_soc_capacity)) {
+		data->last_soc_error = ret;
+		if (!ret)
+			data->last_soc_capacity = capacity;
+		power_supply_changed(data->battery);
+	}
+	schedule_delayed_work(&data->soc_work, 30 * HZ);
+}
+
+static void sc2723_fgu_stop_poll(void *arg)
+{
+	struct sc27xx_fgu_data *data = arg;
+
+	cancel_delayed_work_sync(&data->soc_work);
+}
+
 static void sc2723_fgu_external_power_changed(struct power_supply *psy)
 {
 	struct sc27xx_fgu_data *data = power_supply_get_drvdata(psy);
@@ -625,6 +653,12 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	power_supply_put_battery_info(data->battery, info);
 	if (ret)
 		return dev_err_probe(dev, ret, "invalid battery profile\n");
+	data->last_soc_capacity = -1;
+	INIT_DELAYED_WORK(&data->soc_work, sc2723_fgu_poll);
+	ret = devm_add_action_or_reset(dev, sc2723_fgu_stop_poll, data);
+	if (ret)
+		return ret;
+	schedule_delayed_work(&data->soc_work, 30 * HZ);
 	return 0;
 }
 
