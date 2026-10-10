@@ -129,7 +129,7 @@
 				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>;
 			clock-names = "ext-26m", "twpll-48m", "twpll-51m2",
 				      "twpll-153m6";
-			status = "disabled";
+			status = "okay";
 		};
 
 		apapb: clock-controller@71300000 {
@@ -138,13 +138,13 @@
 			#clock-cells = <1>;
 			clocks = <&ap_clk CLK_I2C2>;
 			clock-names = "i2c2";
-			status = "disabled";
+			status = "okay";
 		};
 
 		pinctrl: pinctrl@402a0000 {
 			compatible = "sprd,sc9830-pinctrl";
 			reg = <0x402a0000 0x1000>;
-			status = "disabled";
+			status = "okay";
 
 			i2c2_default: i2c2-pins {
 				function = "i2c2";
