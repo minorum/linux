@@ -368,10 +368,12 @@ static int sc2723_fgu_compensate_capacity(struct sc27xx_fgu_data *data,
 
 static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 {
+	union power_supply_propval supply;
 	s64 delta, full_counts;
 	u32 counter;
 	u64 elapsed, now;
-	int ret, ocv, capacity, temperature = 0;
+	int ret, ocv_ret, ocv, capacity, temperature;
+	bool full;
 
 	if (!data->cap_table || data->total_cap <= 0)
 		return -ENODATA;
@@ -379,25 +381,47 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 	    (s64)data->total_cap * data->cur_1000ma_adc >
 	    S64_MAX / (3600 * SC27XX_FGU_SAMPLE_HZ))
 		return -ERANGE;
-	if (data->charge_full_table) {
-		ret = sc2723_fgu_get_temperature(data, &temperature);
-		if (ret)
-			return ret;
+	ret = power_supply_get_property_from_supplier(data->battery,
+						      POWER_SUPPLY_PROP_PRESENT, &supply);
+	if (ret)
+		return ret;
+	if (!supply.intval) {
+		mutex_lock(&data->lock);
+		data->soc_valid = false;
+		mutex_unlock(&data->lock);
+		return -ENODEV;
 	}
-	ret = sc2723_fgu_get_ocv(data, &ocv);
+	ret = power_supply_get_property_from_supplier(data->battery,
+						      POWER_SUPPLY_PROP_STATUS, &supply);
+	if (ret)
+		return ret;
+	full = supply.intval == POWER_SUPPLY_STATUS_FULL;
+	ret = sc2723_fgu_get_temperature(data, &temperature);
+	if (ret)
+		return ret;
+	ocv_ret = sc2723_fgu_get_ocv(data, &ocv);
 	mutex_lock(&data->lock);
 	now = ktime_get_boottime_seconds();
 	elapsed = now - data->soc_time;
 	if (data->soc_valid && elapsed > 3600)
 		data->soc_valid = false;
-	if (!data->soc_valid && ret)
+	if (!data->soc_valid && !full && ocv_ret) {
+		ret = ocv_ret;
 		goto out;
+	}
 	ret = sc2723_fgu_read_counter(data, &counter);
 	if (ret)
 		goto out;
 	full_counts = div_s64((s64)data->total_cap * 3600 * SC27XX_FGU_SAMPLE_HZ *
 			     data->cur_1000ma_adc, 1000);
-	if (!data->soc_valid) {
+	if (full || (!ocv_ret && ocv >= data->cap_table[0].ocv)) {
+		data->soc_counts = full_counts;
+		data->soc_valid = true;
+	} else if (!ocv_ret && temperature >= 160 &&
+		   ocv < data->cap_table[data->table_len - 1].ocv) {
+		data->soc_counts = 0;
+		data->soc_valid = true;
+	} else if (!data->soc_valid) {
 		capacity = power_supply_ocv2cap_simple(data->cap_table,
 						       data->table_len, ocv);
 		data->soc_counts = div_s64(full_counts * capacity, 100);
@@ -484,6 +508,17 @@ static const enum power_supply_property sc2723_fgu_props[] = {
 
 static void sc2723_fgu_external_power_changed(struct power_supply *psy)
 {
+	struct sc27xx_fgu_data *data = power_supply_get_drvdata(psy);
+	union power_supply_propval present;
+	int ret;
+
+	ret = power_supply_get_property_from_supplier(psy, POWER_SUPPLY_PROP_PRESENT,
+						      &present);
+	if (!ret && !present.intval) {
+		mutex_lock(&data->lock);
+		data->soc_valid = false;
+		mutex_unlock(&data->lock);
+	}
 	power_supply_changed(psy);
 }
 
