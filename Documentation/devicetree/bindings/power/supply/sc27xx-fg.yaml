@@ -77,7 +77,7 @@ allOf:
         io-channels:
           maxItems: 2
         io-channel-names:
-          maxItems: 2
+          minItems: 1
           items:
             - const: bat-temp
             - const: bat-voltage
@@ -96,7 +96,6 @@ allOf:
         io-channels:
           minItems: 2
         io-channel-names:
-          minItems: 2
           items:
             - const: bat-temp
             - const: charge-vol
