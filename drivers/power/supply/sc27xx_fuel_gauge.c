@@ -135,6 +135,8 @@ struct sc27xx_fgu_data {
 	u64 soc_time;
 	s64 soc_counts;
 	bool soc_valid;
+	struct power_supply_charge_full_temp_table *charge_full_table;
+	int charge_full_table_size;
 };
 
 static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
@@ -347,12 +349,29 @@ out:
 	return ret;
 }
 
+static int sc2723_fgu_compensate_capacity(struct sc27xx_fgu_data *data,
+					  int capacity, int temperature)
+{
+	int full_uah, missing;
+
+	if (!data->charge_full_table)
+		return capacity;
+	full_uah = power_supply_temp2charge_simple(data->charge_full_table,
+						   data->charge_full_table_size,
+						   temperature / 10);
+	if (full_uah <= 0 || full_uah > data->total_cap * 1000)
+		return -EINVAL;
+	missing = div_s64(((s64)data->total_cap * 1000 - full_uah) * 100,
+			  data->total_cap * 1000);
+	return clamp((capacity - missing) * 100 / (100 - missing), 0, 100);
+}
+
 static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 {
 	s64 delta, full_counts;
 	u32 counter;
 	u64 elapsed, now;
-	int ret, ocv, capacity;
+	int ret, ocv, capacity, temperature = 0;
 
 	if (!data->cap_table || data->total_cap <= 0)
 		return -ENODATA;
@@ -360,6 +379,11 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 	    (s64)data->total_cap * data->cur_1000ma_adc >
 	    S64_MAX / (3600 * SC27XX_FGU_SAMPLE_HZ))
 		return -ERANGE;
+	if (data->charge_full_table) {
+		ret = sc2723_fgu_get_temperature(data, &temperature);
+		if (ret)
+			return ret;
+	}
 	ret = sc2723_fgu_get_ocv(data, &ocv);
 	mutex_lock(&data->lock);
 	now = ktime_get_boottime_seconds();
@@ -393,8 +417,12 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 	}
 	data->soc_counter = counter;
 	data->soc_time = now;
-	*value = div64_s64(data->soc_counts * 100 + (full_counts >> 1),
-			   full_counts);
+	capacity = div64_s64(data->soc_counts * 100 + (full_counts >> 1),
+			     full_counts);
+	ret = sc2723_fgu_compensate_capacity(data, capacity, temperature);
+	if (ret < 0)
+		goto out;
+	*value = ret;
 	ret = 0;
 out:
 	mutex_unlock(&data->lock);
@@ -478,7 +506,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	u8 state;
 	struct power_supply_battery_info *info;
 	const struct power_supply_battery_ocv_table *table;
-	int ret;
+	int ret, i;
 
 	data->dev = dev;
 	data->legacy = true;
@@ -540,6 +568,24 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 						     sizeof(*table), GFP_KERNEL);
 		ret = data->cap_table ? 0 : -ENOMEM;
 		data->total_cap = info->charge_full_design_uah / 1000;
+	}
+	if (!ret && info->charge_full_table) {
+		for (i = 0; i < info->charge_full_table_size; i++) {
+			if (info->charge_full_table[i].charge_full_uah >
+			    data->total_cap * 1000) {
+				ret = -EINVAL;
+				break;
+			}
+		}
+		if (!ret) {
+			data->charge_full_table =
+				devm_kmemdup_array(dev, info->charge_full_table,
+						   info->charge_full_table_size,
+						   sizeof(*data->charge_full_table), GFP_KERNEL);
+			if (!data->charge_full_table)
+				ret = -ENOMEM;
+			data->charge_full_table_size = info->charge_full_table_size;
+		}
 	}
 	power_supply_put_battery_info(data->battery, info);
 	if (ret)
