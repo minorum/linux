@@ -9,18 +9,24 @@
 #include <linux/slab.h>
 
 #define SM5701_STATUS1		0x06
+#define SM5701_STATUS2		0x07
 #define SM5701_VBUSOK		BIT(2)
+#define SM5701_NOBAT		BIT(7)
+#define SM5701_TOPOFF		BIT(0)
+#define SM5701_DONE		BIT(1)
+#define SM5701_CHGON		BIT(3)
 
 struct sm5701 {
 	struct regmap *regmap;
 	struct power_supply *psy;
 	struct delayed_work poll;
 	bool online;
+	int status;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
 {
-	return reg == SM5701_STATUS1;
+	return reg == SM5701_STATUS1 || reg == SM5701_STATUS2;
 }
 
 static bool sm5701_writeable_reg(struct device *dev, unsigned int reg)
@@ -31,11 +37,37 @@ static bool sm5701_writeable_reg(struct device *dev, unsigned int reg)
 static const struct regmap_config sm5701_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
-	.max_register = SM5701_STATUS1,
+	.max_register = SM5701_STATUS2,
 	.cache_type = REGCACHE_NONE,
 	.readable_reg = sm5701_readable_reg,
 	.writeable_reg = sm5701_writeable_reg,
 };
+
+static int sm5701_read_state(struct sm5701 *data, bool *online, int *state)
+{
+	unsigned int status1, status2;
+	int ret;
+
+	ret = regmap_read(data->regmap, SM5701_STATUS1, &status1);
+	if (ret)
+		return ret;
+	ret = regmap_read(data->regmap, SM5701_STATUS2, &status2);
+	if (ret)
+		return ret;
+
+	*online = !!(status1 & SM5701_VBUSOK);
+	*state = POWER_SUPPLY_STATUS_UNKNOWN;
+	if (!(status1 & SM5701_NOBAT)) {
+		if (!*online)
+			*state = POWER_SUPPLY_STATUS_DISCHARGING;
+		else if (!(status2 & (SM5701_TOPOFF | SM5701_DONE)))
+			*state = status2 & SM5701_CHGON ?
+				POWER_SUPPLY_STATUS_CHARGING :
+				POWER_SUPPLY_STATUS_NOT_CHARGING;
+	}
+
+	return 0;
+}
 
 static int sm5701_get_property(struct power_supply *psy,
 			       enum power_supply_property prop,
@@ -43,8 +75,16 @@ static int sm5701_get_property(struct power_supply *psy,
 {
 	struct sm5701 *data = power_supply_get_drvdata(psy);
 	unsigned int status;
+	bool online;
+	int state;
 	int ret;
 
+	if (prop == POWER_SUPPLY_PROP_STATUS) {
+		ret = sm5701_read_state(data, &online, &state);
+		if (!ret)
+			val->intval = state;
+		return ret;
+	}
 	if (prop != POWER_SUPPLY_PROP_ONLINE)
 		return -EINVAL;
 
@@ -59,6 +99,7 @@ static int sm5701_get_property(struct power_supply *psy,
 
 static const enum power_supply_property sm5701_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_STATUS,
 };
 
 static const struct power_supply_desc sm5701_desc = {
@@ -72,13 +113,13 @@ static const struct power_supply_desc sm5701_desc = {
 static void sm5701_poll(struct work_struct *work)
 {
 	struct sm5701 *data = container_of(to_delayed_work(work), struct sm5701, poll);
-	unsigned int status;
 	bool online;
+	int state;
 
-	if (!regmap_read(data->regmap, SM5701_STATUS1, &status)) {
-		online = !!(status & SM5701_VBUSOK);
-		if (online != data->online) {
+	if (!sm5701_read_state(data, &online, &state)) {
+		if (online != data->online || state != data->status) {
 			data->online = online;
+			data->status = state;
 			power_supply_changed(data->psy);
 		}
 	}
@@ -110,7 +151,6 @@ static int sm5701_probe(struct i2c_client *client)
 	struct power_supply *psy;
 	struct regmap *regmap;
 	struct sm5701 *data;
-	unsigned int status;
 	int ret;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
@@ -121,12 +161,11 @@ static int sm5701_probe(struct i2c_client *client)
 	if (IS_ERR(regmap))
 		return dev_err_probe(dev, PTR_ERR(regmap), "Failed to create regmap\n");
 
-	ret = regmap_read(regmap, SM5701_STATUS1, &status);
-	if (ret)
-		return dev_err_probe(dev, ret, "Failed to read input status\n");
-
 	data->regmap = regmap;
-	data->online = !!(status & SM5701_VBUSOK);
+	ret = sm5701_read_state(data, &data->online, &data->status);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to read charger status\n");
+
 	i2c_set_clientdata(client, data);
 	cfg.drv_data = data;
 	cfg.fwnode = dev_fwnode(dev);
