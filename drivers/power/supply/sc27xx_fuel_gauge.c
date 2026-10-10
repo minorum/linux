@@ -320,6 +320,7 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 
 	switch (property) {
 	case POWER_SUPPLY_PROP_STATUS:
+	case POWER_SUPPLY_PROP_PRESENT:
 		return power_supply_get_property_from_supplier(psy, property, val);
 	case POWER_SUPPLY_PROP_TEMP:
 		return sc2723_fgu_get_temperature(data, &val->intval);
@@ -349,6 +350,7 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 
 static const enum power_supply_property sc2723_fgu_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
