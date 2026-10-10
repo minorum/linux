@@ -93,6 +93,22 @@ properties:
   factory-internal-resistance-micro-ohms:
     description: battery factory internal resistance
 
+  charge-full-design-temp-table:
+    $ref: /schemas/types.yaml#/definitions/int32-matrix
+    minItems: 2
+    maxItems: 64
+    items:
+      items:
+        - description: Battery temperature in degrees Celsius, descending order.
+          minimum: -273
+          maximum: 200
+        - description: Usable full charge in microamp hours at this temperature.
+          minimum: 1
+          maximum: 2147483647
+    description: |
+      Temperature-dependent usable charge of a fully charged battery. Values
+      describe the battery profile and do not configure charger limits.
+
   resistance-temp-table:
     $ref: /schemas/types.yaml#/definitions/uint32-matrix
     items:
