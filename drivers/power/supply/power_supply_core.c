@@ -572,6 +572,42 @@ struct power_supply *devm_power_supply_get_by_reference(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(devm_power_supply_get_by_reference);
 
+static int power_supply_read_charge_full_temp_table(struct power_supply *psy,
+						    struct fwnode_handle *fwnode,
+						    struct power_supply_battery_info *info)
+{
+	struct power_supply_charge_full_temp_table *table;
+	int count, ret, i;
+	u32 values[128], charge;
+
+	if (!fwnode_property_present(fwnode, "charge-full-design-temp-table"))
+		return 0;
+	count = fwnode_property_count_u32(fwnode, "charge-full-design-temp-table");
+	if (count < 0)
+		return count;
+	if (count < 4 || count > 128 || count % 2)
+		return -EINVAL;
+	ret = fwnode_property_read_u32_array(fwnode, "charge-full-design-temp-table",
+					     values, count);
+	if (ret)
+		return ret;
+	table = devm_kcalloc(&psy->dev, count / 2, sizeof(*table), GFP_KERNEL);
+	if (!table)
+		return -ENOMEM;
+	info->charge_full_table = table;
+	info->charge_full_table_size = count / 2;
+	for (i = 0; i < count / 2; i++) {
+		charge = values[2 * i + 1];
+		table[i].temp = (s32)values[2 * i];
+		table[i].charge_full_uah = charge;
+		if (table[i].temp < -273 || table[i].temp > 200 ||
+		    !charge || charge > INT_MAX ||
+		    (i && table[i].temp >= table[i - 1].temp))
+			return -EINVAL;
+	}
+	return 0;
+}
+
 int power_supply_get_battery_info(struct power_supply *psy,
 				  struct power_supply_battery_info **info_out)
 {
@@ -781,6 +817,12 @@ int power_supply_get_battery_info(struct power_supply *psy,
 		}
 	}
 
+	err = power_supply_read_charge_full_temp_table(psy, fwnode, info);
+	if (err) {
+		power_supply_put_battery_info(psy, info);
+		goto out_put_node;
+	}
+
 	proplen = fwnode_property_count_u32(fwnode, "resistance-temp-table");
 	if (proplen == 0 || proplen == -EINVAL) {
 		err = 0;
@@ -843,6 +885,8 @@ void power_supply_put_battery_info(struct power_supply *psy,
 
 	if (info->resist_table)
 		devm_kfree(&psy->dev, info->resist_table);
+	if (info->charge_full_table)
+		devm_kfree(&psy->dev, info->charge_full_table);
 
 	devm_kfree(&psy->dev, info);
 }
@@ -1087,6 +1131,28 @@ power_supply_get_maintenance_charging_setting(struct power_supply_battery_info *
 	return &info->maintenance_charge[index];
 }
 EXPORT_SYMBOL_GPL(power_supply_get_maintenance_charging_setting);
+
+int power_supply_temp2charge_simple(const struct power_supply_charge_full_temp_table *table,
+				    int table_len, int temp)
+{
+	int i;
+	s64 delta;
+
+	if (!table || table_len < 2)
+		return -EINVAL;
+	if (temp >= table[0].temp)
+		return table[0].charge_full_uah;
+	for (i = 1; i < table_len; i++) {
+		if (temp >= table[i].temp) {
+			delta = (s64)(temp - table[i].temp) *
+				(table[i - 1].charge_full_uah - table[i].charge_full_uah);
+			return table[i].charge_full_uah +
+				div_s64(delta, table[i - 1].temp - table[i].temp);
+		}
+	}
+	return table[table_len - 1].charge_full_uah;
+}
+EXPORT_SYMBOL_GPL(power_supply_temp2charge_simple);
 
 /**
  * power_supply_ocv2cap_simple() - find the battery capacity

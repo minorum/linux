@@ -385,6 +385,11 @@ struct power_supply_resistance_temp_table {
 	int resistance;	/* internal resistance percent */
 };
 
+struct power_supply_charge_full_temp_table {
+	int temp;
+	int charge_full_uah;
+};
+
 struct power_supply_vbat_ri_table {
 	int vbat_uv;	/* Battery voltage in microvolt */
 	int ri_uohm;	/* Internal resistance in microohm */
@@ -794,6 +799,8 @@ struct power_supply_battery_info {
 	int ocv_table_size[POWER_SUPPLY_OCV_TEMP_MAX];
 	const struct power_supply_resistance_temp_table *resist_table;
 	int resist_table_size;
+	const struct power_supply_charge_full_temp_table *charge_full_table;
+	int charge_full_table_size;
 	const struct power_supply_vbat_ri_table *vbat2ri_discharging;
 	int vbat2ri_discharging_size;
 	const struct power_supply_vbat_ri_table *vbat2ri_charging;
@@ -840,6 +847,8 @@ power_supply_temp2resist_simple(const struct power_supply_resistance_temp_table 
 				int table_len, int temp);
 extern int power_supply_vbat2ri(struct power_supply_battery_info *info,
 				int vbat_uv, bool charging);
+int power_supply_temp2charge_simple(const struct power_supply_charge_full_temp_table *table,
+				    int table_len, int temp);
 extern const struct power_supply_maintenance_charge_table *
 power_supply_get_maintenance_charging_setting(struct power_supply_battery_info *info, int index);
 extern bool power_supply_battery_bti_in_range(struct power_supply_battery_info *info,
