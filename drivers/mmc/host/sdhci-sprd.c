@@ -1093,7 +1093,7 @@ clk_2x_disable:
 static int sdhci_sprd_suspend(struct device *dev)
 {
 	if (of_device_get_match_data(dev) == &sc9830_data)
-		return -EBUSY;
+		return sdhci_suspend_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_suspend(dev);
 }
@@ -1101,7 +1101,7 @@ static int sdhci_sprd_suspend(struct device *dev)
 static int sdhci_sprd_resume(struct device *dev)
 {
 	if (of_device_get_match_data(dev) == &sc9830_data)
-		return 0;
+		return sdhci_resume_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_resume(dev);
 }
