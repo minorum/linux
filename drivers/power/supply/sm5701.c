@@ -11,6 +11,8 @@
 #define SM5701_STATUS1		0x06
 #define SM5701_STATUS2		0x07
 #define SM5701_VBUSOK		BIT(2)
+#define SM5701_VBUSUVLO		BIT(3)
+#define SM5701_VBUSOVP		BIT(4)
 #define SM5701_NOBAT		BIT(7)
 #define SM5701_TOPOFF		BIT(0)
 #define SM5701_DONE		BIT(1)
@@ -23,6 +25,7 @@ struct sm5701 {
 	bool online;
 	bool present;
 	int status;
+	int health;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
@@ -44,8 +47,19 @@ static const struct regmap_config sm5701_regmap_config = {
 	.writeable_reg = sm5701_writeable_reg,
 };
 
+static int sm5701_input_health(unsigned int status)
+{
+	if (status & SM5701_VBUSOVP)
+		return POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+	if (!(status & SM5701_VBUSOK))
+		return POWER_SUPPLY_HEALTH_UNKNOWN;
+	if (status & SM5701_VBUSUVLO)
+		return POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
+	return POWER_SUPPLY_HEALTH_GOOD;
+}
+
 static int sm5701_read_state(struct sm5701 *data, bool *online, bool *present,
-			     int *state)
+			     int *state, int *health)
 {
 	unsigned int status1, status2;
 	int ret;
@@ -59,6 +73,7 @@ static int sm5701_read_state(struct sm5701 *data, bool *online, bool *present,
 
 	*online = !!(status1 & SM5701_VBUSOK);
 	*present = !(status1 & SM5701_NOBAT);
+	*health = sm5701_input_health(status1);
 	*state = POWER_SUPPLY_STATUS_UNKNOWN;
 	if (*present) {
 		if (!*online)
@@ -79,24 +94,28 @@ static int sm5701_get_property(struct power_supply *psy,
 	struct sm5701 *data = power_supply_get_drvdata(psy);
 	unsigned int status;
 	bool online, present;
-	int state;
+	int state, health;
 	int ret;
 
 	if (prop == POWER_SUPPLY_PROP_STATUS) {
-		ret = sm5701_read_state(data, &online, &present, &state);
+		ret = sm5701_read_state(data, &online, &present, &state, &health);
 		if (!ret)
 			val->intval = state;
 		return ret;
 	}
-	if (prop != POWER_SUPPLY_PROP_ONLINE && prop != POWER_SUPPLY_PROP_PRESENT)
+	if (prop != POWER_SUPPLY_PROP_ONLINE && prop != POWER_SUPPLY_PROP_PRESENT &&
+	    prop != POWER_SUPPLY_PROP_HEALTH)
 		return -EINVAL;
 
 	ret = regmap_read(data->regmap, SM5701_STATUS1, &status);
 	if (ret)
 		return ret;
 
-	val->intval = prop == POWER_SUPPLY_PROP_ONLINE ?
-		!!(status & SM5701_VBUSOK) : !(status & SM5701_NOBAT);
+	if (prop == POWER_SUPPLY_PROP_HEALTH)
+		val->intval = sm5701_input_health(status);
+	else
+		val->intval = prop == POWER_SUPPLY_PROP_ONLINE ?
+			!!(status & SM5701_VBUSOK) : !(status & SM5701_NOBAT);
 
 	return 0;
 }
@@ -105,6 +124,7 @@ static const enum power_supply_property sm5701_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_HEALTH,
 };
 
 static const struct power_supply_desc sm5701_desc = {
@@ -119,14 +139,15 @@ static void sm5701_poll(struct work_struct *work)
 {
 	struct sm5701 *data = container_of(to_delayed_work(work), struct sm5701, poll);
 	bool online, present;
-	int state;
+	int state, health;
 
-	if (!sm5701_read_state(data, &online, &present, &state)) {
+	if (!sm5701_read_state(data, &online, &present, &state, &health)) {
 		if (online != data->online || present != data->present ||
-		    state != data->status) {
+		    state != data->status || health != data->health) {
 			data->online = online;
 			data->present = present;
 			data->status = state;
+			data->health = health;
 			power_supply_changed(data->psy);
 		}
 	}
@@ -169,7 +190,8 @@ static int sm5701_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(regmap), "Failed to create regmap\n");
 
 	data->regmap = regmap;
-	ret = sm5701_read_state(data, &data->online, &data->present, &data->status);
+	ret = sm5701_read_state(data, &data->online, &data->present,
+				&data->status, &data->health);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to read charger status\n");
 
