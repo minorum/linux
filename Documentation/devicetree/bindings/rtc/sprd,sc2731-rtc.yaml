@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/rtc/sprd,sc2731-rtc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Spreadtrum SC2731 Real Time Clock
+title: Spreadtrum SC27xx Real Time Clock
 
 maintainers:
   - Orson Zhai <orsonzhai@gmail.com>
@@ -18,7 +18,13 @@ properties:
           - enum:
               - sprd,sc2730-rtc
           - const: sprd,sc2731-rtc
-      - const: sprd,sc2731-rtc
+      - enum:
+          - sprd,sc2723-rtc
+          - sprd,sc2731-rtc
+
+  start-year:
+    minimum: 1970
+    maximum: 9999
 
   reg:
     maxItems: 1
@@ -33,6 +39,14 @@ required:
 
 allOf:
   - $ref: rtc.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: sprd,sc2723-rtc
+    then:
+      required:
+        - start-year
 
 unevaluatedProperties: false
 ...
