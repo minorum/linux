@@ -94,6 +94,7 @@ allOf:
       required:
         - io-channels
         - io-channel-names
+        - monitored-battery
     else:
       properties:
         io-channels:
