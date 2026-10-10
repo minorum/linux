@@ -42,7 +42,7 @@ properties:
     minItems: 1
     items:
       - const: bat-temp
-      - const: charge-vol
+      - enum: [charge-vol, bat-voltage]
 
   nvmem-cells:
     minItems: 1
@@ -75,9 +75,12 @@ allOf:
     then:
       properties:
         io-channels:
-          maxItems: 1
+          maxItems: 2
         io-channel-names:
-          maxItems: 1
+          maxItems: 2
+          items:
+            - const: bat-temp
+            - const: bat-voltage
         nvmem-cells:
           minItems: 2
           maxItems: 2
@@ -94,6 +97,9 @@ allOf:
           minItems: 2
         io-channel-names:
           minItems: 2
+          items:
+            - const: bat-temp
+            - const: charge-vol
         nvmem-cells:
           maxItems: 1
         nvmem-cell-names:
