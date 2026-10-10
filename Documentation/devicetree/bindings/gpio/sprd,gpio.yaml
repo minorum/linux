@@ -23,6 +23,7 @@ properties:
       - const: sprd,sc9860-gpio
       - items:
           - enum:
+              - sprd,sc9830-gpio
               - sprd,ums512-gpio
           - const: sprd,sc9860-gpio
 
