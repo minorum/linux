@@ -714,7 +714,7 @@ config GPIO_SPEAR_SPICS
 
 config GPIO_SPRD
 	tristate "Spreadtrum GPIO support"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SPRD || ARCH_SC9830 || COMPILE_TEST
 	select GPIOLIB_IRQCHIP
 	help
 	  Say yes here to support Spreadtrum GPIO device.
