@@ -45,6 +45,8 @@
 #define SC27XX_FGU_CLBCNT_VALH		0x68
 #define SC27XX_FGU_CLBCNT_VALL		0x6c
 #define SC27XX_FGU_CLBCNT_QMAXL		0x74
+#define SC2723_FGU_OCV_LAST_CNT		0x8c
+#define SC2723_FGU_OCV_MAX_AGE		20
 #define SC27XX_FGU_USER_AREA_SET	0xa0
 #define SC27XX_FGU_USER_AREA_CLEAR	0xa4
 #define SC27XX_FGU_USER_AREA_STATUS	0xa8
@@ -309,6 +311,37 @@ static int sc2723_fgu_get_adc_voltage(struct sc27xx_fgu_data *data, int *value)
 	return 0;
 }
 
+static int sc2723_fgu_get_ocv(struct sc27xx_fgu_data *data, int *value)
+{
+	int ret, age, raw;
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_read_stable(data, SC2723_FGU_OCV_LAST_CNT,
+				     GENMASK(15, 0), &age);
+	if (ret)
+		goto out;
+	if (age > SC2723_FGU_OCV_MAX_AGE) {
+		ret = -ENODATA;
+		goto out;
+	}
+	ret = sc2723_fgu_read_stable(data, SC27XX_FGU_OCV,
+				     GENMASK(12, 0), &raw);
+	if (ret)
+		goto out;
+	ret = sc2723_fgu_read_stable(data, SC2723_FGU_OCV_LAST_CNT,
+				     GENMASK(15, 0), &age);
+	if (ret)
+		goto out;
+	if (!raw || age > SC2723_FGU_OCV_MAX_AGE) {
+		ret = -ENODATA;
+		goto out;
+	}
+	ret = sc2723_fgu_convert(data, false, raw, value);
+out:
+	mutex_unlock(&data->lock);
+	return ret;
+}
+
 static int sc2723_fgu_get_property(struct power_supply *psy,
 				   enum power_supply_property property,
 				   union power_supply_propval *val)
@@ -324,6 +357,8 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 		return power_supply_get_property_from_supplier(psy, property, val);
 	case POWER_SUPPLY_PROP_TEMP:
 		return sc2723_fgu_get_temperature(data, &val->intval);
+	case POWER_SUPPLY_PROP_VOLTAGE_OCV:
+		return sc2723_fgu_get_ocv(data, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		if (data->voltage_chan)
 			return sc2723_fgu_get_adc_voltage(data, &val->intval);
@@ -353,6 +388,7 @@ static const enum power_supply_property sc2723_fgu_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_VOLTAGE_OCV,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 };
 
