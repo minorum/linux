@@ -216,8 +216,8 @@
 				};
 
 				fuel-gauge@500 {
-					io-channels = <&battery_thermistor>;
-					io-channel-names = "bat-temp";
+					io-channels = <&battery_thermistor>, <&adc 5>;
+					io-channel-names = "bat-temp", "bat-voltage";
 					compatible = "sprd,sc2723-fgu";
 					reg = <0x500>;
 					interrupts = <4>;
