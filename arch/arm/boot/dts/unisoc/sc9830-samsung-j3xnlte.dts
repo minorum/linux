@@ -168,7 +168,7 @@
 			#size-cells = <0>;
 			status = "okay";
 
-			charger@49 {
+			charger: charger@49 {
 				compatible = "siliconmitus,sm5701";
 				reg = <0x49>;
 			};
@@ -216,6 +216,7 @@
 				};
 
 				fuel-gauge@500 {
+					power-supplies = <&charger>;
 					io-channels = <&battery_thermistor>, <&adc 5>;
 					io-channel-names = "bat-temp", "bat-voltage";
 					compatible = "sprd,sc2723-fgu";
