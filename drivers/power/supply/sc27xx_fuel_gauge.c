@@ -130,6 +130,10 @@ struct sc27xx_fgu_data {
 	bool legacy;
 	u32 saved_module;
 	u32 saved_rtc;
+	u32 soc_counter;
+	unsigned long soc_time;
+	s64 soc_counts;
+	bool soc_valid;
 };
 
 static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
@@ -342,6 +346,55 @@ out:
 	return ret;
 }
 
+static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
+{
+	s64 delta, full_counts;
+	u32 counter;
+	unsigned long elapsed;
+	int ret, ocv, capacity;
+
+	if (!data->cap_table || data->total_cap <= 0)
+		return -ENODATA;
+	ret = sc2723_fgu_get_ocv(data, &ocv);
+	mutex_lock(&data->lock);
+	elapsed = jiffies - data->soc_time;
+	if (data->soc_valid && elapsed > 3600 * HZ)
+		data->soc_valid = false;
+	if (!data->soc_valid && ret)
+		goto out;
+	ret = sc2723_fgu_read_counter(data, &counter);
+	if (ret)
+		goto out;
+	full_counts = div_s64((s64)data->total_cap * 3600 * SC27XX_FGU_SAMPLE_HZ *
+			     data->cur_1000ma_adc, 1000);
+	if (!data->soc_valid) {
+		capacity = power_supply_ocv2cap_simple(data->cap_table,
+						       data->table_len, ocv);
+		data->soc_counts = div_s64(full_counts * capacity, 100);
+		data->soc_valid = true;
+	} else {
+		delta = (counter - data->soc_counter) & GENMASK(29, 0);
+		if (delta & BIT(29))
+			delta -= BIT_ULL(30);
+		if (abs(delta) > (s64)(elapsed / HZ + 1) * 8192 *
+		    SC27XX_FGU_SAMPLE_HZ) {
+			data->soc_valid = false;
+			ret = -ENODATA;
+			goto out;
+		}
+		data->soc_counts = clamp_t(s64, data->soc_counts + delta,
+					   0, full_counts);
+	}
+	data->soc_counter = counter;
+	data->soc_time = jiffies;
+	*value = div64_s64(data->soc_counts * 100 + (full_counts >> 1),
+			   full_counts);
+	ret = 0;
+out:
+	mutex_unlock(&data->lock);
+	return ret;
+}
+
 static int sc2723_fgu_get_property(struct power_supply *psy,
 				   enum power_supply_property property,
 				   union power_supply_propval *val)
@@ -352,6 +405,8 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 	bool is_current;
 
 	switch (property) {
+	case POWER_SUPPLY_PROP_CAPACITY:
+		return sc2723_fgu_get_capacity(data, &val->intval);
 	case POWER_SUPPLY_PROP_STATUS:
 	case POWER_SUPPLY_PROP_PRESENT:
 		return power_supply_get_property_from_supplier(psy, property, val);
@@ -384,6 +439,7 @@ static int sc2723_fgu_get_property(struct power_supply *psy,
 }
 
 static const enum power_supply_property sc2723_fgu_props[] = {
+	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_TEMP,
@@ -414,6 +470,8 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	enum iio_chan_type channel_type;
 	u16 calibration;
 	u8 state;
+	struct power_supply_battery_info *info;
+	const struct power_supply_battery_ocv_table *table;
 	int ret;
 
 	data->dev = dev;
@@ -465,6 +523,21 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	if (IS_ERR(data->battery))
 		return dev_err_probe(dev, PTR_ERR(data->battery),
 				     "failed to register FGU supply\n");
+	ret = power_supply_get_battery_info(data->battery, &info);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to get battery profile\n");
+	table = power_supply_find_ocv2cap_table(info, 25, &data->table_len);
+	if (!table || data->table_len < 2 || info->charge_full_design_uah <= 0) {
+		ret = -EINVAL;
+	} else {
+		data->cap_table = devm_kmemdup_array(dev, table, data->table_len,
+						     sizeof(*table), GFP_KERNEL);
+		ret = data->cap_table ? 0 : -ENOMEM;
+		data->total_cap = info->charge_full_design_uah / 1000;
+	}
+	power_supply_put_battery_info(data->battery, info);
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid battery profile\n");
 	return 0;
 }
 
