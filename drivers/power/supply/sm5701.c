@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/i2c.h>
 #include <linux/devm-helpers.h>
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm.h>
@@ -8,6 +9,8 @@
 #include <linux/regmap.h>
 #include <linux/slab.h>
 
+#define SM5701_INT1		0x00
+#define SM5701_INT3		0x02
 #define SM5701_STATUS1		0x06
 #define SM5701_STATUS2		0x07
 #define SM5701_VBUSOK		BIT(2)
@@ -19,6 +22,7 @@
 #define SM5701_CHGON		BIT(3)
 
 struct sm5701 {
+	struct device *dev;
 	struct regmap *regmap;
 	struct power_supply *psy;
 	struct delayed_work poll;
@@ -26,11 +30,18 @@ struct sm5701 {
 	bool present;
 	int status;
 	int health;
+	int irq;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
 {
-	return reg == SM5701_STATUS1 || reg == SM5701_STATUS2;
+	return reg <= SM5701_INT3 ||
+	       reg == SM5701_STATUS1 || reg == SM5701_STATUS2;
+}
+
+static bool sm5701_precious_reg(struct device *dev, unsigned int reg)
+{
+	return reg <= SM5701_INT3;
 }
 
 static bool sm5701_writeable_reg(struct device *dev, unsigned int reg)
@@ -45,6 +56,7 @@ static const struct regmap_config sm5701_regmap_config = {
 	.cache_type = REGCACHE_NONE,
 	.readable_reg = sm5701_readable_reg,
 	.writeable_reg = sm5701_writeable_reg,
+	.precious_reg = sm5701_precious_reg,
 };
 
 static int sm5701_input_health(unsigned int status)
@@ -135,12 +147,28 @@ static const struct power_supply_desc sm5701_desc = {
 	.get_property = sm5701_get_property,
 };
 
+static int sm5701_ack_irq(struct sm5701 *data)
+{
+	unsigned int reg, pending;
+	int ret;
+
+	for (reg = SM5701_INT1; reg <= SM5701_INT3; reg++) {
+		ret = regmap_read(data->regmap, reg, &pending);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static void sm5701_poll(struct work_struct *work)
 {
 	struct sm5701 *data = container_of(to_delayed_work(work), struct sm5701, poll);
 	bool online, present;
 	int state, health;
 
+	if (data->irq)
+		sm5701_ack_irq(data);
 	if (!sm5701_read_state(data, &online, &present, &state, &health)) {
 		if (online != data->online || present != data->present ||
 		    state != data->status || health != data->health) {
@@ -154,10 +182,25 @@ static void sm5701_poll(struct work_struct *work)
 	schedule_delayed_work(&data->poll, msecs_to_jiffies(2000));
 }
 
+static irqreturn_t sm5701_irq(int irq, void *arg)
+{
+	struct sm5701 *data = arg;
+	int ret;
+
+	ret = sm5701_ack_irq(data);
+	if (ret)
+		dev_err_ratelimited(data->dev, "Failed to acknowledge interrupts: %d\n", ret);
+	mod_delayed_work(system_wq, &data->poll, 0);
+
+	return IRQ_HANDLED;
+}
+
 static int sm5701_suspend(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
+	if (data->irq)
+		disable_irq(data->irq);
 	cancel_delayed_work_sync(&data->poll);
 	return 0;
 }
@@ -166,7 +209,12 @@ static int sm5701_resume(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
-	schedule_delayed_work(&data->poll, 0);
+	if (data->irq) {
+		sm5701_irq(data->irq, data);
+		enable_irq(data->irq);
+	} else {
+		schedule_delayed_work(&data->poll, 0);
+	}
 	return 0;
 }
 
@@ -189,6 +237,7 @@ static int sm5701_probe(struct i2c_client *client)
 	if (IS_ERR(regmap))
 		return dev_err_probe(dev, PTR_ERR(regmap), "Failed to create regmap\n");
 
+	data->dev = dev;
 	data->regmap = regmap;
 	ret = sm5701_read_state(data, &data->online, &data->present,
 				&data->status, &data->health);
@@ -205,6 +254,16 @@ static int sm5701_probe(struct i2c_client *client)
 	ret = devm_delayed_work_autocancel(dev, &data->poll, sm5701_poll);
 	if (ret)
 		return ret;
+	if (client->irq) {
+		ret = sm5701_ack_irq(data);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to clear pending interrupts\n");
+		ret = devm_request_threaded_irq(dev, client->irq, NULL, sm5701_irq,
+						IRQF_ONESHOT, dev_name(dev), data);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to request interrupt\n");
+		data->irq = client->irq;
+	}
 	schedule_delayed_work(&data->poll, msecs_to_jiffies(2000));
 
 	return 0;
