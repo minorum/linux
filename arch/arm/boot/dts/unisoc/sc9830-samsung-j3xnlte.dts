@@ -230,6 +230,13 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
+				rtc@80 {
+					compatible = "sprd,sc2723-rtc";
+					reg = <0x80>;
+					interrupts = <2>;
+					start-year = <2015>;
+				};
+
 				adc: adc@300 {
 					compatible = "sprd,sc2723-adc";
 					reg = <0x300>;
