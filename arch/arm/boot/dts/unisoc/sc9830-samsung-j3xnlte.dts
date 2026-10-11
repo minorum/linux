@@ -290,6 +290,26 @@
 					sprd,calib-resistance-micro-ohms = <19900>;
 				};
 
+				regulators {
+					compatible = "sprd,sc2723-regulator";
+					nvmem-cells = <&calibration_state>, <&vddcon_calibration>,
+						      <&wifipa_calibration>;
+					nvmem-cell-names = "calibration_state", "vddcon",
+							   "vddwifipa";
+
+					vddcon: vddcon {
+						regulator-name = "vddcon";
+						regulator-min-microvolt = <1600000>;
+						regulator-max-microvolt = <1600000>;
+					};
+
+					vddwifipa: vddwifipa {
+						regulator-name = "vddwifipa";
+						regulator-min-microvolt = <3300000>;
+						regulator-max-microvolt = <3300000>;
+					};
+				};
+
 				efuse@200 {
 					compatible = "sprd,sc2723-efuse";
 					reg = <0x200>;
@@ -308,6 +328,16 @@
 					adc_small_calibration: adc-small-calibration@9 {
 						reg = <9 2>;
 						};
+
+					vddcon_calibration: vddcon-calibration@d,1 {
+						reg = <13 1>;
+						bits = <1 7>;
+					};
+
+					wifipa_calibration: wifipa-calibration@14,4 {
+						reg = <20 2>;
+						bits = <4 6>;
+					};
 
 					fgu_voltage_calibration: fgu-voltage@c {
 						reg = <12 2>;
