@@ -23,6 +23,7 @@
 struct sc2331_boot {
 	struct serdev_device *serdev;
 	struct regulator *supply;
+	struct regulator *pa_supply;
 	struct clk *clock;
 	struct gpio_desc *reset;
 	struct gpio_desc *host_wake;
@@ -35,6 +36,7 @@ struct sc2331_boot {
 	struct sc2331_uart_stream rx;
 	int rx_status;
 	bool powered;
+	bool pa_powered;
 	bool clocked;
 	u8 tx[2062];
 };
@@ -230,6 +232,13 @@ static void sc2331_boot_power_off(void *data)
 		clk_disable_unprepare(boot->clock);
 		boot->clocked = false;
 	}
+	if (boot->pa_powered) {
+		ret = regulator_disable(boot->pa_supply);
+		if (ret)
+			dev_err(&boot->serdev->dev, "PA supply disable failed: %d\n", ret);
+		else
+			boot->pa_powered = false;
+	}
 	if (boot->powered) {
 		ret = regulator_disable(boot->supply);
 		if (ret)
@@ -260,6 +269,13 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	boot->supply = devm_regulator_get(dev, "vddcon");
 	if (IS_ERR(boot->supply))
 		return dev_err_probe(dev, PTR_ERR(boot->supply), "Missing connectivity supply\n");
+	boot->pa_supply = devm_regulator_get_optional(dev, "vddwifipa");
+	if (IS_ERR(boot->pa_supply)) {
+		ret = PTR_ERR(boot->pa_supply);
+		if (ret != -ENODEV)
+			return dev_err_probe(dev, ret, "Invalid PA supply\n");
+		boot->pa_supply = NULL;
+	}
 	boot->clock = devm_clk_get(dev, "ext_clock");
 	if (IS_ERR(boot->clock))
 		return dev_err_probe(dev, PTR_ERR(boot->clock), "Missing reference clock\n");
@@ -315,6 +331,12 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	if (ret)
 		goto free;
 	boot->powered = true;
+	if (boot->pa_supply) {
+		ret = regulator_enable(boot->pa_supply);
+		if (ret)
+			goto free;
+		boot->pa_powered = true;
+	}
 	ret = clk_prepare_enable(boot->clock);
 	if (ret)
 		goto free;
