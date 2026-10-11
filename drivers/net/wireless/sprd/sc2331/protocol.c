@@ -21,6 +21,16 @@ static u16 sc2331_sdio_checksum(const u8 *data, size_t len)
 	return ~(sum + (sum >> 16));
 }
 
+int sc2331_decode_sdio_ack(const u8 *data, size_t len)
+{
+	if (len != 6)
+		return -EMSGSIZE;
+	if ((get_unaligned_be16(data) & 0xff7f) ||
+	    get_unaligned_be16(data + 2) || sc2331_sdio_checksum(data, len))
+		return -EPROTO;
+	return 0;
+}
+
 ssize_t sc2331_encode_sdio(u8 *data, size_t capacity, u16 command,
 			   const u8 *payload, size_t len)
 {

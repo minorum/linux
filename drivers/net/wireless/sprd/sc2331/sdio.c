@@ -71,7 +71,7 @@ static int sc2331_sdio_ack(struct sdio_func *func, u8 *data)
 			if (error)
 				return error;
 			dev_info(&func->dev, "SDIO download reply: %*ph\n", 6, data);
-			return get_unaligned_be16(data) & 0xff7f ? -EPROTO : 0;
+			return sc2331_decode_sdio_ack(data, length);
 		}
 		sdio_release_host(func);
 		if (error)
