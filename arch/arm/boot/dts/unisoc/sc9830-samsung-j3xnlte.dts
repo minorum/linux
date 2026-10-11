@@ -144,8 +144,8 @@
 			compatible = "sprd,sc9830-aon-clk";
 			reg = <0x402e0000 0x3000>;
 			#clock-cells = <1>;
-			clocks = <&ext_26m>;
-			clock-names = "ext-26m";
+			clocks = <&ext_26m>, <&ext_32k>;
+			clock-names = "ext-26m", "ext-32k";
 		};
 
 		ap_clk: clock-controller@21500000 {
@@ -153,9 +153,12 @@
 			reg = <0x21500000 0x1000>;
 			#clock-cells = <1>;
 			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_48M>,
-				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>;
+				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>,
+				 <&aon_gate CLK_TWPLL_256M>, <&aon_gate CLK_TWPLL_307M2>,
+				 <&aon_gate CLK_TWPLL_384M>, <&aon_gate CLK_TWPLL_96M>;
 			clock-names = "ext-26m", "twpll-48m", "twpll-51m2",
-				      "twpll-153m6";
+				      "twpll-153m6", "twpll-256m", "twpll-307m2",
+				      "twpll-384m", "twpll-96m";
 			status = "okay";
 		};
 
@@ -163,8 +166,8 @@
 			compatible = "sprd,sc9830-apapb-gate";
 			reg = <0x71300000 0x3000>;
 			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_I2C2>;
-			clock-names = "i2c2";
+			clocks = <&ap_clk CLK_I2C2>, <&ap_clk CLK_UART0>;
+			clock-names = "i2c2", "uart0";
 			status = "okay";
 		};
 
@@ -302,10 +305,12 @@
 			};
 		};
 
-		usb_clock: clock-controller@20e00000 {
-			compatible = "sprd,sc9830-usb-clock";
-			reg = <0x20e00000 0x4>;
-			#clock-cells = <0>;
+		apahb: clock-controller@20e00000 {
+			compatible = "sprd,sc9830-apahb-gate";
+			reg = <0x20e00000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&ap_clk CLK_SDIO0>;
+			clock-names = "sdio0";
 		};
 
 		gic: interrupt-controller@12001000 {
@@ -327,7 +332,7 @@
 			compatible = "snps,dwc2";
 			reg = <0x20200000 0x1000>;
 			interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&usb_clock>;
+			clocks = <&apahb CLK_USB_EB>;
 			clock-names = "otg";
 			dr_mode = "peripheral";
 			maximum-speed = "full-speed";
