@@ -367,5 +367,22 @@
 			no-sd;
 			no-sdio;
 		};
+
+		sdio1: mmc@20400000 {
+			compatible = "sprd,sc9830-sdio";
+			reg = <0x20400000 0x1000>;
+			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apahb CLK_SDIO1_EB>;
+			assigned-clocks = <&ap_clk CLK_SDIO1>;
+			assigned-clock-rates = <96000000>;
+			bus-width = <4>;
+			max-frequency = <48000000>;
+			sprd,phy-delay = <3 3 3>;
+			non-removable;
+			no-sd;
+			no-mmc;
+			no-1-8-v;
+			status = "disabled";
+		};
 	};
 };
