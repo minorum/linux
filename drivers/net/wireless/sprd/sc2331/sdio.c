@@ -125,7 +125,11 @@ static int sc2331_sdio_runtime_records(u8 *data, size_t len, u8 command,
 		if (!ret)
 			break;
 		if (record.type == 1) {
-			if (record.id != command || result != -EAGAIN)
+			if (record.id != command) {
+				offset += used;
+				continue;
+			}
+			if (result != -EAGAIN)
 				return -EPROTO;
 			if (command == 0x21) {
 				if (record.len != 8)
