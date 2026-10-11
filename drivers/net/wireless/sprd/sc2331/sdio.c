@@ -16,6 +16,10 @@
 #define SC2331_WLAN_ADDRESS 0x00100000
 #define SC2331_WLAN_SIZE 786432
 #define SC2331_CHUNK_SIZE 131072
+#define SC2331_CALIB_NAME "sprd/sc2331-calibration.bin"
+#define SC2331_CALIB_SIZE 4096
+#define SC2331_CALIB_OFFSET 616
+#define SC2331_CALIB_REPLY_MIN 3008
 
 static int sc2331_sdio_length(struct sdio_func *func, unsigned int channel)
 {
@@ -51,9 +55,10 @@ static int sc2331_sdio_wait_tx(struct sdio_func *func, size_t len)
 	return -ETIMEDOUT;
 }
 
-static int sc2331_sdio_ack(struct sdio_func *func, u8 *data)
+static int sc2331_sdio_read(struct sdio_func *func, u8 *data, size_t minimum,
+			    size_t capacity, unsigned int timeout_ms)
 {
-	unsigned long deadline = jiffies + msecs_to_jiffies(1000);
+	unsigned long deadline = jiffies + msecs_to_jiffies(timeout_ms);
 	int error, length;
 	u8 ready;
 
@@ -64,15 +69,14 @@ static int sc2331_sdio_ack(struct sdio_func *func, u8 *data)
 			length = sc2331_sdio_length(func, 12);
 			if (length < 0)
 				error = length;
-			else if (length != 6)
+			else if ((size_t)length < minimum || (size_t)length > capacity)
 				error = -EMSGSIZE;
 			else
 				error = sdio_readsb(func, data, 12, length);
 			sdio_release_host(func);
 			if (error)
 				return error;
-			dev_info(&func->dev, "SDIO download reply: %*ph\n", 6, data);
-			return sc2331_decode_sdio_ack(data, length);
+			return length;
 		}
 		sdio_release_host(func);
 		if (error)
@@ -80,6 +84,57 @@ static int sc2331_sdio_ack(struct sdio_func *func, u8 *data)
 		usleep_range(1000, 2000);
 	} while (time_before(jiffies, deadline));
 	return -ETIMEDOUT;
+}
+
+static int sc2331_sdio_ack(struct sdio_func *func, u8 *data)
+{
+	int length = sc2331_sdio_read(func, data, 6, 6, 1000);
+
+	if (length < 0)
+		return length;
+	dev_info(&func->dev, "SDIO download reply: %*ph\n", 6, data);
+	return sc2331_decode_sdio_ack(data, length);
+}
+
+static int sc2331_sdio_calibrate(struct sdio_func *func, u8 *data)
+{
+	const struct firmware *firmware;
+	u8 version, calibrated;
+	int ret;
+
+	ret = request_firmware(&firmware, SC2331_CALIB_NAME, &func->dev);
+	if (ret)
+		return ret;
+	if (firmware->size != SC2331_CALIB_SIZE ||
+	    firmware->data[SC2331_CALIB_OFFSET + 1] > 1) {
+		ret = -EINVAL;
+		goto release;
+	}
+	memcpy(data, firmware->data, SC2331_CALIB_SIZE);
+	version = data[SC2331_CALIB_OFFSET];
+	calibrated = data[SC2331_CALIB_OFFSET + 1];
+	sdio_claim_host(func);
+	ret = sdio_writesb(func, 0, data, SC2331_CALIB_SIZE);
+	sdio_release_host(func);
+	if (ret)
+		goto release;
+	if (!calibrated) {
+		ret = sc2331_sdio_read(func, data, SC2331_CALIB_REPLY_MIN,
+				       SC2331_CALIB_SIZE, 2000);
+		if (ret < 0)
+			goto release;
+		dev_info(&func->dev, "WLAN calibration reply: %d bytes, version %u, calibrated %u\n",
+			 ret, data[0], data[1]);
+		if (data[0] != version || data[1] != 1) {
+			ret = -EPROTO;
+			goto release;
+		}
+	}
+	ret = 0;
+	dev_info(&func->dev, "SC2331 WLAN calibration applied\n");
+release:
+	release_firmware(firmware);
+	return ret;
 }
 
 static int sc2331_sdio_command(struct sdio_func *func, u8 *data,
@@ -171,6 +226,9 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	if (ret)
 		goto disable;
 	dev_info(&func->dev, "SC2331 WLAN calibration ready\n");
+	ret = sc2331_sdio_calibrate(func, data);
+	if (ret)
+		goto disable;
 	goto free;
 disable:
 	sdio_claim_host(func);
@@ -204,3 +262,4 @@ struct sdio_driver sc2331_sdio_driver = {
 	.remove = sc2331_sdio_remove,
 };
 MODULE_FIRMWARE(SC2331_WLAN_NAME);
+MODULE_FIRMWARE(SC2331_CALIB_NAME);
