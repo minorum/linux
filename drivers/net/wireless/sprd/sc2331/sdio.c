@@ -9,6 +9,7 @@
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 
+#include "boot.h"
 #include "protocol.h"
 
 #define SC2331_WLAN_NAME "sprd/sc2331-wlan.bin"
@@ -111,12 +112,16 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 			     const struct sdio_device_id *id)
 {
 	const struct firmware *firmware;
+	struct sc2331_boot *boot;
 	size_t offset, copied, capacity = SC2331_CHUNK_SIZE + 8;
 	u8 payload[8], *data;
 	int ret;
 
 	if (func->num != 1)
 		return -ENODEV;
+	boot = sc2331_boot_get(&func->dev);
+	if (IS_ERR(boot))
+		return dev_err_probe(&func->dev, PTR_ERR(boot), "Missing UART bootstrap\n");
 	ret = request_firmware(&firmware, SC2331_WLAN_NAME, &func->dev);
 	if (ret)
 		return ret;
@@ -157,10 +162,15 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	ret = sc2331_sdio_command(func, data, capacity, 3, NULL, 0);
 	if (ret)
 		goto disable;
+	sc2331_boot_arm(boot);
 	ret = sc2331_sdio_command(func, data, capacity, 4, payload, 4);
 	if (ret)
 		goto disable;
 	dev_info(&func->dev, "SC2331 WLAN image executed\n");
+	ret = sc2331_boot_wait_ready(boot);
+	if (ret)
+		goto disable;
+	dev_info(&func->dev, "SC2331 WLAN calibration ready\n");
 	goto free;
 disable:
 	sdio_claim_host(func);

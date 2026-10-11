@@ -415,6 +415,8 @@
 		};
 
 		sdio1: mmc@20400000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
 			compatible = "sprd,sc9830-sdio";
 			reg = <0x20400000 0x1000>;
 			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
@@ -431,6 +433,12 @@
 			no-mmc;
 			no-1-8-v;
 			status = "disabled";
+
+			wifi@1 {
+				compatible = "sprd,sc2331-wifi";
+				reg = <1>;
+				sprd,boot-controller = <&connectivity>;
+			};
 		};
 	};
 };

@@ -7,11 +7,13 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/mmc/sdio_func.h>
+#include <linux/of.h>
 #include <linux/regulator/consumer.h>
 #include <linux/serdev.h>
 #include <linux/spinlock.h>
 #include <linux/unaligned.h>
 
+#include "boot.h"
 #include "protocol.h"
 
 #define SC2331_FDL_NAME "sprd/sc2331-fdl.bin"
@@ -26,6 +28,8 @@ struct sc2331_boot {
 	struct gpio_desc *host_wake;
 	unsigned long wake_levels;
 	struct completion received;
+	struct completion ready;
+	bool ready_armed;
 	spinlock_t lock; /* RX */
 	struct sc2331_uart_stream rx;
 	int rx_status;
@@ -37,6 +41,7 @@ struct sc2331_boot {
 static irqreturn_t sc2331_boot_wake(int irq, void *data)
 {
 	struct sc2331_boot *boot = data;
+	unsigned long flags;
 	int level = gpiod_get_value_cansleep(boot->host_wake);
 
 	if (level < 0)
@@ -45,7 +50,29 @@ static irqreturn_t sc2331_boot_wake(int irq, void *data)
 		boot->wake_levels |= BIT(level);
 		dev_info(&boot->serdev->dev, "Host wake IRQ level: %d\n", level);
 	}
+	spin_lock_irqsave(&boot->lock, flags);
+	if (!level && boot->ready_armed) {
+		boot->ready_armed = false;
+		complete(&boot->ready);
+	}
+	spin_unlock_irqrestore(&boot->lock, flags);
 	return IRQ_HANDLED;
+}
+
+void sc2331_boot_arm(struct sc2331_boot *boot)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&boot->lock, flags);
+	reinit_completion(&boot->ready);
+	boot->ready_armed = true;
+	spin_unlock_irqrestore(&boot->lock, flags);
+}
+
+int sc2331_boot_wait_ready(struct sc2331_boot *boot)
+{
+	return wait_for_completion_timeout(&boot->ready, msecs_to_jiffies(2000)) ?
+		0 : -ETIMEDOUT;
 }
 
 static size_t sc2331_boot_receive(struct serdev_device *serdev,
@@ -195,6 +222,7 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	boot->serdev = serdev;
 	spin_lock_init(&boot->lock);
 	init_completion(&boot->received);
+	init_completion(&boot->ready);
 	serdev_device_set_drvdata(serdev, boot);
 	serdev_device_set_client_ops(serdev, &sc2331_boot_ops);
 	boot->supply = devm_regulator_get(dev, "vddcon");
@@ -307,6 +335,32 @@ static struct serdev_device_driver sc2331_boot_driver = {
 	.probe = sc2331_boot_probe,
 	.shutdown = sc2331_boot_shutdown,
 };
+
+struct sc2331_boot *sc2331_boot_get(struct device *dev)
+{
+	struct sc2331_boot *boot = ERR_PTR(-EPROBE_DEFER);
+	struct device_node *node;
+	struct device *supplier;
+
+	node = of_parse_phandle(dev->of_node, "sprd,boot-controller", 0);
+	if (!node)
+		return ERR_PTR(-EINVAL);
+	supplier = driver_find_device_by_of_node(&sc2331_boot_driver.driver, node);
+	of_node_put(node);
+	if (!supplier)
+		return boot;
+	device_lock(supplier);
+	if (device_is_bound(supplier)) {
+		boot = dev_get_drvdata(supplier);
+		if (!boot->host_wake)
+			boot = ERR_PTR(-ENODEV);
+		else if (!device_link_add(dev, supplier, DL_FLAG_AUTOREMOVE_CONSUMER))
+			boot = ERR_PTR(-ENOMEM);
+	}
+	device_unlock(supplier);
+	put_device(supplier);
+	return boot;
+}
 
 static int __init sc2331_init(void)
 {
