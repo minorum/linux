@@ -26,6 +26,7 @@ struct sc2331_boot {
 	struct clk *clock;
 	struct gpio_desc *reset;
 	struct gpio_desc *host_wake;
+	struct gpio_desc *device_wake;
 	unsigned long wake_levels;
 	struct completion received;
 	struct completion ready;
@@ -73,6 +74,34 @@ int sc2331_boot_wait_ready(struct sc2331_boot *boot)
 {
 	return wait_for_completion_timeout(&boot->ready, msecs_to_jiffies(2000)) ?
 		0 : -ETIMEDOUT;
+}
+
+void sc2331_boot_sleep_device(struct sc2331_boot *boot)
+{
+	if (boot->device_wake)
+		gpiod_set_value_cansleep(boot->device_wake, 0);
+}
+
+int sc2331_boot_wake_device(struct sc2331_boot *boot)
+{
+	unsigned long deadline = jiffies + msecs_to_jiffies(100);
+	int level, ret = -ETIMEDOUT;
+
+	if (!boot->device_wake || !boot->host_wake)
+		return -ENODEV;
+	gpiod_set_value_cansleep(boot->device_wake, 1);
+	do {
+		level = gpiod_get_value_cansleep(boot->host_wake);
+		if (level > 0)
+			return 0;
+		if (level < 0) {
+			ret = level;
+			break;
+		}
+		usleep_range(1000, 2000);
+	} while (time_before(jiffies, deadline));
+	sc2331_boot_sleep_device(boot);
+	return ret;
 }
 
 static size_t sc2331_boot_receive(struct serdev_device *serdev,
@@ -193,6 +222,7 @@ static void sc2331_boot_power_off(void *data)
 	struct sc2331_boot *boot = data;
 	int ret;
 
+	sc2331_boot_sleep_device(boot);
 	gpiod_set_value_cansleep(boot->reset, 1);
 	if (boot->clocked) {
 		clk_disable_unprepare(boot->clock);
@@ -237,6 +267,9 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	boot->host_wake = devm_gpiod_get_optional(dev, "host-wake", GPIOD_IN);
 	if (IS_ERR(boot->host_wake))
 		return dev_err_probe(dev, PTR_ERR(boot->host_wake), "Invalid host wake\n");
+	boot->device_wake = devm_gpiod_get_optional(dev, "device-wake", GPIOD_OUT_LOW);
+	if (IS_ERR(boot->device_wake))
+		return dev_err_probe(dev, PTR_ERR(boot->device_wake), "Invalid device wake\n");
 	if (boot->host_wake) {
 		ret = gpiod_to_irq(boot->host_wake);
 		if (ret < 0)

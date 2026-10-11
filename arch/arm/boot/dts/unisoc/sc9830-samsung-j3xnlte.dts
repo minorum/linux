@@ -211,6 +211,7 @@
 				clock-names = "ext_clock";
 				reset-gpios = <&gpio 130 GPIO_ACTIVE_LOW>;
 				host-wake-gpios = <&gpio 97 GPIO_ACTIVE_HIGH>;
+				device-wake-gpios = <&gpio 133 GPIO_ACTIVE_HIGH>;
 				status = "disabled";
 			};
 		};

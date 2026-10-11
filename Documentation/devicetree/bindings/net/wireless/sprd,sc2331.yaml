@@ -34,6 +34,10 @@ properties:
     description: Connectivity controller wake and boot readiness indication
     maxItems: 1
 
+  device-wake-gpios:
+    description: Host output requesting connectivity controller wake
+    maxItems: 1
+
   vddcon-supply:
     description: Factory-calibrated 1.6 V connectivity supply
 

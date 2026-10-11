@@ -229,6 +229,11 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	ret = sc2331_sdio_calibrate(func, data);
 	if (ret)
 		goto disable;
+	ret = sc2331_boot_wake_device(boot);
+	if (ret)
+		goto disable;
+	sdio_set_drvdata(func, boot);
+	dev_info(&func->dev, "SC2331 WLAN runtime awake\n");
 	goto free;
 disable:
 	sdio_claim_host(func);
@@ -244,6 +249,7 @@ release:
 
 static void sc2331_sdio_remove(struct sdio_func *func)
 {
+	sc2331_boot_sleep_device(sdio_get_drvdata(func));
 	sdio_claim_host(func);
 	sdio_disable_func(func);
 	sdio_release_host(func);
