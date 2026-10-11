@@ -24,7 +24,53 @@
 
 	memory@80000000 {
 		device_type = "memory";
-		reg = <0x80000000 0x07800000>;
+		reg = <0x80000000 0x60000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ddr-training@80000000 {
+			reg = <0x80000000 0x1000>;
+			no-map;
+		};
+
+		debug@86a00000 {
+			reg = <0x86a00000 0x200000>;
+			no-map;
+		};
+
+		modem-shmem@87800000 {
+			reg = <0x87800000 0x500000>;
+			no-map;
+		};
+
+		modem@89600000 {
+			reg = <0x89600000 0x4380000>;
+			no-map;
+		};
+
+		multimedia@9b23b000 {
+			reg = <0x9b23b000 0x3939000>;
+			no-map;
+		};
+
+		framebuffer@9eb74000 {
+			reg = <0x9eb74000 0xa8c000>;
+			no-map;
+		};
+
+		bootloader@9f600000 {
+			reg = <0x9f600000 0x708000>;
+			no-map;
+		};
+
+		ddr-training@b0000000 {
+			reg = <0xb0000000 0x1000>;
+			no-map;
+		};
 	};
 
 	cpus {
