@@ -12,11 +12,11 @@ if WLAN_VENDOR_SPRD
 
 config SC2331
 	tristate "Spreadtrum SC2331 connectivity support"
-	depends on SERIAL_DEV_BUS && OF
+	depends on SERIAL_DEV_BUS && OF && MMC
 	select CRC_ITU_T
 	help
 	  Boots the SC2331 connectivity controller through its UART ROM
-	  protocol and loads the first-stage firmware using serdev.
+	  protocol and loads its firmware using serdev and SDIO.
 	  Requires factory-calibrated connectivity power, reset and reference
 	  clock providers. Wi-Fi networking support is not available yet.
 

@@ -4,6 +4,9 @@
 
 #include <linux/types.h>
 
+struct sdio_driver;
+extern struct sdio_driver sc2331_sdio_driver;
+
 struct sc2331_record {
 	const u8 *data;
 	size_t len;

@@ -5,6 +5,7 @@
 #include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
+#include <linux/mmc/sdio_func.h>
 #include <linux/regulator/consumer.h>
 #include <linux/serdev.h>
 #include <linux/spinlock.h>
@@ -276,7 +277,27 @@ static struct serdev_device_driver sc2331_boot_driver = {
 	.probe = sc2331_boot_probe,
 	.shutdown = sc2331_boot_shutdown,
 };
-module_serdev_device_driver(sc2331_boot_driver);
+
+static int __init sc2331_init(void)
+{
+	int ret;
+
+	ret = serdev_device_driver_register(&sc2331_boot_driver);
+	if (ret)
+		return ret;
+	ret = sdio_register_driver(&sc2331_sdio_driver);
+	if (ret)
+		serdev_device_driver_unregister(&sc2331_boot_driver);
+	return ret;
+}
+module_init(sc2331_init);
+
+static void __exit sc2331_exit(void)
+{
+	sdio_unregister_driver(&sc2331_sdio_driver);
+	serdev_device_driver_unregister(&sc2331_boot_driver);
+}
+module_exit(sc2331_exit);
 
 MODULE_FIRMWARE(SC2331_FDL_NAME);
 MODULE_DESCRIPTION("SC2331 connectivity UART bootstrap");
