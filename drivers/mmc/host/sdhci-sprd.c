@@ -991,6 +991,7 @@ static const struct sdhci_ops sc9830_sdio_ops = {
 static const struct sdhci_pltfm_data sc9830_sdio_data = {
 	.ops = &sc9830_sdio_ops,
 	.quirks = SDHCI_QUIRK_BROKEN_ADMA |
+		  SDHCI_QUIRK_NO_HISPD_BIT |
 		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
 		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
