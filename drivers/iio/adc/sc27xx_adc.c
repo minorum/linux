@@ -514,11 +514,25 @@ static int sc27xx_adc_read(struct sc27xx_adc_data *data, int channel,
 {
 	int ret, ret_volref, cleanup;
 	u32 tmp, value, status;
+	u32 mux_reg = 0, mux_mask = 0, mux_saved = 0, mux_value;
 
 	ret = hwspin_lock_timeout_raw(data->hwlock, SC27XX_ADC_HWLOCK_TIMEOUT);
 	if (ret) {
 		dev_err(data->dev, "timeout to get the hwspinlock\n");
 		return ret;
+	}
+	if (data->var_data->legacy && (channel == 13 || channel == 23)) {
+		mux_reg = channel == 13 ? 0x888 : 0x844;
+		mux_mask = channel == 13 ? GENMASK(15, 13) : BIT(5);
+		mux_value = channel == 13 ? 0xc000 : BIT(5);
+		ret = regmap_read(data->regmap, mux_reg, &mux_saved);
+		if (ret) {
+			mux_mask = 0;
+			goto unlock_adc;
+		}
+		ret = regmap_update_bits(data->regmap, mux_reg, mux_mask, mux_value);
+		if (ret)
+			goto unlock_adc;
 	}
 
 	/*
@@ -614,6 +628,14 @@ regulator_restore:
 		}
 	}
 unlock_adc:
+	if (mux_mask) {
+		cleanup = regmap_update_bits(data->regmap, mux_reg, mux_mask,
+					     mux_saved & mux_mask);
+		if (cleanup)
+			dev_err(data->dev, "rail mux restore failed: %d\n", cleanup);
+		if (!ret)
+			ret = cleanup;
+	}
 	hwspin_unlock_raw(data->hwlock);
 
 	if (!ret)
@@ -696,6 +718,16 @@ static int sc27xx_adc_convert_volt(struct sc27xx_adc_data *data, int channel,
 			return sc27xx_adc_to_volt(&data->small_graph, raw_adc);
 		return sc27xx_adc_to_volt(&small_scale_graph, raw_adc);
 
+	case 13:
+	case 23:
+		if (data->var_data->legacy) {
+			volt = sc27xx_adc_to_volt(&data->small_graph, raw_adc);
+			return channel == 13 ? DIV_ROUND_CLOSEST(volt * 16, 9) :
+					       volt * 3;
+		}
+		volt = sc27xx_adc_to_volt(&small_scale_graph, raw_adc);
+		break;
+
 	default:
 		volt = sc27xx_adc_to_volt(&small_scale_graph, raw_adc);
 		break;
@@ -775,7 +807,7 @@ static int sc27xx_adc_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		if (data->var_data->legacy && (val2 || val < 0 || val > 1))
 			return -EINVAL;
-		if (data->var_data->legacy && chan->channel == 1 && val)
+		if (data->var_data->legacy && chan->channel != 5 && val)
 			return -EINVAL;
 		mutex_lock(&data->lock);
 		data->channel_scale[chan->channel] = val;
@@ -860,6 +892,10 @@ static const struct iio_chan_spec sc2723_channels[] = {
 			    BIT(IIO_CHAN_INFO_PROCESSED)),
 	SC27XX_ADC_CHANNEL(5, BIT(IIO_CHAN_INFO_RAW) |
 			    BIT(IIO_CHAN_INFO_PROCESSED)),
+	SC27XX_ADC_CHANNEL(13, BIT(IIO_CHAN_INFO_RAW) |
+			     BIT(IIO_CHAN_INFO_PROCESSED)),
+	SC27XX_ADC_CHANNEL(23, BIT(IIO_CHAN_INFO_RAW) |
+			     BIT(IIO_CHAN_INFO_PROCESSED)),
 };
 
 static int sc2723_adc_restore(struct sc27xx_adc_data *data)
