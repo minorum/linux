@@ -56,6 +56,34 @@ ssize_t sc2331_encode_sdio(u8 *data, size_t capacity, u16 command,
 	return wire_len + 8;
 }
 
+ssize_t sc2331_encode_command(u8 *data, size_t capacity, u8 command,
+			      u32 sequence, const u8 *payload, size_t len)
+{
+	size_t total, wire_len;
+	unsigned int i;
+
+	if (command > 0x37 || (len && !payload))
+		return -EINVAL;
+	if (len > 64512 - 68)
+		return -EMSGSIZE;
+	total = 68 + ((len + 3) & ~3UL);
+	wire_len = (total + 1023) & ~1023UL;
+	if (capacity < wire_len)
+		return -EMSGSIZE;
+	if (len)
+		memmove(data + 68, payload, len);
+	memset(data, 0, 68);
+	memset(data + 68 + len, 0, wire_len - 68 - len);
+	data[1] = 1;
+	put_unaligned_le16(total, data + 2);
+	data[5] = command;
+	put_unaligned_le16(len, data + 6);
+	for (i = 0; i < 4; i++)
+		data[60 + i] = sequence >> (8 * i);
+	memcpy(data + 64, data + 4, 4);
+	return wire_len;
+}
+
 int sc2331_decode_record(const u8 *data, size_t len,
 			 struct sc2331_record *record, size_t *used)
 {
