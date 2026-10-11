@@ -10,10 +10,11 @@
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/device.h>
 
 #include <linux/mmc/host.h>
 
-#include "pwrseq.h"
+#include <linux/mmc/pwrseq.h>
 
 static DEFINE_MUTEX(pwrseq_list_mutex);
 static LIST_HEAD(pwrseq_list);
@@ -33,6 +34,9 @@ int mmc_pwrseq_alloc(struct mmc_host *host)
 			if (!try_module_get(p->owner))
 				dev_err(host->parent,
 					"increasing module refcount failed\n");
+			else if (!device_link_add(host->parent, p->dev,
+						  DL_FLAG_AUTOREMOVE_CONSUMER))
+				module_put(p->owner);
 			else
 				host->pwrseq = p;
 

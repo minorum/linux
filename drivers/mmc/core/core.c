@@ -40,7 +40,7 @@
 #include "bus.h"
 #include "host.h"
 #include "sdio_bus.h"
-#include "pwrseq.h"
+#include <linux/mmc/pwrseq.h>
 
 #include "mmc_ops.h"
 #include "sd_ops.h"

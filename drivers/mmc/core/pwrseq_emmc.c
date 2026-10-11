@@ -19,7 +19,7 @@
 
 #include <linux/mmc/host.h>
 
-#include "pwrseq.h"
+#include <linux/mmc/pwrseq.h>
 
 struct mmc_pwrseq_emmc {
 	struct mmc_pwrseq pwrseq;
