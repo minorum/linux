@@ -133,7 +133,7 @@ int sc2331_decode_connect_result(const u8 *data, size_t len,
 		return -EMSGSIZE;
 	offset = 12 + request_len;
 	response_len = data[offset] + data[offset + 1];
-	if (response_len != len - offset - 2)
+	if (response_len > len - offset - 2)
 		return -EMSGSIZE;
 	result->bssid = data + 5;
 	result->request_ie = data + 12;
