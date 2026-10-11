@@ -433,6 +433,7 @@
 			no-sd;
 			no-mmc;
 			no-1-8-v;
+			mmc-pwrseq = <&connectivity>;
 			status = "disabled";
 
 			wifi@1 {
