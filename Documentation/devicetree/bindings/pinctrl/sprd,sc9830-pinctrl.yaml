@@ -11,7 +11,7 @@ maintainers:
 
 description:
   The controller has per-pad registers and separate global controls.
-  Currently only the SCL2 and SDA2 alternate functions are supported. GPIO
+  The I2C2 and UART0 alternate functions are supported. GPIO
   mode selects the pad function and does not configure the GPIO controller.
 
 allOf:
@@ -31,10 +31,10 @@ patternProperties:
     additionalProperties: false
     properties:
       function:
-        enum: [i2c2, gpio]
+        enum: [i2c2, gpio, uart0]
       groups:
         items:
-          enum: [i2c2]
+          enum: [i2c2, uart0]
         maxItems: 1
     required:
       - function

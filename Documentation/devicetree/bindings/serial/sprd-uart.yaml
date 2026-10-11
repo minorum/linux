@@ -21,6 +21,7 @@ properties:
           - const: sprd,sc9632-uart
       - items:
           - enum:
+              - sprd,sc9830-uart
               - sprd,sc9860-uart
               - sprd,sc9863a-uart
               - sprd,ums512-uart
