@@ -131,12 +131,43 @@ static CLK_FIXED_FACTOR_HW(twpll_51m2, "sc9830-twpll-51m2", &twpll.hw,
 			   30, 1, CLK_GET_RATE_NOCACHE);
 static CLK_FIXED_FACTOR_HW(twpll_153m6, "sc9830-twpll-153m6", &twpll.hw,
 			   10, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_96m, "sc9830-twpll-96m", &twpll.hw,
+			   16, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_256m, "sc9830-twpll-256m", &twpll.hw,
+			   6, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_307m2, "sc9830-twpll-307m2", &twpll.hw,
+			   5, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_384m, "sc9830-twpll-384m", &twpll.hw,
+			   4, 1, CLK_GET_RATE_NOCACHE);
+
+static const struct clk_parent_data aux0_parents[] = {
+	{ .fw_name = "ext-32k" },
+	{ .fw_name = "ext-26m" },
+	{ .fw_name = "ext-26m-rf1" },
+	{ .fw_name = "ext-4m" },
+	{ .fw_name = "dpll-42m" },
+	{ .hw = &twpll_48m.hw },
+	{ .fw_name = "mpll-56m" },
+};
+
+static SPRD_MUX_CLK_DATA(aux0_mux, "sc9830-aux0-mux", aux0_parents,
+			 0x88, 0, 4, 0);
+
+static struct sprd_gate aux0_eb = {
+	.enable_mask = BIT(2),
+	.sc_offset = 0x1000,
+	.common.reg = 0x4,
+	.common.hw.init = CLK_HW_INIT_HW("sc9830-aux0", &aux0_mux.common.hw,
+				       &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
+};
 
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
 	&sindrv.common,
 	&twpll,
+	&aux0_mux.common,
+	&aux0_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
@@ -148,6 +179,12 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_48M] = &twpll_48m.hw,
 		[CLK_TWPLL_51M2] = &twpll_51m2.hw,
 		[CLK_TWPLL_153M6] = &twpll_153m6.hw,
+		[CLK_AUX0_MUX] = &aux0_mux.common.hw,
+		[CLK_AUX0] = &aux0_eb.common.hw,
+		[CLK_TWPLL_96M] = &twpll_96m.hw,
+		[CLK_TWPLL_256M] = &twpll_256m.hw,
+		[CLK_TWPLL_307M2] = &twpll_307m2.hw,
+		[CLK_TWPLL_384M] = &twpll_384m.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
@@ -168,13 +205,37 @@ static const struct clk_parent_data i2c2_parents[] = {
 static SPRD_COMP_CLK_DATA(i2c2_clk, "sc9830-i2c2", i2c2_parents,
 			  0x70, 0, 2, 8, 3, 0);
 
+static const struct clk_parent_data sdio0_parents[] = {
+	{ .fw_name = "ext-26m" },
+	{ .fw_name = "twpll-256m" },
+	{ .fw_name = "twpll-307m2" },
+	{ .fw_name = "twpll-384m" },
+};
+
+static SPRD_COMP_CLK_DATA(sdio0_clk, "sc9830-sdio0", sdio0_parents,
+			  0x3c, 0, 2, 8, 3, 0);
+
+static const struct clk_parent_data uart0_parents[] = {
+	{ .fw_name = "ext-26m" },
+	{ .fw_name = "twpll-48m" },
+	{ .fw_name = "twpll-51m2" },
+	{ .fw_name = "twpll-96m" },
+};
+
+static SPRD_COMP_CLK_DATA(uart0_clk, "sc9830-uart0", uart0_parents,
+			  0x54, 0, 2, 8, 3, 0);
+
 static struct sprd_clk_common *sc9830_ap_clks[] = {
 	&i2c2_clk.common,
+	&sdio0_clk.common,
+	&uart0_clk.common,
 };
 
 static struct clk_hw_onecell_data sc9830_ap_hws = {
 	.hws = {
 		[CLK_I2C2] = &i2c2_clk.common.hw,
+		[CLK_SDIO0] = &sdio0_clk.common.hw,
+		[CLK_UART0] = &uart0_clk.common.hw,
 	},
 	.num = CLK_AP_CLK_NUM,
 };
@@ -192,13 +253,22 @@ static struct sprd_gate i2c2_eb = {
 					    &sprd_sc_gate_ops, 0),
 };
 
+static struct sprd_gate uart0_eb = {
+	.enable_mask = BIT(13),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-uart0-eb", "uart0",
+					    &sprd_sc_gate_ops, 0),
+};
+
 static struct sprd_clk_common *sc9830_apapb_clks[] = {
 	&i2c2_eb.common,
+	&uart0_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_apapb_hws = {
 	.hws = {
 		[CLK_I2C2_EB] = &i2c2_eb.common.hw,
+		[CLK_UART0_EB] = &uart0_eb.common.hw,
 	},
 	.num = CLK_AP_APB_GATE_NUM,
 };
@@ -207,6 +277,39 @@ static const struct sprd_clk_desc sc9830_apapb_desc = {
 	.clk_clks = sc9830_apapb_clks,
 	.num_clk_clks = ARRAY_SIZE(sc9830_apapb_clks),
 	.hw_clks = &sc9830_apapb_hws,
+};
+
+static struct sprd_gate sdio0_eb = {
+	.enable_mask = BIT(8),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-sdio0-eb", "sdio0",
+					    &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
+};
+
+static struct sprd_gate usb_eb = {
+	.enable_mask = BIT(4),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-usb-eb",
+					       &sprd_sc_gate_ops, CLK_IGNORE_UNUSED),
+};
+
+static struct sprd_clk_common *sc9830_apahb_clks[] = {
+	&sdio0_eb.common,
+	&usb_eb.common,
+};
+
+static struct clk_hw_onecell_data sc9830_apahb_hws = {
+	.hws = {
+		[CLK_SDIO0_EB] = &sdio0_eb.common.hw,
+		[CLK_USB_EB] = &usb_eb.common.hw,
+	},
+	.num = CLK_AP_AHB_GATE_NUM,
+};
+
+static const struct sprd_clk_desc sc9830_apahb_desc = {
+	.clk_clks = sc9830_apahb_clks,
+	.num_clk_clks = ARRAY_SIZE(sc9830_apahb_clks),
+	.hw_clks = &sc9830_apahb_hws,
 };
 
 static int sc9830_clk_probe(struct platform_device *pdev)
@@ -226,6 +329,7 @@ static const struct of_device_id sc9830_clk_match[] = {
 	{ .compatible = "sprd,sc9830-aon-clk", .data = &sc9830_aon_full_desc },
 	{ .compatible = "sprd,sc9830-ap-clk", .data = &sc9830_ap_desc },
 	{ .compatible = "sprd,sc9830-apapb-gate", .data = &sc9830_apapb_desc },
+	{ .compatible = "sprd,sc9830-apahb-gate", .data = &sc9830_apahb_desc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, sc9830_clk_match);
