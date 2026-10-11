@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/regulator/sprd,sc2723-regulator.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC2723 connectivity regulators
+
+maintainers:
+  - Orson Zhai <orsonzhai@gmail.com>
+  - Baolin Wang <baolin.wang7@gmail.com>
+  - Chunyan Zhang <zhang.lyra@gmail.com>
+
+description: |
+  Factory-calibrated connectivity supplies used at 1.6 V (vddcon) and
+  3.3 V (vddwifipa). Other operating voltages are currently unsupported.
+  Calibration state bit 7 at eFuse byte 0 must be clear. The connectivity
+  trim occupies bits 105 through 111; the Wi-Fi PA trim occupies bits
+  164 through 169. The trims are centered at 64 and 32 respectively.
+
+properties:
+  compatible:
+    const: sprd,sc2723-regulator
+
+  nvmem-cells:
+    items:
+      - description: Factory calibration validity bit
+      - description: Connectivity voltage trim
+      - description: Wi-Fi PA voltage trim
+
+  nvmem-cell-names:
+    items:
+      - const: calibration_state
+      - const: vddcon
+      - const: vddwifipa
+
+  vddcon:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 1600000
+      regulator-max-microvolt:
+        const: 1600000
+    unevaluatedProperties: false
+
+  vddwifipa:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 3300000
+      regulator-max-microvolt:
+        const: 3300000
+    unevaluatedProperties: false
+
+required:
+  - compatible
+  - nvmem-cells
+  - nvmem-cell-names
+
+additionalProperties: false
+...
