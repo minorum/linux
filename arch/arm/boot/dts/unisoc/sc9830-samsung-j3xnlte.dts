@@ -326,8 +326,8 @@
 			compatible = "sprd,sc9830-apahb-gate";
 			reg = <0x20e00000 0x3000>;
 			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_SDIO0>;
-			clock-names = "sdio0";
+			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>;
+			clock-names = "sdio0", "sdio1";
 		};
 
 		gic: interrupt-controller@12001000 {
