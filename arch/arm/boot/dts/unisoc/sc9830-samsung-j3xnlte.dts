@@ -3,6 +3,7 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/sprd,sc9830-clk.h>
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Samsung Galaxy J3 SM-J320FN";
@@ -202,6 +203,15 @@
 			clock-names = "enable", "uart", "source";
 			pinctrl-names = "default";
 			pinctrl-0 = <&uart0_default>;
+
+			connectivity: mcu {
+				compatible = "sprd,sc2331";
+				vddcon-supply = <&vddcon>;
+				clocks = <&aon_gate CLK_AUX0>;
+				clock-names = "ext_clock";
+				reset-gpios = <&gpio 130 GPIO_ACTIVE_LOW>;
+				status = "disabled";
+			};
 		};
 
 		i2c2: i2c@70700000 {
