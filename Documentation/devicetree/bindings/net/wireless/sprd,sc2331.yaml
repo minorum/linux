@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/wireless/sprd,sc2331.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC2331 connectivity controller UART bootstrap
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  The connectivity controller boots through a UART ROM loader before its
+  SDIO firmware transport becomes available. The UART child owns the shared
+  connectivity supply, reference clock and active-low reset.
+
+allOf:
+  - $ref: /schemas/serial/serial-peripheral-props.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc2331
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: ext_clock
+
+  reset-gpios:
+    maxItems: 1
+
+  vddcon-supply:
+    description: Factory-calibrated 1.6 V connectivity supply
+
+required:
+  - compatible
+  - clocks
+  - clock-names
+  - reset-gpios
+  - vddcon-supply
+
+unevaluatedProperties: false
+...
