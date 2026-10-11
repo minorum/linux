@@ -15,6 +15,7 @@
 #include <linux/if_vlan.h>
 #include <linux/workqueue.h>
 #include <net/cfg80211.h>
+#include <net/regulatory.h>
 
 #include "boot.h"
 #include "protocol.h"
@@ -28,6 +29,7 @@
 #define SC2331_CALIB_OFFSET 616
 #define SC2331_CALIB_REPLY_MIN 3008
 #define SC2331_RUNTIME_RX_SIZE 65536
+#define SC2331_MAX_TX_POWER 20
 
 struct sc2331_wifi {
 	struct sdio_func *func;
@@ -50,6 +52,7 @@ struct sc2331_wifi {
 	bool scan_done;
 	bool connecting;
 	bool connected;
+	bool regulatory_ready;
 	unsigned int scan_frames;
 };
 
@@ -475,6 +478,72 @@ static int sc2331_wifi_command(struct sc2331_wifi *wifi, u8 command,
 					    timeout, sc2331_runtime_event, wifi);
 }
 
+static void sc2331_reg_notify(struct wiphy *wiphy,
+			      struct regulatory_request *request)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	const struct ieee80211_reg_rule *rules[14], *rule;
+	u8 payload[8 + 14 * 24] = {}, reason[2];
+	unsigned int i, j, count = 0;
+	u8 *entry;
+	int ret;
+
+	mutex_lock(&wifi->lock);
+	wifi->regulatory_ready = false;
+	if (wifi->stopping)
+		goto unlock;
+	for (i = 0; i < ARRAY_SIZE(wifi->channels); i++) {
+		if (wifi->channels[i].flags & IEEE80211_CHAN_DISABLED)
+			continue;
+		rule = freq_reg_info(wiphy, MHZ_TO_KHZ(wifi->channels[i].center_freq));
+		if (IS_ERR(rule)) {
+			ret = PTR_ERR(rule);
+			goto failed;
+		}
+		if (rule->freq_range.max_bandwidth_khz < 20000) {
+			ret = -EOPNOTSUPP;
+			goto failed;
+		}
+		for (j = 0; j < count; j++)
+			if (rules[j] == rule)
+				break;
+		if (j < count)
+			continue;
+		rules[count] = rule;
+		entry = payload + 8 + count++ * 24;
+		put_unaligned_le32(rule->freq_range.start_freq_khz, entry);
+		put_unaligned_le32(rule->freq_range.end_freq_khz, entry + 4);
+		put_unaligned_le32(20000, entry + 8);
+		put_unaligned_le32(rule->power_rule.max_antenna_gain, entry + 12);
+		put_unaligned_le32(min_t(u32, rule->power_rule.max_eirp,
+					 SC2331_MAX_TX_POWER * 100), entry + 16);
+		put_unaligned_le32(rule->flags, entry + 20);
+	}
+	if (!count) {
+		ret = -EINVAL;
+		goto failed;
+	}
+	put_unaligned_le32(count, payload);
+	payload[4] = request->alpha2[0];
+	payload[5] = request->alpha2[1];
+	ret = sc2331_wifi_command(wifi, 0x29, payload, 8 + count * 24, 3000);
+	if (ret)
+		goto failed;
+	wifi->regulatory_ready = true;
+	dev_info(&wifi->func->dev, "SC2331 regulatory domain applied: %c%c, %u rules\n",
+		 request->alpha2[0], request->alpha2[1], count);
+	goto unlock;
+failed:
+	if (wifi->connected || wifi->connecting) {
+		put_unaligned_le16(WLAN_REASON_UNSPECIFIED, reason);
+		sc2331_wifi_command(wifi, 0x10, reason, sizeof(reason), 3000);
+		sc2331_connection_down(wifi, WLAN_REASON_UNSPECIFIED, true);
+	}
+	dev_err(&wifi->func->dev, "SC2331 regulatory update failed: %d\n", ret);
+unlock:
+	mutex_unlock(&wifi->lock);
+}
+
 static void sc2331_rx_work(struct work_struct *work)
 {
 	struct sc2331_wifi *wifi = container_of(to_delayed_work(work),
@@ -538,6 +607,10 @@ static int sc2331_scan(struct wiphy *wiphy, struct cfg80211_scan_request *reques
 		ret = -ENODEV;
 		goto unlock;
 	}
+	if (!wifi->regulatory_ready) {
+		ret = -EAGAIN;
+		goto unlock;
+	}
 	if (wifi->scan) {
 		ret = -EBUSY;
 		goto unlock;
@@ -595,6 +668,10 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 	if (sme->bssid && !is_valid_ether_addr(sme->bssid))
 		return -EINVAL;
 	mutex_lock(&wifi->lock);
+	if (!wifi->regulatory_ready && !wifi->stopping) {
+		ret = -EAGAIN;
+		goto unlock;
+	}
 	if (wifi->stopping || wifi->scan || wifi->connecting || wifi->connected) {
 		ret = wifi->stopping ? -ENODEV : -EBUSY;
 		goto unlock;
@@ -865,7 +942,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 		wifi->channels[i].hw_value = i + 1;
 		wifi->channels[i].center_freq =
 			ieee80211_channel_to_frequency(i + 1, NL80211_BAND_2GHZ);
-		wifi->channels[i].max_power = 20;
+		wifi->channels[i].max_power = SC2331_MAX_TX_POWER;
 	}
 	wifi->band.channels = wifi->channels;
 	wifi->band.n_channels = ARRAY_SIZE(wifi->channels);
@@ -877,6 +954,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->cipher_suites = sc2331_ciphers;
 	wiphy->n_cipher_suites = ARRAY_SIZE(sc2331_ciphers);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
+	wiphy->reg_notifier = sc2331_reg_notify;
 	set_wiphy_dev(wiphy, &func->dev);
 	memcpy(wiphy->perm_addr, mac, ETH_ALEN);
 	netdev->ieee80211_ptr = &wifi->wdev;
