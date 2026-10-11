@@ -25575,6 +25575,7 @@ F:	drivers/clocksource/timer-sc9830.c
 F:	drivers/i2c/busses/i2c-sc9830.c
 F:	drivers/mmc/host/sdhci-sc9830.c
 F:	drivers/pinctrl/sprd/pinctrl-sc9830.c
+F:	drivers/regulator/sc2723-regulator.c
 F:	include/dt-bindings/clock/sprd,sc9830-clk.h
 
 SQUASHFS FILE SYSTEM
