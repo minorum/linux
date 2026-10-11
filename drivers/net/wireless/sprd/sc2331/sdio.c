@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/delay.h>
 #include <linux/firmware.h>
+#include <linux/etherdevice.h>
 #include <linux/jiffies.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/module.h>
+#include <linux/of_net.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 
@@ -20,6 +22,7 @@
 #define SC2331_CALIB_SIZE 4096
 #define SC2331_CALIB_OFFSET 616
 #define SC2331_CALIB_REPLY_MIN 3008
+#define SC2331_RUNTIME_RX_SIZE 65536
 
 static int sc2331_sdio_length(struct sdio_func *func, unsigned int channel)
 {
@@ -35,6 +38,115 @@ static int sc2331_sdio_length(struct sdio_func *func, unsigned int channel)
 		length |= byte << (8 * i);
 	}
 	return length;
+}
+
+static int sc2331_sdio_runtime_tx(struct sdio_func *func, u8 *data, size_t len)
+{
+	unsigned long deadline = jiffies + msecs_to_jiffies(1000);
+	unsigned int channel;
+	int ret, available;
+	u8 busy;
+
+	if (!len || len > 64512 || len % 1024)
+		return -EINVAL;
+	do {
+		sdio_claim_host(func);
+		busy = sdio_f0_readb(func, 0x840, &ret);
+		if (!ret) {
+			for (channel = 0; channel < 3; channel++) {
+				if (busy & BIT(channel))
+					continue;
+				if (channel == 2) {
+					available = sc2331_sdio_length(func, channel);
+					if (available < 0) {
+						ret = available;
+						break;
+					}
+					if ((size_t)available < len)
+						continue;
+				}
+				ret = sdio_writesb(func, channel, data, len);
+				sdio_release_host(func);
+				return ret;
+			}
+		}
+		sdio_release_host(func);
+		if (ret)
+			return ret;
+		usleep_range(1000, 2000);
+	} while (time_before(jiffies, deadline));
+	return -ETIMEDOUT;
+}
+
+static int sc2331_sdio_runtime_records(u8 *data, size_t len, u8 command)
+{
+	struct sc2331_record record;
+	size_t offset = 8, used;
+	int ret, result = -EAGAIN;
+	unsigned int i;
+
+	if (len < 12)
+		return -EMSGSIZE;
+	while (offset < len) {
+		ret = sc2331_decode_record(data + offset, len - offset, &record, &used);
+		if (ret < 0)
+			return ret;
+		if (!ret)
+			break;
+		if (record.type == 1) {
+			if (record.id != command || result != -EAGAIN)
+				return -EPROTO;
+			if (record.len != 2 && record.len != 4)
+				return -EMSGSIZE;
+			result = 0;
+			for (i = 0; i < record.len; i++)
+				if (record.data[i])
+					result = -EIO;
+		}
+		offset += used;
+	}
+	return result;
+}
+
+static int sc2331_sdio_runtime_response(struct sdio_func *func, u8 *data,
+				       u8 command, unsigned int timeout_ms)
+{
+	unsigned long deadline = jiffies + msecs_to_jiffies(timeout_ms);
+	unsigned int channel;
+	int ret, length;
+	u8 ready;
+
+	do {
+		for (channel = 8; channel <= 9; channel++) {
+			sdio_claim_host(func);
+			ready = sdio_f0_readb(func, 0x841, &ret);
+			if (!ret && (ready & BIT(channel - 8))) {
+				length = sc2331_sdio_length(func, channel);
+				if (length < 0)
+					ret = length;
+				else if (length < 12 || length > SC2331_RUNTIME_RX_SIZE)
+					ret = -EMSGSIZE;
+				else
+					ret = sdio_readsb(func, data, channel, length);
+				sdio_release_host(func);
+				if (ret)
+					return ret;
+				ret = sc2331_sdio_runtime_records(data, length, command);
+				if (ret != -EAGAIN) {
+					dev_info(&func->dev, "Runtime reply: channel %u, %d bytes, first record %u/%u/%u\n",
+						 channel, length, data[8], data[9],
+						 get_unaligned_le16(data + 10));
+					return ret;
+				}
+			} else {
+				sdio_release_host(func);
+				if (ret)
+					return ret;
+			}
+		}
+		usleep_range(1000, 2000);
+	} while (time_before(jiffies, deadline));
+	return -ETIMEDOUT;
 }
 
 static int sc2331_sdio_wait_tx(struct sdio_func *func, size_t len)
@@ -169,7 +281,8 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	const struct firmware *firmware;
 	struct sc2331_boot *boot;
 	size_t offset, copied, capacity = SC2331_CHUNK_SIZE + 8;
-	u8 payload[8], *data;
+	u8 mac[ETH_ALEN], payload[8], *data;
+	ssize_t encoded;
 	int ret;
 
 	if (func->num != 1)
@@ -177,6 +290,9 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	boot = sc2331_boot_get(&func->dev);
 	if (IS_ERR(boot))
 		return dev_err_probe(&func->dev, PTR_ERR(boot), "Missing UART bootstrap\n");
+	ret = of_get_mac_address(func->dev.of_node, mac);
+	if (ret)
+		return dev_err_probe(&func->dev, ret, "Missing factory MAC address\n");
 	ret = request_firmware(&firmware, SC2331_WLAN_NAME, &func->dev);
 	if (ret)
 		return ret;
@@ -232,10 +348,26 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	ret = sc2331_boot_wake_device(boot);
 	if (ret)
 		goto disable;
-	sdio_set_drvdata(func, boot);
 	dev_info(&func->dev, "SC2331 WLAN runtime awake\n");
+	put_unaligned_le16(1, payload);
+	memcpy(payload + 2, mac, ETH_ALEN);
+	encoded = sc2331_encode_command(data, capacity, 0x16, 0, payload, sizeof(payload));
+	if (encoded < 0) {
+		ret = encoded;
+		goto disable;
+	}
+	ret = sc2331_sdio_runtime_tx(func, data, encoded);
+	if (ret)
+		goto disable;
+	dev_info(&func->dev, "SC2331 MAC_OPEN command sent\n");
+	ret = sc2331_sdio_runtime_response(func, data, 0x16, 8000);
+	if (ret)
+		goto disable;
+	sdio_set_drvdata(func, boot);
+	dev_info(&func->dev, "SC2331 MAC_OPEN response accepted\n");
 	goto free;
 disable:
+	sc2331_boot_sleep_device(boot);
 	sdio_claim_host(func);
 	sdio_disable_func(func);
 	sdio_release_host(func);

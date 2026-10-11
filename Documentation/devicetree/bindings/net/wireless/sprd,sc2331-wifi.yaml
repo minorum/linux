@@ -20,6 +20,18 @@ properties:
   reg:
     const: 1
 
+  mac-address:
+    $ref: /schemas/net/ethernet-controller.yaml#/properties/mac-address
+
+  local-mac-address:
+    $ref: /schemas/net/ethernet-controller.yaml#/properties/local-mac-address
+
+  nvmem-cells:
+    maxItems: 1
+
+  nvmem-cell-names:
+    const: mac-address
+
   sprd,boot-controller:
     $ref: /schemas/types.yaml#/definitions/phandle
     description: UART bootstrap controller for this connectivity device
