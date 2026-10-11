@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/errno.h>
+#include <linux/crc-itu-t.h>
+#include <linux/string.h>
 #include <linux/unaligned.h>
 
 #include "protocol.h"
@@ -58,5 +60,79 @@ int sc2331_decode_scan_frame(const u8 *data, size_t len,
 	frame->signal = (s16)get_unaligned_le16(data + 4);
 	frame->data = data + 8;
 	frame->len = frame_len;
+	return 0;
+}
+
+ssize_t sc2331_encode_uart(u8 *data, size_t capacity, u16 command,
+			   const u8 *payload, size_t len)
+{
+	size_t raw_len = len + 6, encoded, i, end;
+	u16 crc;
+	u8 byte;
+
+	if (len > 1024 || capacity < raw_len + 2)
+		return -EMSGSIZE;
+	if ((len && !payload) || (!command && len))
+		return -EINVAL;
+	put_unaligned_be16(command, data);
+	put_unaligned_be16(len, data + 2);
+	if (len)
+		memcpy(data + 4, payload, len);
+	crc = command ? crc_itu_t(0, data, len + 4) : 0;
+	put_unaligned_be16(crc, data + 4 + len);
+	encoded = raw_len + 2;
+	for (i = 0; i < raw_len; i++)
+		if (data[i] == 0x7e || data[i] == 0x7d)
+			encoded++;
+	if (encoded > capacity)
+		return -EMSGSIZE;
+	end = encoded - 1;
+	data[end] = 0x7e;
+	for (i = raw_len; i; ) {
+		byte = data[--i];
+		if (byte == 0x7e || byte == 0x7d) {
+			data[--end] = byte ^ 0x20;
+			data[--end] = 0x7d;
+		} else {
+			data[--end] = byte;
+		}
+	}
+	data[0] = 0x7e;
+	return encoded;
+}
+
+int sc2331_decode_uart(u8 *data, size_t len, struct sc2331_boot_frame *frame)
+{
+	size_t i, raw_len = 0;
+	u16 payload_len;
+	u8 byte;
+
+	if (len < 8 || len > 2 * (1024 + 6) + 2)
+		return -EMSGSIZE;
+	if (data[0] != 0x7e || data[len - 1] != 0x7e)
+		return -EPROTO;
+	for (i = 1; i < len - 1; i++) {
+		byte = data[i];
+		if (byte == 0x7e)
+			return -EPROTO;
+		if (byte == 0x7d) {
+			if (++i >= len - 1 ||
+			    (data[i] != 0x5e && data[i] != 0x5d))
+				return -EPROTO;
+			byte = data[i] ^ 0x20;
+		}
+		data[raw_len++] = byte;
+	}
+	if (raw_len < 6)
+		return -EMSGSIZE;
+	payload_len = get_unaligned_be16(data + 2);
+	if (payload_len > 1024 || payload_len != raw_len - 6)
+		return -EMSGSIZE;
+	if (crc_itu_t(0, data, raw_len - 2) !=
+	    get_unaligned_be16(data + raw_len - 2))
+		return -EBADMSG;
+	frame->command = get_unaligned_be16(data);
+	frame->len = payload_len;
+	frame->data = data + 4;
 	return 0;
 }
