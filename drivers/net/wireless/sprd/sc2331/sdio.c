@@ -568,7 +568,7 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 	int ret;
 
 	if (!sme->ssid || !sme->ssid_len || sme->ssid_len > IEEE80211_MAX_SSID_LEN ||
-	    !sme->crypto.psk || sme->crypto.wpa_versions != NL80211_WPA_VERSION_2 ||
+	    sme->crypto.wpa_versions != NL80211_WPA_VERSION_2 ||
 	    sme->crypto.n_ciphers_pairwise != 1 || sme->crypto.n_akm_suites != 1 ||
 	    sme->crypto.akm_suites[0] != WLAN_AKM_SUITE_PSK ||
 	    sme->mfp == NL80211_MFP_REQUIRED ||
@@ -601,9 +601,10 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 		if (ret)
 			goto unlock;
 	}
-	put_unaligned_le16(32, payload);
-	memcpy(payload + 2, sme->crypto.psk, 32);
-	ret = sc2331_wifi_command(wifi, 0x18, payload, sizeof(payload), 3000);
+	put_unaligned_le16(sme->crypto.psk ? 32 : 0, payload);
+	if (sme->crypto.psk)
+		memcpy(payload + 2, sme->crypto.psk, 32);
+	ret = sc2331_wifi_command(wifi, 0x18, payload, sme->crypto.psk ? 34 : 2, 3000);
 	memzero_explicit(payload, sizeof(payload));
 	memzero_explicit(wifi->data, SC2331_RUNTIME_RX_SIZE);
 	if (ret)
@@ -651,7 +652,83 @@ static int sc2331_disconnect(struct wiphy *wiphy, struct net_device *netdev, u16
 	return ret;
 }
 
+static int sc2331_add_key(struct wiphy *wiphy, struct wireless_dev *wdev,
+			  int link_id, u8 key_index, bool pairwise,
+			  const u8 *mac_addr, struct key_params *params)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[50] = {};
+	u8 cipher;
+	int ret;
+
+	if (link_id != -1 || key_index > 3 || params->seq_len < 0 ||
+	    params->seq_len > 8 || !params->key ||
+	    (params->seq_len && !params->seq) ||
+	    (pairwise && (!mac_addr || !is_valid_ether_addr(mac_addr))))
+		return -EINVAL;
+	if (params->cipher == WLAN_CIPHER_SUITE_CCMP && params->key_len == 16)
+		cipher = 4;
+	else if (params->cipher == WLAN_CIPHER_SUITE_TKIP && params->key_len == 32)
+		cipher = 3;
+	else
+		return -EINVAL;
+	if (mac_addr)
+		ether_addr_copy(payload, mac_addr);
+	if (params->seq_len)
+		memcpy(payload + 6, params->seq, params->seq_len);
+	payload[14] = pairwise;
+	payload[15] = cipher;
+	payload[16] = key_index;
+	payload[17] = params->key_len;
+	memcpy(payload + 18, params->key, params->key_len);
+	mutex_lock(&wifi->lock);
+	ret = wifi->stopping ? -ENODEV :
+		sc2331_wifi_command(wifi, 0x0d, payload, 18 + params->key_len, 3000);
+	memzero_explicit(payload, sizeof(payload));
+	memzero_explicit(wifi->data, SC2331_RUNTIME_RX_SIZE);
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
+static int sc2331_del_key(struct wiphy *wiphy, struct wireless_dev *wdev,
+			  int link_id, u8 key_index, bool pairwise, const u8 *mac_addr)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[8] = { key_index };
+	int ret;
+
+	if (link_id != -1 || key_index > 3)
+		return -EINVAL;
+	if (mac_addr)
+		ether_addr_copy(payload + 2, mac_addr);
+	mutex_lock(&wifi->lock);
+	ret = wifi->stopping ? -ENODEV :
+		sc2331_wifi_command(wifi, 0x0e, payload, sizeof(payload), 3000);
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
+static int sc2331_set_default_key(struct wiphy *wiphy, struct net_device *netdev,
+				  int link_id, u8 key_index, bool unicast, bool multicast)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[4];
+	int ret;
+
+	if (link_id != -1 || key_index > 3)
+		return -EINVAL;
+	put_unaligned_le32(key_index, payload);
+	mutex_lock(&wifi->lock);
+	ret = wifi->stopping ? -ENODEV :
+		sc2331_wifi_command(wifi, 0x0f, payload, sizeof(payload), 3000);
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
 static const struct cfg80211_ops sc2331_cfg80211_ops = {
+	.add_key = sc2331_add_key,
+	.del_key = sc2331_del_key,
+	.set_default_key = sc2331_set_default_key,
 	.scan = sc2331_scan,
 	.connect = sc2331_connect,
 	.disconnect = sc2331_disconnect,
@@ -795,7 +872,6 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->max_scan_ssids = 9;
 	wiphy->cipher_suites = sc2331_ciphers;
 	wiphy->n_cipher_suites = ARRAY_SIZE(sc2331_ciphers);
-	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	set_wiphy_dev(wiphy, &func->dev);
 	memcpy(wiphy->perm_addr, mac, ETH_ALEN);
