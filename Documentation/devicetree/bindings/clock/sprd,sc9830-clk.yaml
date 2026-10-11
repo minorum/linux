@@ -16,6 +16,7 @@ properties:
       - sprd,sc9830-aon-clk
       - sprd,sc9830-ap-clk
       - sprd,sc9830-apapb-gate
+      - sprd,sc9830-apahb-gate
 
   reg:
     maxItems: 1
@@ -25,11 +26,11 @@ properties:
 
   clocks:
     minItems: 1
-    maxItems: 4
+    maxItems: 8
 
   clock-names:
     minItems: 1
-    maxItems: 4
+    maxItems: 8
 
 allOf:
   - if:
@@ -39,10 +40,17 @@ allOf:
     then:
       properties:
         clocks:
-          maxItems: 1
+          minItems: 1
+          maxItems: 6
         clock-names:
+          minItems: 1
           items:
             - const: ext-26m
+            - const: ext-32k
+            - const: ext-26m-rf1
+            - const: ext-4m
+            - const: dpll-42m
+            - const: mpll-56m
       required:
         - clocks
         - clock-names
@@ -54,13 +62,18 @@ allOf:
       properties:
         clocks:
           minItems: 4
-          maxItems: 4
+          maxItems: 8
         clock-names:
+          minItems: 4
           items:
             - const: ext-26m
             - const: twpll-48m
             - const: twpll-51m2
             - const: twpll-153m6
+            - const: twpll-256m
+            - const: twpll-307m2
+            - const: twpll-384m
+            - const: twpll-96m
       required:
         - clocks
         - clock-names
@@ -71,10 +84,27 @@ allOf:
     then:
       properties:
         clocks:
+          minItems: 1
+          maxItems: 2
+        clock-names:
+          minItems: 1
+          items:
+            - const: i2c2
+            - const: uart0
+      required:
+        - clocks
+        - clock-names
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-apahb-gate
+    then:
+      properties:
+        clocks:
           maxItems: 1
         clock-names:
           items:
-            - const: i2c2
+            - const: sdio0
       required:
         - clocks
         - clock-names
