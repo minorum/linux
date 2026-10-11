@@ -207,12 +207,12 @@
 			connectivity: mcu {
 				compatible = "sprd,sc2331";
 				vddcon-supply = <&vddcon>;
+				vddwifipa-supply = <&vddwifipa>;
 				clocks = <&aon_gate CLK_AUX0>;
 				clock-names = "ext_clock";
 				reset-gpios = <&gpio 130 GPIO_ACTIVE_LOW>;
 				host-wake-gpios = <&gpio 97 GPIO_ACTIVE_HIGH>;
 				device-wake-gpios = <&gpio 133 GPIO_ACTIVE_HIGH>;
-				status = "disabled";
 			};
 		};
 
@@ -434,7 +434,6 @@
 			no-mmc;
 			no-1-8-v;
 			mmc-pwrseq = <&connectivity>;
-			status = "disabled";
 
 			wifi@1 {
 				compatible = "sprd,sc2331-wifi";
