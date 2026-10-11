@@ -186,6 +186,11 @@
 				function = "uart0";
 				groups = "uart0";
 			};
+
+			sdio1_default: sdio1-pins {
+				function = "sdio1";
+				groups = "sdio1";
+			};
 		};
 
 		uart0: serial@70000000 {
@@ -378,6 +383,8 @@
 			bus-width = <4>;
 			max-frequency = <48000000>;
 			sprd,phy-delay = <3 3 3>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&sdio1_default>;
 			non-removable;
 			no-sd;
 			no-mmc;
