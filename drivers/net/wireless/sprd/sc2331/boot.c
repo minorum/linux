@@ -4,6 +4,7 @@
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/regulator/consumer.h>
@@ -23,6 +24,7 @@ struct sc2331_boot {
 	struct clk *clock;
 	struct gpio_desc *reset;
 	struct gpio_desc *host_wake;
+	unsigned long wake_levels;
 	struct completion received;
 	spinlock_t lock; /* RX */
 	struct sc2331_uart_stream rx;
@@ -31,6 +33,20 @@ struct sc2331_boot {
 	bool clocked;
 	u8 tx[2062];
 };
+
+static irqreturn_t sc2331_boot_wake(int irq, void *data)
+{
+	struct sc2331_boot *boot = data;
+	int level = gpiod_get_value_cansleep(boot->host_wake);
+
+	if (level < 0)
+		return IRQ_NONE;
+	if (!(boot->wake_levels & BIT(level))) {
+		boot->wake_levels |= BIT(level);
+		dev_info(&boot->serdev->dev, "Host wake IRQ level: %d\n", level);
+	}
+	return IRQ_HANDLED;
+}
 
 static size_t sc2331_boot_receive(struct serdev_device *serdev,
 				  const u8 *data, size_t count)
@@ -193,6 +209,16 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	boot->host_wake = devm_gpiod_get_optional(dev, "host-wake", GPIOD_IN);
 	if (IS_ERR(boot->host_wake))
 		return dev_err_probe(dev, PTR_ERR(boot->host_wake), "Invalid host wake\n");
+	if (boot->host_wake) {
+		ret = gpiod_to_irq(boot->host_wake);
+		if (ret < 0)
+			return dev_err_probe(dev, ret, "Missing host wake IRQ\n");
+		ret = devm_request_threaded_irq(dev, ret, NULL, sc2331_boot_wake,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				dev_name(dev), boot);
+		if (ret)
+			return dev_err_probe(dev, ret, "Cannot request host wake IRQ\n");
+	}
 	ret = devm_serdev_device_open(dev, serdev);
 	if (ret)
 		return ret;
