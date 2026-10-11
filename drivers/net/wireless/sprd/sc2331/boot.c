@@ -22,6 +22,7 @@ struct sc2331_boot {
 	struct regulator *supply;
 	struct clk *clock;
 	struct gpio_desc *reset;
+	struct gpio_desc *host_wake;
 	struct completion received;
 	spinlock_t lock; /* RX */
 	struct sc2331_uart_stream rx;
@@ -189,6 +190,9 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	boot->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(boot->reset))
 		return dev_err_probe(dev, PTR_ERR(boot->reset), "Missing reset\n");
+	boot->host_wake = devm_gpiod_get_optional(dev, "host-wake", GPIOD_IN);
+	if (IS_ERR(boot->host_wake))
+		return dev_err_probe(dev, PTR_ERR(boot->host_wake), "Invalid host wake\n");
 	ret = devm_serdev_device_open(dev, serdev);
 	if (ret)
 		return ret;

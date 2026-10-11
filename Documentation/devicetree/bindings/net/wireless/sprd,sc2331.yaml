@@ -30,6 +30,10 @@ properties:
   reset-gpios:
     maxItems: 1
 
+  host-wake-gpios:
+    description: Connectivity controller wake and boot readiness indication
+    maxItems: 1
+
   vddcon-supply:
     description: Factory-calibrated 1.6 V connectivity supply
 
