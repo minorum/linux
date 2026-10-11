@@ -13,18 +13,15 @@ description: |
   The SDIO function depends on a UART bootstrap controller which owns its
   power supplies, clock, reset and firmware startup readiness indication.
 
+allOf:
+  - $ref: /schemas/net/wireless/wireless-controller.yaml#
+
 properties:
   compatible:
     const: sprd,sc2331-wifi
 
   reg:
     const: 1
-
-  mac-address:
-    $ref: /schemas/net/ethernet-controller.yaml#/properties/mac-address
-
-  local-mac-address:
-    $ref: /schemas/net/ethernet-controller.yaml#/properties/local-mac-address
 
   nvmem-cells:
     maxItems: 1
@@ -41,5 +38,5 @@ required:
   - reg
   - sprd,boot-controller
 
-additionalProperties: false
+unevaluatedProperties: false
 ...
