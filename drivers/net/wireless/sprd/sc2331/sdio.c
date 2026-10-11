@@ -96,7 +96,7 @@ static int sc2331_sdio_runtime_records(u8 *data, size_t len, u8 command)
 		if (record.type == 1) {
 			if (record.id != command || result != -EAGAIN)
 				return -EPROTO;
-			if (record.len != 2 && record.len != 4)
+			if (record.len != 4)
 				return -EMSGSIZE;
 			result = 0;
 			for (i = 0; i < record.len; i++)

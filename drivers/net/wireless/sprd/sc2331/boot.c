@@ -92,8 +92,10 @@ int sc2331_boot_wake_device(struct sc2331_boot *boot)
 	gpiod_set_value_cansleep(boot->device_wake, 1);
 	do {
 		level = gpiod_get_value_cansleep(boot->host_wake);
-		if (level > 0)
+		if (level > 0) {
+			sc2331_boot_sleep_device(boot);
 			return 0;
+		}
 		if (level < 0) {
 			ret = level;
 			break;
