@@ -12,6 +12,7 @@
 	interrupt-parent = <&gic>;
 
 	aliases {
+		serial0 = &uart0;
 		i2c2 = &i2c2;
 		spi0 = &adi;
 	};
@@ -180,6 +181,22 @@
 				function = "i2c2";
 				groups = "i2c2";
 			};
+
+			uart0_default: uart0-pins {
+				function = "uart0";
+				groups = "uart0";
+			};
+		};
+
+		uart0: serial@70000000 {
+			compatible = "sprd,sc9830-uart", "sprd,sc9836-uart";
+			reg = <0x70000000 0x1000>;
+			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apapb CLK_UART0_EB>, <&ap_clk CLK_UART0>,
+				 <&aon_gate CLK_TWPLL_48M>;
+			clock-names = "enable", "uart", "source";
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart0_default>;
 		};
 
 		i2c2: i2c@70700000 {
