@@ -204,8 +204,12 @@ static const unsigned int sc9830_uart0_pins[] = {
 	0x120 / 4, 0x124 / 4, 0x128 / 4, 0x12c / 4,
 };
 
-static const char * const sc9830_groups[] = { "i2c2", "uart0" };
-static const char * const sc9830_functions[] = { "i2c2", "gpio", "uart0" };
+static const unsigned int sc9830_sdio1_pins[] = {
+	0xf8 / 4, 0xfc / 4, 0x100 / 4, 0x104 / 4, 0x108 / 4, 0x10c / 4,
+};
+
+static const char * const sc9830_groups[] = { "i2c2", "uart0", "sdio1" };
+static const char * const sc9830_functions[] = { "i2c2", "gpio", "uart0", "sdio1" };
 
 static int sc9830_get_groups_count(struct pinctrl_dev *pctldev)
 {
@@ -228,9 +232,12 @@ static int sc9830_get_group_pins(struct pinctrl_dev *pctldev,
 	if (selector == 0) {
 		*pins = sc9830_i2c2_pins;
 		*num_pins = ARRAY_SIZE(sc9830_i2c2_pins);
-	} else {
+	} else if (selector == 1) {
 		*pins = sc9830_uart0_pins;
 		*num_pins = ARRAY_SIZE(sc9830_uart0_pins);
+	} else {
+		*pins = sc9830_sdio1_pins;
+		*num_pins = ARRAY_SIZE(sc9830_sdio1_pins);
 	}
 	return 0;
 }
@@ -262,7 +269,7 @@ static int sc9830_get_function_groups(struct pinctrl_dev *pctldev,
 	if (selector >= ARRAY_SIZE(sc9830_functions))
 		return -EINVAL;
 
-	*groups = &sc9830_groups[selector == 2];
+	*groups = &sc9830_groups[selector < 2 ? 0 : selector - 1];
 	*num_groups = 1;
 	return 0;
 }
@@ -276,7 +283,8 @@ static int sc9830_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 	unsigned int i, num_pins;
 	u32 value, af;
 
-	if (!((group == 0 && function < 2) || (group == 1 && function == 2)))
+	if (!((group == 0 && function < 2) || (group == 1 && function == 2) ||
+	      (group == 2 && function == 3)))
 		return -EINVAL;
 
 	sc9830_get_group_pins(pctldev, group, &pins, &num_pins);
