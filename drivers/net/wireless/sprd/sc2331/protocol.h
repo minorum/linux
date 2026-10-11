@@ -22,6 +22,15 @@ struct sc2331_scan_frame {
 	u8 done;
 };
 
+struct sc2331_connect_result {
+	const u8 *bssid;
+	const u8 *request_ie;
+	const u8 *response_ie;
+	size_t request_ie_len;
+	size_t response_ie_len;
+	u8 status;
+};
+
 struct sc2331_boot_frame {
 	const u8 *data;
 	u16 command;
@@ -37,6 +46,10 @@ int sc2331_decode_record(const u8 *data, size_t len,
 			 struct sc2331_record *record, size_t *used);
 int sc2331_decode_scan_frame(const u8 *data, size_t len,
 			     struct sc2331_scan_frame *frame);
+int sc2331_decode_connect_result(const u8 *data, size_t len,
+				 struct sc2331_connect_result *result);
+ssize_t sc2331_encode_ethernet(u8 *data, size_t capacity, u32 sequence,
+			       u32 packet_sequence, const u8 *frame, size_t len);
 ssize_t sc2331_encode_uart(u8 *data, size_t capacity, u16 command,
 			   const u8 *payload, size_t len);
 int sc2331_decode_uart(u8 *data, size_t len, struct sc2331_boot_frame *frame);

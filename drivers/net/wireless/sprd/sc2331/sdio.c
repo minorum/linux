@@ -11,6 +11,8 @@
 #include <linux/of_net.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
+#include <linux/vmalloc.h>
+#include <linux/if_vlan.h>
 #include <linux/workqueue.h>
 #include <net/cfg80211.h>
 
@@ -35,12 +37,19 @@ struct sc2331_wifi {
 	struct ieee80211_channel channels[14];
 	struct mutex lock;
 	struct delayed_work rx_work;
+	struct work_struct tx_work;
+	struct sk_buff_head tx_queue;
 	struct cfg80211_scan_request *scan;
 	unsigned long scan_deadline;
 	u32 sequence;
+	u32 packet_sequence;
+	unsigned long connect_deadline;
+	u8 bssid[ETH_ALEN];
 	u8 *data;
 	bool stopping;
 	bool scan_done;
+	bool connecting;
+	bool connected;
 	unsigned int scan_frames;
 };
 
@@ -134,7 +143,7 @@ static int sc2331_sdio_runtime_records(u8 *data, size_t len, u8 command,
 			for (; i < record.len; i++)
 				if (record.data[i])
 					result = -EIO;
-		} else if (record.type == 0 && event) {
+		} else if ((record.type == 0 || record.type == 2) && event) {
 			event(context, &record);
 		}
 		offset += used;
@@ -289,6 +298,7 @@ static int sc2331_sdio_command(struct sdio_func *func, u8 *data,
 			       size_t capacity, u16 command,
 			       const u8 *payload, size_t len)
 {
+	u8 *bounce;
 	ssize_t encoded;
 	size_t offset, chunk;
 	int ret;
@@ -299,16 +309,23 @@ static int sc2331_sdio_command(struct sdio_func *func, u8 *data,
 	ret = sc2331_sdio_wait_tx(func, encoded);
 	if (ret)
 		return ret;
+	bounce = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!bounce)
+		return -ENOMEM;
 	sdio_claim_host(func);
 	for (offset = 0; offset < (size_t)encoded; offset += chunk) {
-		chunk = min_t(size_t, encoded - offset,
-			      func->card->host->max_req_size);
-		ret = sdio_writesb(func, 3, data + offset, chunk);
+		chunk = min_t(size_t, encoded - offset, PAGE_SIZE);
+		chunk = min_t(size_t, chunk, func->card->host->max_req_size);
+		memcpy(bounce, data + offset, chunk);
+		ret = sdio_writesb(func, 3, bounce, chunk);
 		if (ret)
 			break;
 	}
 	sdio_release_host(func);
-	return ret ? ret : sc2331_sdio_ack(func, data);
+	if (!ret)
+		ret = sc2331_sdio_ack(func, bounce);
+	kfree(bounce);
+	return ret;
 }
 
 static void sc2331_scan_finish(struct sc2331_wifi *wifi, bool aborted)
@@ -362,6 +379,78 @@ static void sc2331_scan_event(void *context, const struct sc2331_record *record)
 	}
 }
 
+static void sc2331_connection_down(struct sc2331_wifi *wifi, u16 reason, bool local)
+{
+	if (wifi->connecting)
+		cfg80211_connect_result(wifi->wdev.netdev, NULL, NULL, 0, NULL, 0,
+					WLAN_STATUS_UNSPECIFIED_FAILURE, GFP_KERNEL);
+	else if (wifi->connected)
+		cfg80211_disconnected(wifi->wdev.netdev, reason, NULL, 0, local, GFP_KERNEL);
+	wifi->connecting = false;
+	wifi->connected = false;
+	netif_carrier_off(wifi->wdev.netdev);
+	skb_queue_purge(&wifi->tx_queue);
+}
+
+static void sc2331_runtime_event(void *context, const struct sc2331_record *record)
+{
+	struct sc2331_wifi *wifi = context;
+	struct net_device *netdev = wifi->wdev.netdev;
+	struct sc2331_connect_result result;
+	struct sk_buff *skb;
+	int ret;
+
+	if (record->type == 2) {
+		if (!wifi->connected || record->len > netdev->mtu + ETH_HLEN + VLAN_HLEN)
+			return;
+		skb = netdev_alloc_skb_ip_align(netdev, record->len);
+		if (!skb) {
+			DEV_STATS_INC(netdev, rx_dropped);
+			return;
+		}
+		skb_put_data(skb, record->data, record->len);
+		skb->protocol = eth_type_trans(skb, netdev);
+		DEV_STATS_INC(netdev, rx_packets);
+		DEV_STATS_ADD(netdev, rx_bytes, record->len);
+		netif_rx(skb);
+		return;
+	}
+	if (record->id == 0x8a) {
+		sc2331_scan_event(wifi, record);
+		return;
+	}
+	if (record->id == 0x81) {
+		if (record->len >= 2) {
+			sc2331_connection_down(wifi, get_unaligned_le16(record->data), false);
+			dev_info(&wifi->func->dev, "SC2331 station disconnected\n");
+		}
+		return;
+	}
+	if (record->id != 0x80 || !wifi->connecting)
+		return;
+	ret = sc2331_decode_connect_result(record->data, record->len, &result);
+	if (ret) {
+		dev_warn_ratelimited(&wifi->func->dev, "Invalid connection event: %d\n", ret);
+		return;
+	}
+	if (result.status) {
+		sc2331_connection_down(wifi, WLAN_REASON_UNSPECIFIED, false);
+		dev_info(&wifi->func->dev, "SC2331 station connection failed: %u\n", result.status);
+		return;
+	}
+	if (!is_valid_ether_addr(result.bssid))
+		return;
+	ether_addr_copy(wifi->bssid, result.bssid);
+	wifi->connecting = false;
+	wifi->connected = true;
+	cfg80211_connect_result(netdev, result.bssid, result.request_ie,
+				result.request_ie_len, result.response_ie,
+				result.response_ie_len, WLAN_STATUS_SUCCESS, GFP_KERNEL);
+	netif_carrier_on(netdev);
+	netif_wake_queue(netdev);
+	dev_info(&wifi->func->dev, "SC2331 station connected\n");
+}
+
 static int sc2331_wifi_command(struct sc2331_wifi *wifi, u8 command,
 			       const u8 *payload, size_t len, unsigned int timeout)
 {
@@ -379,7 +468,7 @@ static int sc2331_wifi_command(struct sc2331_wifi *wifi, u8 command,
 	if (ret)
 		return ret;
 	return sc2331_sdio_runtime_response(wifi->func, wifi->data, command,
-					    timeout, sc2331_scan_event, wifi);
+					    timeout, sc2331_runtime_event, wifi);
 }
 
 static void sc2331_rx_work(struct work_struct *work)
@@ -389,16 +478,22 @@ static void sc2331_rx_work(struct work_struct *work)
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	if (wifi->stopping || !wifi->scan)
+	if (wifi->stopping || (!wifi->scan && !wifi->connecting && !wifi->connected))
 		goto unlock;
 	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 1,
-					   sc2331_scan_event, wifi);
-	if (wifi->scan_done)
+					   sc2331_runtime_event, wifi);
+	if (wifi->scan && wifi->scan_done)
 		sc2331_scan_finish(wifi, false);
-	else if ((ret && ret != -ETIMEDOUT) ||
-		 time_after_eq(jiffies, wifi->scan_deadline))
+	else if (wifi->scan && ((ret && ret != -ETIMEDOUT) ||
+				time_after_eq(jiffies, wifi->scan_deadline)))
 		sc2331_scan_finish(wifi, true);
-	else
+	if (wifi->connecting && time_after_eq(jiffies, wifi->connect_deadline)) {
+		cfg80211_connect_timeout(wifi->wdev.netdev, NULL, NULL, 0, GFP_KERNEL,
+					 NL80211_TIMEOUT_UNSPECIFIED);
+		wifi->connecting = false;
+		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
+	}
+	if (wifi->scan || wifi->connecting || wifi->connected)
 		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
 unlock:
 	mutex_unlock(&wifi->lock);
@@ -462,19 +557,184 @@ unlock:
 	return ret;
 }
 
+static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
+			  struct cfg80211_connect_params *sme)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[34];
+	u32 values[6];
+	const u8 commands[] = { 6, 5, 7, 8, 5, 9 };
+	unsigned int i, channel;
+	int ret;
+
+	if (!sme->ssid || !sme->ssid_len || sme->ssid_len > IEEE80211_MAX_SSID_LEN ||
+	    !sme->crypto.psk || sme->crypto.wpa_versions != NL80211_WPA_VERSION_2 ||
+	    sme->crypto.n_ciphers_pairwise != 1 || sme->crypto.n_akm_suites != 1 ||
+	    sme->crypto.akm_suites[0] != WLAN_AKM_SUITE_PSK ||
+	    sme->mfp == NL80211_MFP_REQUIRED ||
+	    (sme->auth_type != NL80211_AUTHTYPE_OPEN_SYSTEM &&
+	     sme->auth_type != NL80211_AUTHTYPE_AUTOMATIC))
+		return -EOPNOTSUPP;
+	values[0] = NL80211_WPA_VERSION_2;
+	values[1] = 0;
+	values[2] = sme->crypto.ciphers_pairwise[0] == WLAN_CIPHER_SUITE_CCMP ? 4 :
+		    sme->crypto.ciphers_pairwise[0] == WLAN_CIPHER_SUITE_TKIP ? 3 : 0;
+	values[3] = sme->crypto.cipher_group == WLAN_CIPHER_SUITE_CCMP ? 4 :
+		    sme->crypto.cipher_group == WLAN_CIPHER_SUITE_TKIP ? 3 : 0;
+	values[4] = 0;
+	values[5] = 1;
+	if (!values[2] || !values[3])
+		return -EOPNOTSUPP;
+	if (sme->channel && (sme->channel->band != NL80211_BAND_2GHZ ||
+			     sme->channel->flags & IEEE80211_CHAN_DISABLED))
+		return -EINVAL;
+	if (sme->bssid && !is_valid_ether_addr(sme->bssid))
+		return -EINVAL;
+	mutex_lock(&wifi->lock);
+	if (wifi->stopping || wifi->scan || wifi->connecting || wifi->connected) {
+		ret = wifi->stopping ? -ENODEV : -EBUSY;
+		goto unlock;
+	}
+	for (i = 0; i < ARRAY_SIZE(commands); i++) {
+		put_unaligned_le32(values[i], payload);
+		ret = sc2331_wifi_command(wifi, commands[i], payload, 4, 3000);
+		if (ret)
+			goto unlock;
+	}
+	put_unaligned_le16(32, payload);
+	memcpy(payload + 2, sme->crypto.psk, 32);
+	ret = sc2331_wifi_command(wifi, 0x18, payload, sizeof(payload), 3000);
+	memzero_explicit(payload, sizeof(payload));
+	memzero_explicit(wifi->data, SC2331_RUNTIME_RX_SIZE);
+	if (ret)
+		goto unlock;
+	if (sme->channel) {
+		channel = ieee80211_frequency_to_channel(sme->channel->center_freq);
+		put_unaligned_le32(channel, payload);
+		ret = sc2331_wifi_command(wifi, 0x0a, payload, 4, 3000);
+		if (ret)
+			goto unlock;
+	}
+	if (sme->bssid) {
+		ret = sc2331_wifi_command(wifi, 0x0b, sme->bssid, ETH_ALEN, 3000);
+		if (ret)
+			goto unlock;
+	}
+	put_unaligned_le16(sme->ssid_len, payload);
+	memcpy(payload + 2, sme->ssid, sme->ssid_len);
+	wifi->connecting = true;
+	wifi->connect_deadline = jiffies + msecs_to_jiffies(20000);
+	ret = sc2331_wifi_command(wifi, 0x0c, payload, sme->ssid_len + 2, 3000);
+	if (ret && wifi->connecting) {
+		wifi->connecting = false;
+		goto unlock;
+	}
+	ret = 0;
+	schedule_delayed_work(&wifi->rx_work, 0);
+unlock:
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
+static int sc2331_disconnect(struct wiphy *wiphy, struct net_device *netdev, u16 reason)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[2];
+	int ret;
+
+	mutex_lock(&wifi->lock);
+	put_unaligned_le16(reason, payload);
+	ret = wifi->stopping ? -ENODEV : sc2331_wifi_command(wifi, 0x10, payload, 2, 3000);
+	if (!ret)
+		sc2331_connection_down(wifi, reason, true);
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
 static const struct cfg80211_ops sc2331_cfg80211_ops = {
 	.scan = sc2331_scan,
+	.connect = sc2331_connect,
+	.disconnect = sc2331_disconnect,
 };
+
+static void sc2331_tx_work(struct work_struct *work)
+{
+	struct sc2331_wifi *wifi = container_of(work, struct sc2331_wifi, tx_work);
+	struct net_device *netdev = wifi->wdev.netdev;
+	struct sk_buff *skb;
+	ssize_t encoded;
+	unsigned int budget = 16;
+	int ret;
+
+	while (budget-- && (skb = skb_dequeue(&wifi->tx_queue))) {
+		mutex_lock(&wifi->lock);
+		ret = -ENOTCONN;
+		if (!wifi->stopping && wifi->connected) {
+			ret = sc2331_boot_wake_device(wifi->boot);
+			if (!ret)
+				ret = skb_copy_bits(skb, 0, wifi->data + 102, skb->len);
+			if (!ret) {
+				encoded = sc2331_encode_ethernet(wifi->data, SC2331_RUNTIME_RX_SIZE,
+								 wifi->sequence++,
+								 wifi->packet_sequence++,
+								 wifi->data + 102, skb->len);
+				ret = encoded < 0 ? encoded :
+					sc2331_sdio_runtime_tx(wifi->func, wifi->data, encoded);
+			}
+		}
+		if (ret) {
+			DEV_STATS_INC(netdev, tx_errors);
+			DEV_STATS_INC(netdev, tx_dropped);
+		} else {
+			DEV_STATS_INC(netdev, tx_packets);
+			DEV_STATS_ADD(netdev, tx_bytes, skb->len);
+		}
+		dev_kfree_skb(skb);
+		mutex_unlock(&wifi->lock);
+	}
+	mutex_lock(&wifi->lock);
+	if (!wifi->stopping && wifi->connected)
+		netif_wake_queue(netdev);
+	if (!wifi->stopping && !skb_queue_empty(&wifi->tx_queue))
+		schedule_work(&wifi->tx_work);
+	mutex_unlock(&wifi->lock);
+}
 
 static netdev_tx_t sc2331_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	dev->stats.tx_dropped++;
-	dev_kfree_skb(skb);
+	struct sc2331_wifi *wifi = *(struct sc2331_wifi **)netdev_priv(dev);
+
+	if (skb->len < ETH_HLEN || skb->len > 1518 || READ_ONCE(wifi->stopping)) {
+		DEV_STATS_INC(dev, tx_dropped);
+		dev_kfree_skb(skb);
+		return NETDEV_TX_OK;
+	}
+	skb_queue_tail(&wifi->tx_queue, skb);
+	if (skb_queue_len(&wifi->tx_queue) >= 64) {
+		netif_stop_queue(dev);
+		if (skb_queue_len(&wifi->tx_queue) < 64)
+			netif_wake_queue(dev);
+	}
+	schedule_work(&wifi->tx_work);
 	return NETDEV_TX_OK;
+}
+
+static int sc2331_net_open(struct net_device *netdev)
+{
+	netif_start_queue(netdev);
+	return 0;
+}
+
+static int sc2331_net_stop(struct net_device *netdev)
+{
+	netif_stop_queue(netdev);
+	return 0;
 }
 
 static const struct net_device_ops sc2331_netdev_ops = {
 	.ndo_start_xmit = sc2331_start_xmit,
+	.ndo_open = sc2331_net_open,
+	.ndo_stop = sc2331_net_stop,
 };
 
 static struct ieee80211_rate sc2331_rates[] = {
@@ -482,6 +742,8 @@ static struct ieee80211_rate sc2331_rates[] = {
 	{ .bitrate = 60 }, { .bitrate = 90 }, { .bitrate = 120 }, { .bitrate = 180 },
 	{ .bitrate = 240 }, { .bitrate = 360 }, { .bitrate = 480 }, { .bitrate = 540 },
 };
+
+static const u32 sc2331_ciphers[] = { WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_TKIP };
 
 static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot,
 				const u8 *mac)
@@ -501,7 +763,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 		ret = -ENOMEM;
 		goto free_wiphy;
 	}
-	netdev = alloc_netdev(0, "wlan%d", NET_NAME_ENUM, ether_setup);
+	netdev = alloc_netdev(sizeof(struct sc2331_wifi *), "wlan%d", NET_NAME_ENUM, ether_setup);
 	if (!netdev) {
 		ret = -ENOMEM;
 		goto free_data;
@@ -511,6 +773,9 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wifi->sequence = 2;
 	mutex_init(&wifi->lock);
 	INIT_DELAYED_WORK(&wifi->rx_work, sc2331_rx_work);
+	INIT_WORK(&wifi->tx_work, sc2331_tx_work);
+	skb_queue_head_init(&wifi->tx_queue);
+	*(struct sc2331_wifi **)netdev_priv(netdev) = wifi;
 	wifi->wdev.wiphy = wiphy;
 	wifi->wdev.netdev = netdev;
 	wifi->wdev.iftype = NL80211_IFTYPE_STATION;
@@ -528,6 +793,9 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->bands[NL80211_BAND_2GHZ] = &wifi->band;
 	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
 	wiphy->max_scan_ssids = 9;
+	wiphy->cipher_suites = sc2331_ciphers;
+	wiphy->n_cipher_suites = ARRAY_SIZE(sc2331_ciphers);
+	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	set_wiphy_dev(wiphy, &func->dev);
 	memcpy(wiphy->perm_addr, mac, ETH_ALEN);
@@ -581,7 +849,7 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 		ret = -EINVAL;
 		goto release;
 	}
-	data = kmalloc(capacity, GFP_KERNEL);
+	data = kvmalloc(capacity, GFP_KERNEL);
 	if (!data) {
 		ret = -ENOMEM;
 		goto release;
@@ -619,6 +887,13 @@ static int sc2331_sdio_probe(struct sdio_func *func,
 	if (ret)
 		goto disable;
 	dev_info(&func->dev, "SC2331 WLAN image executed\n");
+	kvfree(data);
+	data = kmalloc(SC2331_RUNTIME_RX_SIZE, GFP_KERNEL);
+	if (!data) {
+		ret = -ENOMEM;
+		goto disable;
+	}
+	capacity = SC2331_RUNTIME_RX_SIZE;
 	ret = sc2331_boot_wait_ready(boot);
 	if (ret)
 		goto disable;
@@ -676,7 +951,7 @@ disable:
 	sdio_release_host(func);
 	dev_err(&func->dev, "SDIO download failed: %d\n", ret);
 free:
-	kfree(data);
+	kvfree(data);
 release:
 	release_firmware(firmware);
 	return ret;
@@ -687,11 +962,14 @@ static void sc2331_sdio_remove(struct sdio_func *func)
 	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
 	struct wiphy *wiphy = wifi->wdev.wiphy;
 
+	netif_tx_disable(wifi->wdev.netdev);
 	mutex_lock(&wifi->lock);
 	wifi->stopping = true;
 	sc2331_scan_finish(wifi, true);
+	sc2331_connection_down(wifi, WLAN_REASON_DEAUTH_LEAVING, true);
 	mutex_unlock(&wifi->lock);
 	cancel_delayed_work_sync(&wifi->rx_work);
+	cancel_work_sync(&wifi->tx_work);
 	unregister_netdev(wifi->wdev.netdev);
 	wiphy_unregister(wiphy);
 	free_netdev(wifi->wdev.netdev);

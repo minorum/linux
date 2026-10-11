@@ -84,6 +84,65 @@ ssize_t sc2331_encode_command(u8 *data, size_t capacity, u8 command,
 	return wire_len;
 }
 
+ssize_t sc2331_encode_ethernet(u8 *data, size_t capacity, u32 sequence,
+			       u32 packet_sequence, const u8 *frame, size_t len)
+{
+	size_t total, wire_len;
+	unsigned int i;
+
+	if (!frame || len < 14 || len > 1518)
+		return -EINVAL;
+	total = 64 + ((38 + len + 3) & ~3UL);
+	wire_len = (total + 1023) & ~1023UL;
+	if (capacity < wire_len)
+		return -EMSGSIZE;
+	memmove(data + 102, frame, len);
+	memset(data, 0, 102);
+	memset(data + 102 + len, 0, wire_len - 102 - len);
+	data[1] = 1;
+	put_unaligned_le16(total, data + 2);
+	data[4] = 2;
+	put_unaligned_le16(len, data + 6);
+	memcpy(data + 64, data + 4, 4);
+	for (i = 0; i < 4; i++) {
+		data[60 + i] = sequence >> (8 * i);
+		data[68 + i] = packet_sequence >> (8 * i);
+	}
+	return wire_len;
+}
+
+int sc2331_decode_connect_result(const u8 *data, size_t len,
+				 struct sc2331_connect_result *result)
+{
+	size_t offset, request_len, response_len;
+
+	if (len < 3)
+		return -EMSGSIZE;
+	if (data[0] != 1 || data[1] > 1)
+		return -EPROTO;
+	memset(result, 0, sizeof(*result));
+	result->status = data[2];
+	if (result->status)
+		return 0;
+	if (len < 14)
+		return -EMSGSIZE;
+	if (get_unaligned_le16(data + 3) != 6)
+		return -EPROTO;
+	request_len = data[11];
+	if (request_len > len - 14)
+		return -EMSGSIZE;
+	offset = 12 + request_len;
+	response_len = get_unaligned_le16(data + offset);
+	if (response_len != len - offset - 2)
+		return -EMSGSIZE;
+	result->bssid = data + 5;
+	result->request_ie = data + 12;
+	result->request_ie_len = request_len;
+	result->response_ie = data + offset + 2;
+	result->response_ie_len = response_len;
+	return 0;
+}
+
 int sc2331_decode_record(const u8 *data, size_t len,
 			 struct sc2331_record *record, size_t *used)
 {
