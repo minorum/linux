@@ -18,7 +18,7 @@ config SC2331
 	  Boots the SC2331 connectivity controller through its UART ROM
 	  protocol and loads its firmware using serdev and SDIO.
 	  Requires factory-calibrated connectivity power, reset and reference
-	clock providers. Supports station scanning; association and data
-	traffic are not available yet.
+	  clock providers. Supports station scanning, WPA2-PSK and Ethernet
+	  traffic with firmware-side encryption and a host handshake.
 
 endif

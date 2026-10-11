@@ -6,6 +6,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/mmc/pwrseq.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/of.h>
 #include <linux/regulator/consumer.h>
@@ -21,6 +22,7 @@
 #define SC2331_FDL_SIZE 8192
 
 struct sc2331_boot {
+	struct mmc_pwrseq pwrseq;
 	struct serdev_device *serdev;
 	struct regulator *supply;
 	struct regulator *pa_supply;
@@ -248,6 +250,15 @@ static void sc2331_boot_power_off(void *data)
 	}
 }
 
+static const struct mmc_pwrseq_ops sc2331_pwrseq_ops = {};
+
+static void sc2331_pwrseq_unregister(void *data)
+{
+	struct sc2331_boot *boot = data;
+
+	mmc_pwrseq_unregister(&boot->pwrseq);
+}
+
 static int sc2331_boot_probe(struct serdev_device *serdev)
 {
 	struct device *dev = &serdev->dev;
@@ -364,8 +375,15 @@ static int sc2331_boot_probe(struct serdev_device *serdev)
 	if (ret)
 		goto free;
 	ret = sc2331_boot_command(boot, 4, payload, 4);
+	if (ret)
+		goto free;
+	dev_info(dev, "SC2331 UART FDL ready\n");
+	boot->pwrseq.dev = dev;
+	boot->pwrseq.owner = THIS_MODULE;
+	boot->pwrseq.ops = &sc2331_pwrseq_ops;
+	ret = mmc_pwrseq_register(&boot->pwrseq);
 	if (!ret)
-		dev_info(dev, "SC2331 UART FDL ready\n");
+		ret = devm_add_action_or_reset(dev, sc2331_pwrseq_unregister, boot);
 free:
 	kfree(image);
 release:
