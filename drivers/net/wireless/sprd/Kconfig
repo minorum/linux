@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config WLAN_VENDOR_SPRD
+	bool "Spreadtrum wireless devices"
+	default y
+	help
+	  Enable the configuration menu for Spreadtrum wireless devices.
+	  Individual chip drivers are selected below and can be built as
+	  modules. Disable this option if no Spreadtrum connectivity device
+	  is present; unrelated wireless vendor drivers remain available.
+
+if WLAN_VENDOR_SPRD
+
+config SC2331
+	tristate "Spreadtrum SC2331 connectivity support"
+	depends on SERIAL_DEV_BUS && OF
+	select CRC_ITU_T
+	help
+	  Boots the SC2331 connectivity controller through its UART ROM
+	  protocol and loads the first-stage firmware using serdev.
+	  Requires factory-calibrated connectivity power, reset and reference
+	  clock providers. Wi-Fi networking support is not available yet.
+
+endif

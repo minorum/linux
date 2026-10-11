@@ -25,6 +25,11 @@ struct sc2331_boot_frame {
 	u16 len;
 };
 
+struct sc2331_uart_stream {
+	u8 data[128];
+	size_t len;
+};
+
 int sc2331_decode_record(const u8 *data, size_t len,
 			 struct sc2331_record *record, size_t *used);
 int sc2331_decode_scan_frame(const u8 *data, size_t len,
@@ -32,5 +37,6 @@ int sc2331_decode_scan_frame(const u8 *data, size_t len,
 ssize_t sc2331_encode_uart(u8 *data, size_t capacity, u16 command,
 			   const u8 *payload, size_t len);
 int sc2331_decode_uart(u8 *data, size_t len, struct sc2331_boot_frame *frame);
+int sc2331_uart_feed(struct sc2331_uart_stream *stream, u8 byte);
 
 #endif

@@ -101,6 +101,21 @@ ssize_t sc2331_encode_uart(u8 *data, size_t capacity, u16 command,
 	return encoded;
 }
 
+int sc2331_uart_feed(struct sc2331_uart_stream *stream, u8 byte)
+{
+	if (!stream->len) {
+		if (byte == 0x7e)
+			stream->data[stream->len++] = byte;
+		return 0;
+	}
+	if (byte == 0x7e && stream->len == 1)
+		return 0;
+	if (stream->len == sizeof(stream->data))
+		return -EMSGSIZE;
+	stream->data[stream->len++] = byte;
+	return byte == 0x7e;
+}
+
 int sc2331_decode_uart(u8 *data, size_t len, struct sc2331_boot_frame *frame)
 {
 	size_t i, raw_len = 0;
