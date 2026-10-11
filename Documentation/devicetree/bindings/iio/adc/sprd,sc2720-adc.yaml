@@ -11,6 +11,9 @@ maintainers:
 
 description:
   Supports the ADC found on these PMICs.
+  On SC2723, channel 13 samples vddcon through the internal DCDC mux and
+  channel 23 samples vddwifipa through its analog mux. Both use small scale
+  and factory calibration.
 
 properties:
   compatible:
