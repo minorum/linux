@@ -6,6 +6,46 @@
 
 #include "protocol.h"
 
+static u16 sc2331_sdio_checksum(const u8 *data, size_t len)
+{
+	u32 sum = 0;
+
+	while (len >= 2) {
+		sum += get_unaligned_le16(data);
+		data += 2;
+		len -= 2;
+	}
+	if (len)
+		sum += *data;
+	sum = (sum & 0xffff) + (sum >> 16);
+	return ~(sum + (sum >> 16));
+}
+
+ssize_t sc2331_encode_sdio(u8 *data, size_t capacity, u16 command,
+			   const u8 *payload, size_t len)
+{
+	size_t wire_len = command == 3 ? 4 : len;
+	u16 payload_sum;
+
+	if ((len && !payload) || command < 1 || command > 4 ||
+	    (command == 1 && len != 8) ||
+	    (command == 2 && (!len || len > 131072)) ||
+	    (command == 3 && len) || (command == 4 && len != 4))
+		return -EINVAL;
+	if (capacity < wire_len + 8)
+		return -EMSGSIZE;
+	if (command == 3)
+		memset(data + 8, 0, wire_len);
+	else
+		memmove(data + 8, payload, len);
+	payload_sum = command == 2 ? 0 : sc2331_sdio_checksum(data + 8, len);
+	put_unaligned_le16(wire_len, data);
+	put_unaligned_le16(command | ((len >> 16) << 8), data + 2);
+	put_unaligned_le16(payload_sum, data + 4);
+	put_unaligned_le16(sc2331_sdio_checksum(data, 6), data + 6);
+	return wire_len + 8;
+}
+
 int sc2331_decode_record(const u8 *data, size_t len,
 			 struct sc2331_record *record, size_t *used)
 {

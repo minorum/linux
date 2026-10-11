@@ -38,5 +38,7 @@ ssize_t sc2331_encode_uart(u8 *data, size_t capacity, u16 command,
 			   const u8 *payload, size_t len);
 int sc2331_decode_uart(u8 *data, size_t len, struct sc2331_boot_frame *frame);
 int sc2331_uart_feed(struct sc2331_uart_stream *stream, u8 byte);
+ssize_t sc2331_encode_sdio(u8 *data, size_t capacity, u16 command,
+			   const u8 *payload, size_t len);
 
 #endif
