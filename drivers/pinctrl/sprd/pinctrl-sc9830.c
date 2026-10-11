@@ -200,8 +200,12 @@ static const struct pinctrl_pin_desc sc9830_pins[] = {
 };
 
 static const unsigned int sc9830_i2c2_pins[] = { 0x26c / 4, 0x270 / 4 };
-static const char * const sc9830_groups[] = { "i2c2" };
-static const char * const sc9830_functions[] = { "i2c2", "gpio" };
+static const unsigned int sc9830_uart0_pins[] = {
+	0x120 / 4, 0x124 / 4, 0x128 / 4, 0x12c / 4,
+};
+
+static const char * const sc9830_groups[] = { "i2c2", "uart0" };
+static const char * const sc9830_functions[] = { "i2c2", "gpio", "uart0" };
 
 static int sc9830_get_groups_count(struct pinctrl_dev *pctldev)
 {
@@ -221,8 +225,13 @@ static int sc9830_get_group_pins(struct pinctrl_dev *pctldev,
 	if (selector >= ARRAY_SIZE(sc9830_groups))
 		return -EINVAL;
 
-	*pins = sc9830_i2c2_pins;
-	*num_pins = ARRAY_SIZE(sc9830_i2c2_pins);
+	if (selector == 0) {
+		*pins = sc9830_i2c2_pins;
+		*num_pins = ARRAY_SIZE(sc9830_i2c2_pins);
+	} else {
+		*pins = sc9830_uart0_pins;
+		*num_pins = ARRAY_SIZE(sc9830_uart0_pins);
+	}
 	return 0;
 }
 
@@ -253,8 +262,8 @@ static int sc9830_get_function_groups(struct pinctrl_dev *pctldev,
 	if (selector >= ARRAY_SIZE(sc9830_functions))
 		return -EINVAL;
 
-	*groups = sc9830_groups;
-	*num_groups = ARRAY_SIZE(sc9830_groups);
+	*groups = &sc9830_groups[selector == 2];
+	*num_groups = 1;
 	return 0;
 }
 
@@ -263,18 +272,20 @@ static int sc9830_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 {
 	struct sc9830_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 	unsigned long flags;
-	unsigned int i;
+	const unsigned int *pins;
+	unsigned int i, num_pins;
 	u32 value, af;
 
-	if (function >= 2 || group)
+	if (!((group == 0 && function < 2) || (group == 1 && function == 2)))
 		return -EINVAL;
 
-	af = function ? SC9830_AF_MASK : 0;
+	sc9830_get_group_pins(pctldev, group, &pins, &num_pins);
+	af = function == 1 ? SC9830_AF_MASK : 0;
 	spin_lock_irqsave(&pctl->lock, flags);
-	for (i = 0; i < ARRAY_SIZE(sc9830_i2c2_pins); i++) {
-		value = readl(pctl->base + sc9830_i2c2_pins[i] * 4);
+	for (i = 0; i < num_pins; i++) {
+		value = readl(pctl->base + pins[i] * 4);
 		value = (value & ~SC9830_AF_MASK) | af;
-		writel(value, pctl->base + sc9830_i2c2_pins[i] * 4);
+		writel(value, pctl->base + pins[i] * 4);
 	}
 	spin_unlock_irqrestore(&pctl->lock, flags);
 	return 0;
