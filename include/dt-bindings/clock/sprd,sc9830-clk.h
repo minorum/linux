@@ -16,12 +16,15 @@
 #define CLK_TWPLL_256M	10
 #define CLK_TWPLL_307M2	11
 #define CLK_TWPLL_384M	12
-#define CLK_AON_CLK_NUM	13
+#define CLK_TWPLL_76M8	13
+#define CLK_TWPLL_128M	14
+#define CLK_AON_CLK_NUM	15
 
 #define CLK_I2C2		0
 #define CLK_SDIO0		1
 #define CLK_UART0		2
-#define CLK_AP_CLK_NUM	3
+#define CLK_SDIO1		3
+#define CLK_AP_CLK_NUM	4
 
 #define CLK_I2C2_EB		0
 #define CLK_UART0_EB		1
@@ -29,6 +32,7 @@
 
 #define CLK_SDIO0_EB		0
 #define CLK_USB_EB		1
-#define CLK_AP_AHB_GATE_NUM	2
+#define CLK_SDIO1_EB		2
+#define CLK_AP_AHB_GATE_NUM	3
 
 #endif

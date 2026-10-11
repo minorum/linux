@@ -101,10 +101,13 @@ allOf:
     then:
       properties:
         clocks:
-          maxItems: 1
+          minItems: 1
+          maxItems: 2
         clock-names:
+          minItems: 1
           items:
             - const: sdio0
+            - const: sdio1
       required:
         - clocks
         - clock-names
