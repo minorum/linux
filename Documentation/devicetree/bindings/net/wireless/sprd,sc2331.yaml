@@ -13,6 +13,8 @@ description: |
   The connectivity controller boots through a UART ROM loader before its
   SDIO firmware transport becomes available. The UART child owns the shared
   connectivity supply, reference clock and active-low reset.
+  The SDIO host references this child through mmc-pwrseq so enumeration
+  waits until the UART loader has completed.
 
 allOf:
   - $ref: /schemas/serial/serial-peripheral-props.yaml#
