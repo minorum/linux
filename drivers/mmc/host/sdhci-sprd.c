@@ -964,19 +964,69 @@ static const struct sdhci_pltfm_data sc9830_data = {
 		   SDHCI_QUIRK2_SUPPORT_SINGLE,
 };
 
+static void sc9830_sdio_reset(struct sdhci_host *host, u8 mask)
+{
+	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
+	u32 *delay = sdhci_pltfm_priv(pltfm);
+
+	sdhci_reset(host, mask);
+	if (mask & SDHCI_RESET_ALL) {
+		writel(delay[0], host->ioaddr + 0x80);
+		writel(delay[1], host->ioaddr + 0x84);
+		writel(delay[2], host->ioaddr + 0x88);
+	}
+}
+
+static const struct sdhci_ops sc9830_sdio_ops = {
+	.write_b = sc9830_writeb,
+	.set_clock = sc9830_set_clock,
+	.set_power = sc9830_set_power,
+	.set_bus_width = sdhci_set_bus_width,
+	.get_max_clock = sdhci_pltfm_clk_get_max_clock,
+	.get_min_clock = sc9830_get_min_clock,
+	.reset = sc9830_sdio_reset,
+	.set_uhs_signaling = sdhci_set_uhs_signaling,
+};
+
+static const struct sdhci_pltfm_data sc9830_sdio_data = {
+	.ops = &sc9830_sdio_ops,
+	.quirks = SDHCI_QUIRK_BROKEN_ADMA |
+		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
+		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+		   SDHCI_QUIRK2_CLEAR_TRANSFERMODE_REG_BEFORE_CMD |
+		   SDHCI_QUIRK2_ACMD23_BROKEN |
+		   SDHCI_QUIRK2_SUPPORT_SINGLE,
+};
+
+static bool sc9830_host(struct device *dev)
+{
+	const void *data = of_device_get_match_data(dev);
+
+	return data == &sc9830_data || data == &sc9830_sdio_data;
+}
+
 static int sc9830_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
 	struct sdhci_pltfm_host *pltfm;
+	const struct sdhci_pltfm_data *data = of_device_get_match_data(&pdev->dev);
+	bool sdio = data == &sc9830_sdio_data;
 	int ret;
 
 	if (!sc9830_probe_enabled)
 		return -ENODEV;
 	dev_info(&pdev->dev, "probe start\n");
-	host = sdhci_pltfm_init(pdev, &sc9830_data, 0);
+	host = sdhci_pltfm_init(pdev, data, sdio ? 3 * sizeof(u32) : 0);
 	if (IS_ERR(host))
 		return PTR_ERR(host);
 	pltfm = sdhci_priv(host);
+	if (sdio) {
+		ret = device_property_read_u32_array(&pdev->dev, "sprd,phy-delay",
+						     sdhci_pltfm_priv(pltfm), 3);
+		if (ret)
+			return ret;
+	}
 	pltfm->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(pltfm->clk))
 		return PTR_ERR(pltfm->clk);
@@ -988,10 +1038,12 @@ static int sc9830_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "reading capabilities\n");
 	sdhci_read_caps(host);
 	dev_info(&pdev->dev, "version %x caps %x\n", host->version, host->caps);
-	host->caps &= ~(SDHCI_CAN_DO_HISPD | SDHCI_CAN_DO_8BIT |
-			SDHCI_CAN_64BIT);
+	host->caps &= ~(SDHCI_CAN_DO_8BIT | SDHCI_CAN_64BIT);
+	if (!sdio) {
+		host->caps &= ~SDHCI_CAN_DO_HISPD;
+		host->mmc->ocr_avail = MMC_VDD_30_31;
+	}
 	host->caps1 = 0;
-	host->mmc->ocr_avail = MMC_VDD_30_31;
 	ret = sdhci_setup_host(host);
 	if (ret)
 		return ret;
@@ -1016,7 +1068,7 @@ cleanup:
 
 static int sdhci_sprd_probe(struct platform_device *pdev)
 {
-	if (of_device_get_match_data(&pdev->dev) == &sc9830_data)
+	if (sc9830_host(&pdev->dev))
 		return sc9830_probe(pdev);
 
 	return sdhci_sprd_r11_probe(pdev);
@@ -1024,7 +1076,7 @@ static int sdhci_sprd_probe(struct platform_device *pdev)
 
 static void sdhci_sprd_remove(struct platform_device *pdev)
 {
-	if (of_device_get_match_data(&pdev->dev) == &sc9830_data)
+	if (sc9830_host(&pdev->dev))
 		sdhci_pltfm_remove(pdev);
 	else
 		sdhci_sprd_r11_remove(pdev);
@@ -1033,6 +1085,7 @@ static void sdhci_sprd_remove(struct platform_device *pdev)
 static const struct of_device_id sdhci_sprd_of_match[] = {
 	{ .compatible = "sprd,sdhci-r11", .data = &sdhci_sprd_pdata },
 	{ .compatible = "sprd,sc9830-sdhci", .data = &sc9830_data },
+	{ .compatible = "sprd,sc9830-sdio", .data = &sc9830_sdio_data },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, sdhci_sprd_of_match);
@@ -1042,7 +1095,7 @@ static int sdhci_sprd_runtime_suspend(struct device *dev)
 	struct sdhci_host *host = dev_get_drvdata(dev);
 	struct sdhci_sprd_host *sprd_host = TO_SPRD_HOST(host);
 
-	if (of_device_get_match_data(dev) == &sc9830_data)
+	if (sc9830_host(dev))
 		return -EOPNOTSUPP;
 
 	mmc_hsq_suspend(host->mmc);
@@ -1061,7 +1114,7 @@ static int sdhci_sprd_runtime_resume(struct device *dev)
 	struct sdhci_sprd_host *sprd_host = TO_SPRD_HOST(host);
 	int ret;
 
-	if (of_device_get_match_data(dev) == &sc9830_data)
+	if (sc9830_host(dev))
 		return -EOPNOTSUPP;
 
 	ret = clk_prepare_enable(sprd_host->clk_2x_enable);
@@ -1092,7 +1145,7 @@ clk_2x_disable:
 
 static int sdhci_sprd_suspend(struct device *dev)
 {
-	if (of_device_get_match_data(dev) == &sc9830_data)
+	if (sc9830_host(dev))
 		return sdhci_suspend_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_suspend(dev);
@@ -1100,7 +1153,7 @@ static int sdhci_sprd_suspend(struct device *dev)
 
 static int sdhci_sprd_resume(struct device *dev)
 {
-	if (of_device_get_match_data(dev) == &sc9830_data)
+	if (sc9830_host(dev))
 		return sdhci_resume_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_resume(dev);
