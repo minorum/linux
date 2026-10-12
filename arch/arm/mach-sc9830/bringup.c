@@ -1,34 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/init.h>
 #include <linux/delay.h>
-#include <linux/clk-provider.h>
 #include <linux/io.h>
 #include <linux/irqchip.h>
-#include <linux/of_address.h>
 
 #include <asm/mach/arch.h>
-
-static DEFINE_SPINLOCK(sc9830_usb_clock_lock);
-
-static void __init sc9830_usb_clock_init(struct device_node *node)
-{
-	void __iomem *base = of_iomap(node, 0);
-	struct clk_hw *clock;
-	int ret;
-
-	if (!base)
-		panic("SC9830 USB clock mapping failed\n");
-	clock = clk_hw_register_gate(NULL, "sc9830-usb", NULL, 0, base, 4, 0,
-				     &sc9830_usb_clock_lock);
-	if (IS_ERR(clock))
-		panic("SC9830 USB clock registration failed\n");
-	ret = of_clk_add_hw_provider(node, of_clk_hw_simple_get, clock);
-	if (ret)
-		panic("SC9830 USB clock provider failed\n");
-}
-
-CLK_OF_DECLARE(sc9830_usb_clock, "sprd,sc9830-usb-clock",
-	       sc9830_usb_clock_init);
 
 static void __init sc9830_set_bits(phys_addr_t address, u32 bits)
 {
@@ -56,7 +32,6 @@ static void __init sc9830_init_irq(void)
 {
 	sc9830_set_bits(0x71300000, BIT(19) | BIT(20));
 	sc9830_set_bits(0x402e0000, BIT(11) | BIT(15));
-	sc9830_set_bits(0x20e00000, BIT(4));
 	sc9830_enable_irq(0x71400008, BIT(28));
 	sc9830_enable_irq(0x71500008, BIT(6) | BIT(23) | BIT(28));
 	sc9830_enable_irq(0x40200008, BIT(2) | BIT(4));

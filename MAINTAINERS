@@ -25561,7 +25561,6 @@ SPREADTRUM SC9830 RAM BRING-UP
 M:	minorum <mit.mis@gmail.com>
 S:	Odd Fixes
 F:	Documentation/devicetree/bindings/clock/sprd,sc9830-clk.yaml
-F:	Documentation/devicetree/bindings/clock/sprd,sc9830-usb-clock.yaml
 F:	Documentation/devicetree/bindings/i2c/sprd,sc9830-i2c.yaml
 F:	Documentation/devicetree/bindings/mmc/sprd,sc9830-sdhci.yaml
 F:	Documentation/devicetree/bindings/mmc/sprd,sc9830-sdio.yaml
