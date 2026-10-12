@@ -317,6 +317,7 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 	struct sc9830_ddr_port *p = &ddr->ports[port];
 	void __iomem *base = ddr_base(ddr, port);
 	u32 filters[10] = { };
+	static const u32 modes[] = { 1, 3, 0 };
 	unsigned int i;
 	u32 ctrl;
 	int ret;
@@ -338,7 +339,7 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 	p->window = readl(ddr_base(ddr, port) + DDR_WINDOW);
 	p->address = ddr_is_address(event);
 	if (p->address) {
-		filters[0] = (u32[]){ 1, 3, 0 }[FIELD_GET(DDR_ACCESS, event->attr.config)];
+		filters[0] = modes[FIELD_GET(DDR_ACCESS, event->attr.config)];
 		filters[1] = event->attr.config1;
 		filters[2] = event->attr.config2;
 		if (DDR_PROFILES & BIT(port)) {
@@ -350,6 +351,12 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 		}
 		for (i = 0; i < ARRAY_SIZE(filters); i++)
 			p->filters[i] = readl(base + 4 + i * 4);
+		if (readl(base) != ctrl || readl(base + DDR_WINDOW) != p->window)
+			goto changed_owner;
+		for (i = 0; i < ARRAY_SIZE(filters); i++) {
+			if (readl(base + 4 + i * 4) != p->filters[i])
+				goto changed_owner;
+		}
 		writel(p->ctrl | DDR_ACK, base);
 		if (readl(base) & DDR_STATUS)
 			goto restore_address;
@@ -383,6 +390,10 @@ restore_address:
 	writel(p->ctrl, base);
 	ddr_pub_update(ddr, 4, DDR_GATE(port), p->gate);
 	return -EIO;
+
+changed_owner:
+	ddr_pub_update(ddr, 4, DDR_GATE(port), p->gate);
+	return -EBUSY;
 }
 
 static void ddr_release(struct sc9830_ddr_pmu *ddr, unsigned int port)
@@ -401,7 +412,8 @@ static void ddr_release(struct sc9830_ddr_pmu *ddr, unsigned int port)
 			writel(p->filters[i], base + 4 + i * 4);
 		for (i = 0; i < ARRAY_SIZE(p->filters); i++) {
 			if (readl(base + 4 + i * 4) != p->filters[i])
-				pr_err_ratelimited("sc9830-ddr: port %u filter restore failed\n", port);
+				pr_err_ratelimited("sc9830-ddr: port %u filter restore failed\n",
+						   port);
 		}
 	}
 	writel(p->ctrl, base);
@@ -582,8 +594,13 @@ static DEVICE_ATTR_RO(cpumask);
 
 PMU_FORMAT_ATTR(event, "config:0-2");
 PMU_FORMAT_ATTR(port, "config:8-11");
+PMU_FORMAT_ATTR(access, "config:16-17");
+PMU_FORMAT_ATTR(start, "config1:0-31");
+PMU_FORMAT_ATTR(end, "config2:0-31");
 static struct attribute *ddr_format_attrs[] = {
-	&format_attr_event.attr, &format_attr_port.attr, NULL,
+	&format_attr_event.attr, &format_attr_port.attr,
+	&format_attr_access.attr, &format_attr_start.attr, &format_attr_end.attr,
+	NULL,
 };
 static const struct attribute_group ddr_format_group = {
 	.name = "format", .attrs = ddr_format_attrs,
@@ -600,13 +617,15 @@ DDR_EVENT(read_bandwidth_raw, 1);
 DDR_EVENT(write_bandwidth_raw, 4);
 DDR_EVENT(read_latency_raw, 2);
 DDR_EVENT(write_latency_raw, 5);
+DDR_EVENT(address_match, 6);
 static struct attribute *ddr_event_attrs[] = {
 	&ddr_event_read_transactions.attr.attr,
 	&ddr_event_write_transactions.attr.attr,
 	&ddr_event_read_bandwidth_raw.attr.attr,
 	&ddr_event_write_bandwidth_raw.attr.attr,
 	&ddr_event_read_latency_raw.attr.attr,
-	&ddr_event_write_latency_raw.attr.attr, NULL,
+	&ddr_event_write_latency_raw.attr.attr,
+	&ddr_event_address_match.attr.attr, NULL,
 };
 static const struct attribute_group ddr_event_group = {
 	.name = "events", .attrs = ddr_event_attrs,
