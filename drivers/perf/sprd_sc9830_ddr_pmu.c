@@ -7,9 +7,15 @@
 #include <linux/perf_event.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
+#include <asm/irq_regs.h>
 
 #define DDR_PORTS	10
 #define DDR_COUNTERS	6
+#define DDR_ADDRESS	6
+#define DDR_SLOTS	7
+#define DDR_ACCESS	GENMASK_ULL(17, 16)
+#define DDR_PROFILES	0x3bf
+#define DDR_MATCH	BIT(31)
 #define DDR_STRIDE	0x10000
 #define DDR_WINDOW	0x2c
 #define DDR_RESULT	0x44
@@ -26,13 +32,15 @@
 #define DDR_EVENT_MASK	(GENMASK_ULL(11, 8) | GENMASK_ULL(2, 0))
 
 struct sc9830_ddr_port {
-	struct perf_event *events[DDR_COUNTERS];
+	struct perf_event *events[DDR_SLOTS];
+	u32 filters[10];
 	u32 ctrl;
 	u32 window;
 	u32 gate;
 	unsigned int users;
 	unsigned int running;
 	bool failed;
+	bool address;
 };
 
 struct sc9830_ddr_pmu {
@@ -47,6 +55,21 @@ struct sc9830_ddr_pmu {
 	unsigned int cpu;
 	unsigned int running;
 	unsigned int users;
+	unsigned int address_users;
+};
+
+struct sc9830_address_record {
+	u32 version;
+	u32 port;
+	u32 control;
+	u32 command;
+	u32 id;
+};
+
+struct sc9830_address_sample {
+	struct perf_event *event;
+	struct sc9830_address_record record;
+	u32 address;
 };
 
 #define to_ddr(p)	container_of(p, struct sc9830_ddr_pmu, pmu)
@@ -74,6 +97,15 @@ static void ddr_rearm(struct sc9830_ddr_pmu *ddr, unsigned int port)
 	if (!(readl(ddr->pub + 4) & DDR_GATE(port))) {
 		ddr->ports[port].failed = true;
 		pr_err_ratelimited("sc9830-ddr: port %u lost its clock\n", port);
+		return;
+	}
+	if (ddr->ports[port].address) {
+		writel(BIT(0) | DDR_ACK, base);
+		if (readl(base) & DDR_STATUS) {
+			ddr->ports[port].failed = true;
+			return;
+		}
+		writel(BIT(0) | DDR_IRQ, base);
 		return;
 	}
 	writel((readl(base) & 0xb) | 3, base);
@@ -125,6 +157,42 @@ static int ddr_config_valid(u64 config)
 		FIELD_GET(GENMASK_ULL(2, 0), config) < DDR_COUNTERS;
 }
 
+static bool ddr_is_address(struct perf_event *event)
+{
+	return (event->attr.config & 7) == DDR_ADDRESS;
+}
+
+static bool ddr_address_valid(struct perf_event *event)
+{
+	u64 config = event->attr.config;
+
+	return !(config & ~(DDR_EVENT_MASK | DDR_ACCESS)) &&
+		FIELD_GET(GENMASK_ULL(11, 8), config) < DDR_PORTS &&
+		FIELD_GET(DDR_ACCESS, config) < 3 &&
+		event->attr.config1 <= U32_MAX && event->attr.config2 <= U32_MAX &&
+		event->attr.config1 <= event->attr.config2 &&
+		event->attr.sample_period == 1 && !event->attr.freq &&
+		!event->attr.precise_ip;
+}
+
+static bool ddr_group_valid(struct perf_event *event, struct perf_event *other)
+{
+	if (other->pmu != event->pmu)
+		return is_software_event(other);
+	if (ddr_is_address(event) != ddr_is_address(other))
+		return false;
+	if (ddr_is_address(event) &&
+	    FIELD_GET(GENMASK_ULL(11, 8), event->attr.config) ==
+	    FIELD_GET(GENMASK_ULL(11, 8), other->attr.config))
+		return false;
+	return event->attr.config != other->attr.config;
+}
+
+static int ddr_check_period(struct perf_event *event, u64 period)
+{
+	return ddr_is_address(event) && period == 1 ? 0 : -EINVAL;
+}
+
 static int ddr_event_init(struct perf_event *event)
 {
 	struct sc9830_ddr_pmu *ddr = to_ddr(event->pmu);
@@ -132,12 +200,19 @@ static int ddr_event_init(struct perf_event *event)
 
 	if (event->attr.type != event->pmu->type)
 		return -ENOENT;
-	if (is_sampling_event(event) || event->attach_state & PERF_ATTACH_TASK ||
+	if (event->attach_state & PERF_ATTACH_TASK ||
 	    event->cpu < 0)
 		return -EOPNOTSUPP;
-	if (!ddr_config_valid(event->attr.config) || event->attr.config1 ||
-	    event->attr.config2)
-		return -EINVAL;
+	if (ddr_is_address(event)) {
+		if (!ddr_address_valid(event))
+			return -EINVAL;
+	} else {
+		if (is_sampling_event(event))
+			return -EOPNOTSUPP;
+		if (!ddr_config_valid(event->attr.config) || event->attr.config1 ||
+		    event->attr.config2)
+			return -EINVAL;
+	}
 	if (event->attr.exclude_user || event->attr.exclude_kernel ||
 	    event->attr.exclude_hv || event->attr.exclude_idle ||
 	    event->attr.exclude_host || event->attr.exclude_guest)
@@ -146,18 +221,19 @@ static int ddr_event_init(struct perf_event *event)
 	    !is_software_event(event->group_leader))
 		return -EINVAL;
 	for_each_sibling_event(sibling, event->group_leader) {
-		if (sibling->pmu != event->pmu && !is_software_event(sibling))
-			return -EINVAL;
-		if (sibling->pmu == event->pmu &&
-		    sibling->attr.config == event->attr.config)
+		if (!ddr_group_valid(event, sibling))
 			return -EINVAL;
 	}
 	if (event != event->group_leader &&
-	    event->group_leader->pmu == event->pmu &&
-	    event->group_leader->attr.config == event->attr.config)
+	    !ddr_group_valid(event, event->group_leader))
 		return -EINVAL;
 	event->cpu = ddr->cpu;
 	event->hw.idx = -1;
+	if (ddr_is_address(event)) {
+		event->hw.sample_period = 1;
+		event->hw.last_period = 1;
+		local64_set(&event->hw.period_left, 1);
+	}
 	return 0;
 }
 
@@ -179,6 +255,8 @@ static void ddr_start_locked(struct sc9830_ddr_pmu *ddr,
 	event->hw.state = 0;
 	p->running++;
 	ddr_rearm(ddr, port);
+	if (p->address)
+		return;
 	if (!ddr->running++)
 		ddr_pub_update(ddr, 0, BIT(0), BIT(0));
 }
@@ -191,6 +269,13 @@ static void ddr_stop_locked(struct sc9830_ddr_pmu *ddr,
 
 	if (event->hw.state & PERF_HES_STOPPED)
 		return;
+	if (p->address) {
+		if (!p->failed)
+			writel(p->ctrl | DDR_ACK, ddr_base(ddr, port));
+		event->hw.state = PERF_HES_STOPPED | PERF_HES_UPTODATE;
+		p->running--;
+		return;
+	}
 	ddr_snapshot(ddr, port);
 	if (!p->failed)
 		writel(3, ddr_base(ddr, port));
@@ -226,9 +311,13 @@ static int ddr_check_owners(struct sc9830_ddr_pmu *ddr)
 	return 0;
 }
 
-static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port)
+static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
+		     struct perf_event *event)
 {
 	struct sc9830_ddr_port *p = &ddr->ports[port];
+	void __iomem *base = ddr_base(ddr, port);
+	u32 filters[10] = { };
+	unsigned int i;
 	u32 ctrl;
 	int ret;
 
@@ -247,6 +336,37 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port)
 	}
 	p->ctrl = ctrl & DDR_WRITABLE;
 	p->window = readl(ddr_base(ddr, port) + DDR_WINDOW);
+	p->address = ddr_is_address(event);
+	if (p->address) {
+		filters[0] = (u32[]){ 1, 3, 0 }[FIELD_GET(DDR_ACCESS, event->attr.config)];
+		filters[1] = event->attr.config1;
+		filters[2] = event->attr.config2;
+		if (DDR_PROFILES & BIT(port)) {
+			filters[4] = 0x0fffffff;
+			filters[5] = 0x0fffffff;
+		} else {
+			filters[6] = U32_MAX;
+			filters[7] = U32_MAX;
+		}
+		for (i = 0; i < ARRAY_SIZE(filters); i++)
+			p->filters[i] = readl(base + 4 + i * 4);
+		writel(p->ctrl | DDR_ACK, base);
+		if (readl(base) & DDR_STATUS)
+			goto restore_address;
+		for (i = 0; i < 24; i++)
+			writel(0, base + i * 4);
+		for (i = 0; i < ARRAY_SIZE(filters); i++)
+			writel(filters[i], base + 4 + i * 4);
+		writel(0, base + DDR_WINDOW);
+		for (i = 0; i < ARRAY_SIZE(filters); i++) {
+			if (readl(base + 4 + i * 4) != filters[i])
+				goto restore_address;
+		}
+		if (readl(base + DDR_WINDOW) || readl(base) & DDR_STATUS)
+			goto restore_address;
+		p->failed = false;
+		return 0;
+	}
 	writel(6400000, ddr_base(ddr, port) + DDR_WINDOW);
 	if (readl(ddr_base(ddr, port) + DDR_WINDOW) != 6400000) {
 		writel(p->window, ddr_base(ddr, port) + DDR_WINDOW);
@@ -255,18 +375,35 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port)
 	}
 	p->failed = false;
 	return 0;
+
+restore_address:
+	for (i = 0; i < ARRAY_SIZE(filters); i++)
+		writel(p->filters[i], base + 4 + i * 4);
+	writel(p->window, base + DDR_WINDOW);
+	writel(p->ctrl, base);
+	ddr_pub_update(ddr, 4, DDR_GATE(port), p->gate);
+	return -EIO;
 }
 
 static void ddr_release(struct sc9830_ddr_pmu *ddr, unsigned int port)
 {
 	struct sc9830_ddr_port *p = &ddr->ports[port];
 	void __iomem *base = ddr_base(ddr, port);
+	unsigned int i;
 
 	if (!(readl(ddr->pub + 4) & DDR_GATE(port))) {
 		pr_err_ratelimited("sc9830-ddr: cannot restore gated port %u\n", port);
 		return;
 	}
 	writel(p->ctrl | DDR_ACK, base);
+	if (p->address) {
+		for (i = 0; i < ARRAY_SIZE(p->filters); i++)
+			writel(p->filters[i], base + 4 + i * 4);
+		for (i = 0; i < ARRAY_SIZE(p->filters); i++) {
+			if (readl(base + 4 + i * 4) != p->filters[i])
+				pr_err_ratelimited("sc9830-ddr: port %u filter restore failed\n", port);
+		}
+	}
 	writel(p->ctrl, base);
 	writel(p->window, base + DDR_WINDOW);
 	if ((readl(base) & DDR_WRITABLE) != p->ctrl ||
@@ -308,6 +445,10 @@ static int ddr_add(struct perf_event *event, int flags)
 	disable_irq_nosync(ddr->irq);
 	synchronize_hardirq(ddr->irq);
 	raw_spin_lock_irqsave(&ddr->lock, irqflags);
+	if (ddr->users && !!ddr->address_users != ddr_is_address(event)) {
+		ret = -EAGAIN;
+		goto out;
+	}
 	if (p->users && p->failed) {
 		ret = -EIO;
 		goto out;
@@ -317,14 +458,17 @@ static int ddr_add(struct perf_event *event, int flags)
 		goto out;
 	}
 	if (!p->users) {
-		ret = ddr_claim(ddr, port);
+		ret = ddr_claim(ddr, port, event);
 		if (ret)
 			goto out;
 	}
 	p->events[counter] = event;
 	p->users++;
 	ddr->users++;
-	event->hw.idx = port * DDR_COUNTERS + counter;
+	if (p->address)
+		ddr->address_users++;
+	event->hw.idx = p->address ? DDR_PORTS * DDR_COUNTERS + port :
+		port * DDR_COUNTERS + counter;
 	event->hw.state = PERF_HES_STOPPED | PERF_HES_UPTODATE;
 	if (flags & PERF_EF_START)
 		ddr_start_locked(ddr, event);
@@ -347,6 +491,8 @@ static void ddr_del(struct perf_event *event, int flags)
 	ddr_stop_locked(ddr, event);
 	p->events[event->attr.config & 7] = NULL;
 	ddr->users--;
+	if (p->address)
+		ddr->address_users--;
 	if (!--p->users)
 		ddr_release(ddr, port);
 	event->hw.idx = -1;
@@ -361,7 +507,7 @@ static void ddr_read(struct perf_event *event)
 	unsigned long irqflags;
 
 	raw_spin_lock_irqsave(&ddr->lock, irqflags);
-	if (!(event->hw.state & PERF_HES_STOPPED))
+	if (!ddr_is_address(event) && !(event->hw.state & PERF_HES_STOPPED))
 		ddr_snapshot(ddr, port);
 	raw_spin_unlock_irqrestore(&ddr->lock, irqflags);
 }
@@ -369,16 +515,59 @@ static void ddr_read(struct perf_event *event)
 static irqreturn_t ddr_irq(int irq, void *data)
 {
 	struct sc9830_ddr_pmu *ddr = data;
+	struct sc9830_address_sample samples[DDR_PORTS];
 	unsigned long flags;
-	unsigned int port;
+	unsigned int port, nr = 0, i;
 	bool handled = false;
 
 	raw_spin_lock_irqsave(&ddr->lock, flags);
 	for (port = 0; port < DDR_PORTS; port++) {
+		struct sc9830_ddr_port *p = &ddr->ports[port];
+		void __iomem *base = ddr_base(ddr, port);
+		u32 ctrl;
+
+		if (p->address) {
+			if (!p->running || p->failed)
+				continue;
+			if (!(readl(ddr->pub + 4) & DDR_GATE(port))) {
+				p->failed = true;
+				continue;
+			}
+			ctrl = readl(base);
+			if (!(ctrl & DDR_MATCH))
+				continue;
+			samples[nr].event = p->events[DDR_ADDRESS];
+			samples[nr].address = readl(base + 0x34);
+			samples[nr].record = (struct sc9830_address_record) {
+				.version = 1, .port = port, .control = ctrl,
+				.command = readl(base + 0x38),
+				.id = readl(base + 0x64),
+			};
+			local64_add(1, &samples[nr].event->count);
+			nr++;
+			writel(BIT(0), base);
+			ddr_rearm(ddr, port);
+			handled = true;
+			continue;
+		}
 		if (ddr->ports[port].running && ddr_snapshot(ddr, port))
 			handled = true;
 	}
 	raw_spin_unlock_irqrestore(&ddr->lock, flags);
+	for (i = 0; i < nr; i++) {
+		struct perf_sample_data sample;
+		struct perf_raw_record raw = {
+			.frag = { .size = sizeof(samples[i].record),
+				  .data = &samples[i].record },
+		};
+
+		perf_sample_data_init(&sample, samples[i].address, 1);
+		sample.phys_addr = samples[i].address;
+		sample.sample_flags |= PERF_SAMPLE_ADDR | PERF_SAMPLE_PHYS_ADDR;
+		perf_sample_save_raw_data(&sample, samples[i].event, &raw);
+		if (perf_event_overflow(samples[i].event, &sample, get_irq_regs()))
+			ddr_stop(samples[i].event, 0);
+	}
 	return handled ? IRQ_HANDLED : IRQ_NONE;
 }
 
@@ -479,6 +668,7 @@ static int ddr_probe(struct platform_device *pdev)
 		.capabilities = PERF_PMU_CAP_NO_EXCLUDE,
 		.attr_groups = ddr_groups,
 		.event_init = ddr_event_init,
+		.check_period = ddr_check_period,
 		.add = ddr_add, .del = ddr_del,
 		.start = ddr_start, .stop = ddr_stop, .read = ddr_read,
 	};
