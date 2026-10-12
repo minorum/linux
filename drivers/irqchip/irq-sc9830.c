@@ -111,7 +111,8 @@ static struct irq_chip sc9830_irq_chip = {
 	.irq_set_type = irq_chip_set_type_parent,
 	.irq_set_affinity = irq_chip_set_affinity_parent,
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
-	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_MASK_ON_SUSPEND,
+	.flags = IRQCHIP_SET_TYPE_MASKED | IRQCHIP_SKIP_SET_WAKE |
+		 IRQCHIP_MASK_ON_SUSPEND,
 };
 
 static int sc9830_irq_translate(struct irq_domain *domain,
