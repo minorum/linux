@@ -35,6 +35,13 @@ static int sc9830_next_event(unsigned long cycles,
 			     struct clock_event_device *event)
 {
 	void __iomem *base = timer_of_base(to_timer_of(event));
+	u32 status;
+	int ret;
+
+	ret = readl_poll_timeout_atomic(base + TIMER_INT, status,
+				       !(status & TIMER_IRQ_BUSY), 0, 1000);
+	if (ret)
+		return -ETIME;
 
 	writel_relaxed(0, base + TIMER_CTL);
 	writel_relaxed(cycles, base + TIMER_LOAD);
@@ -46,10 +53,7 @@ static irqreturn_t sc9830_interrupt(int irq, void *data)
 {
 	struct clock_event_device *event = data;
 	void __iomem *base = timer_of_base(to_timer_of(event));
-	u32 status;
-
 	writel_relaxed(TIMER_IRQ_ENABLE | TIMER_IRQ_CLEAR, base + TIMER_INT);
-	readl_poll_timeout_atomic(base + TIMER_INT, status, !(status & TIMER_IRQ_BUSY), 0, 1000);
 	sc9830_shutdown(event);
 	event->event_handler(event);
 	return IRQ_HANDLED;
