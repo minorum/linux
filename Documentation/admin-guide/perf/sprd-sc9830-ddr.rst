@@ -65,6 +65,7 @@ PERF_SAMPLE_ADDR and PERF_SAMPLE_PHYS_ADDR contain the captured bus address.
 The sampled IP and task describe interrupt context, not the transaction's
 origin. PERF_SAMPLE_RAW contains five native-endian 32-bit words: version
 (currently 1), port, captured control, captured command, and captured ID.
+The ID is an uninterpreted register value; its origin and stability are unverified.
 Captured data payloads are not exported because their meaning is unverified.
 Counts report serviced matches; transactions while handling or rearming the
 monitor may be lost. Address sampling does not enable global counter windows.
