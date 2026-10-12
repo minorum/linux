@@ -93,6 +93,8 @@ static int __init sc9830_timer_init(struct device_node *node)
 	ret = clocksource_mmio_init(sc9830_source, "sc9830-source", timer_of_rate(&sc9830_timer),
 				    200, 32, clocksource_mmio_readl_down);
 	if (ret) {
+		writel_relaxed(0, base + TIMER_STRIDE + TIMER_CTL);
+		sc9830_source = NULL;
 		timer_of_cleanup(&sc9830_timer);
 		return ret;
 	}
