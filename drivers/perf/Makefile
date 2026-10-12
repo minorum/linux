@@ -12,6 +12,7 @@ obj-$(CONFIG_ARM_V7_PMU) += arm_v7_pmu.o
 obj-$(CONFIG_ARM_XSCALE_PMU) += arm_xscale_pmu.o
 obj-$(CONFIG_ARM_SMMU_V3_PMU) += arm_smmuv3_pmu.o
 obj-$(CONFIG_FSL_IMX8_DDR_PMU) += fsl_imx8_ddr_perf.o
+obj-$(CONFIG_SPRD_SC9830_DDR_PMU) += sprd_sc9830_ddr_pmu.o
 obj-$(CONFIG_FSL_IMX9_DDR_PMU) += fsl_imx9_ddr_perf.o
 obj-$(CONFIG_FUJITSU_UNCORE_PMU) += fujitsu_uncore_pmu.o
 obj-$(CONFIG_HISI_PMU) += hisilicon/

@@ -325,4 +325,12 @@ config NVIDIA_TEGRA410_C2C_PMU
 	  Enable perf support for counters in NVIDIA C2C interface of NVIDIA
 	  Tegra410 SoC.
 
+config SPRD_SC9830_DDR_PMU
+	tristate "Spreadtrum SC9830 DDR AXI performance monitor"
+	depends on OF && (ARCH_SC9830 || COMPILE_TEST)
+	help
+	  Count completed monitor windows on the ten SC9830 DDR AXI ports.
+	  The fixed raw counters do not provide calibrated bytes or cycles.
+	  Sampling and per-task monitoring are not supported.
+
 endmenu

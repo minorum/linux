@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/perf/sprd,sc9830-ddr-pmu.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 DDR AXI performance monitor
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  Ten AXI ports each expose six fixed raw counters. The shared PUB block
+  controls global counting and per-port clocks. Hardware completion interrupts
+  delimit windows. Bandwidth and latency units are not calibrated. Monitor
+  clock gates and reset bits share one PUB register. Firmware must leave
+  monitoring idle for Linux ownership.
+
+properties:
+  compatible:
+    const: sprd,sc9830-ddr-pmu
+
+  reg:
+    items:
+      - description: Ten AXI monitor banks
+      - description: PUB global control and clock gates
+
+  reg-names:
+    items:
+      - const: axi
+      - const: pub
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    pmu@30040000 {
+        compatible = "sprd,sc9830-ddr-pmu";
+        reg = <0x30040000 0xa0000>, <0x30020000 0x8>;
+        reg-names = "axi", "pub";
+        interrupt-parent = <&intc>;
+        interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
+    };

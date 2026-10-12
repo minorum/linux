@@ -11,6 +11,7 @@ Performance monitor support
    hisi-pcie-pmu
    hns3-pmu
    imx-ddr
+   sprd-sc9830-ddr
    qcom_l2_pmu
    qcom_l3_pmu
    starfive_starlink_pmu
