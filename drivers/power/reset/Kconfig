@@ -318,6 +318,16 @@ config POWER_RESET_RMOBILE
 config REBOOT_MODE
 	tristate
 
+config SPRD_REBOOT_MODE
+	tristate "Spreadtrum SRAM reboot mode mailbox"
+	depends on OF && HAS_IOMEM
+	select REBOOT_MODE
+	help
+	  Store reboot requests in the SC9830 retained SRAM mailbox.
+	  The reboot-mode framework obtains destination values from
+	  device tree and writes them before the system restarts.
+	  A cooperating bootloader consumes the request on its next boot.
+
 config SYSCON_REBOOT_MODE
 	tristate "Generic SYSCON regmap reboot mode driver"
 	depends on OF

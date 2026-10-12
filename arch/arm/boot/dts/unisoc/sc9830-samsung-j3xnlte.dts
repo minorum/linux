@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "sc9830.dtsi"
+#include <dt-bindings/power/sprd,sc9830-reboot-mode.h>
 
 / {
 	model = "Samsung Galaxy J3 SM-J320FN";
@@ -19,6 +20,14 @@
 	memory@80000000 {
 		device_type = "memory";
 		reg = <0x80000000 0x60000000>;
+	};
+
+	reboot-mode@f90 {
+		compatible = "sprd,sc9830-reboot-mode";
+		reg = <0xf90 0x4>;
+		mode-normal = <SC9830_BOOT_NORMAL>;
+		mode-recovery = <SC9830_BOOT_RECOVERY>;
+		mode-bootloader = <SC9830_BOOT_FASTBOOT>;
 	};
 
 	reserved-memory {
