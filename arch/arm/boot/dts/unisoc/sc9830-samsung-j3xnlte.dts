@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /dts-v1/;
 
-#include <dt-bindings/interrupt-controller/arm-gic.h>
-#include <dt-bindings/clock/sprd,sc9830-clk.h>
-#include <dt-bindings/reset/sprd,sc9830-reset.h>
-#include <dt-bindings/gpio/gpio.h>
+#include "sc9830.dtsi"
 
 / {
 	model = "Samsung Galaxy J3 SM-J320FN";
 	compatible = "samsung,j3xnlte", "sprd,sc9830";
-	#address-cells = <1>;
-	#size-cells = <1>;
-	interrupt-parent = <&intc>;
 
 	aliases {
 		serial0 = &uart0;
@@ -73,16 +67,6 @@
 		};
 	};
 
-	cpus {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		cpu@0 {
-			device_type = "cpu";
-			compatible = "arm,cortex-a7";
-			reg = <0>;
-		};
-	};
 
 	ext_32k: clock-32k {
 		compatible = "fixed-clock";
@@ -95,8 +79,6 @@
 		#clock-cells = <0>;
 		clock-frequency = <26000000>;
 	};
-
-
 
 	battery: battery {
 		compatible = "simple-battery";
@@ -168,359 +150,232 @@
 		};
 	};
 
-	soc {
-		compatible = "simple-bus";
+};
+
+&pinctrl {
+
+
+	i2c2_default: i2c2-pins {
+		function = "i2c2";
+		groups = "i2c2";
+	};
+
+	uart0_default: uart0-pins {
+		function = "uart0";
+		groups = "uart0";
+	};
+
+	emmc_data_default: emmc-data-pins {
+		function = "emmc";
+		groups = "emmc-data";
+		sprd,drive-level = <1>;
+		bias-pull-up;
+	};
+
+	emmc_clock_default: emmc-clock-pins {
+		function = "emmc";
+		groups = "emmc-clock";
+		sprd,drive-level = <2>;
+		bias-disable;
+	};
+
+	sdio1_default: sdio1-pins {
+		function = "sdio1";
+		groups = "sdio1";
+	};
+};
+
+&uart0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_default>;
+
+	connectivity: mcu {
+		compatible = "sprd,sc2331";
+		vddcon-supply = <&vddcon>;
+		vddwifipa-supply = <&vddwifipa>;
+		clocks = <&aon_gate CLK_AUX0>;
+		clock-names = "ext_clock";
+		reset-gpios = <&gpio 130 GPIO_ACTIVE_LOW>;
+		host-wake-gpios = <&gpio 97 GPIO_ACTIVE_HIGH>;
+		device-wake-gpios = <&gpio 133 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&i2c2 {
+	status = "okay";
+	assigned-clocks = <&ap_clk CLK_I2C2>;
+	assigned-clock-parents = <&ext_26m>;
+	assigned-clock-rates = <26000000>;
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2_default>;
+
+	charger: charger@49 {
+		compatible = "siliconmitus,sm5701";
+		reg = <0x49>;
+		interrupt-parent = <&gpio>;
+		interrupts = <92 IRQ_TYPE_EDGE_FALLING>;
+	};
+};
+
+&adi {
+	status = "okay";
+
+	pmic: pmic@0 {
+		compatible = "sprd,sc2723";
+		reg = <0>;
+		spi-max-frequency = <26000000>;
+		interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
 		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
+		#size-cells = <0>;
 
-		gpio: gpio@40280000 {
-			compatible = "sprd,sc9830-gpio", "sprd,sc9860-gpio";
-			reg = <0x40280000 0x1000>;
-			gpio-controller;
-			#gpio-cells = <2>;
-			interrupt-controller;
-			#interrupt-cells = <2>;
-			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+		rtc@80 {
+			compatible = "sprd,sc2723-rtc";
+			reg = <0x80>;
+			interrupts = <2>;
+			start-year = <2015>;
 		};
 
-		aon_gate: clock-controller@402e0000 {
-			compatible = "sprd,sc9830-aon-clk";
-			reg = <0x402e0000 0x3000>;
-			#clock-cells = <1>;
-			clocks = <&ext_26m>, <&ext_32k>;
-			clock-names = "ext-26m", "ext-32k";
+		adc: adc@300 {
+			compatible = "sprd,sc2723-adc";
+			reg = <0x300>;
+			interrupts = <0>;
+			#io-channel-cells = <1>;
+			hwlocks = <&hwlock 4>;
+			clocks = <&aon_gate CLK_SINDRV>;
+			clock-names = "reference";
+			nvmem-cells = <&calibration_state>,
+				      <&adc_calibration>, <&adc_small_calibration>;
+			nvmem-cell-names = "calibration_state",
+					   "big_scale_calib", "small_scale_calib";
 		};
 
-		ap_clk: clock-controller@21500000 {
-			compatible = "sprd,sc9830-ap-clk";
-			reg = <0x21500000 0x1000>;
-			#clock-cells = <1>;
-			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_48M>,
-				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>,
-				 <&aon_gate CLK_TWPLL_256M>, <&aon_gate CLK_TWPLL_307M2>,
-				 <&aon_gate CLK_TWPLL_384M>, <&aon_gate CLK_TWPLL_96M>;
-			clock-names = "ext-26m", "twpll-48m", "twpll-51m2",
-				      "twpll-153m6", "twpll-256m", "twpll-307m2",
-				      "twpll-384m", "twpll-96m";
-			status = "okay";
+		fuel-gauge@500 {
+			monitored-battery = <&battery>;
+			power-supplies = <&charger>;
+			io-channels = <&battery_thermistor>, <&adc 5>;
+			io-channel-names = "bat-temp", "bat-voltage";
+			compatible = "sprd,sc2723-fgu";
+			reg = <0x500>;
+			interrupts = <4>;
+			nvmem-cells = <&calibration_state>,
+				      <&fgu_voltage_calibration>;
+			nvmem-cell-names = "calibration_state", "fgu_calib";
+			sprd,calib-resistance-micro-ohms = <19900>;
 		};
 
-		apapb: clock-controller@71300000 {
-			compatible = "sprd,sc9830-apapb-gate";
-			reg = <0x71300000 0x3000>;
-			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_I2C2>, <&ap_clk CLK_UART0>;
-			clock-names = "i2c2", "uart0";
-			status = "okay";
-		};
+		regulators {
+			compatible = "sprd,sc2723-regulator";
+			nvmem-cells = <&calibration_state>, <&vddcon_calibration>,
+				      <&wifipa_calibration>;
+			nvmem-cell-names = "calibration_state", "vddcon",
+					   "vddwifipa";
 
-		pinctrl: pinctrl@402a0000 {
-			compatible = "sprd,sc9830-pinctrl";
-			reg = <0x402a0000 0x1000>;
-			status = "okay";
-
-			i2c2_default: i2c2-pins {
-				function = "i2c2";
-				groups = "i2c2";
+			vddcon: vddcon {
+				regulator-name = "vddcon";
+				regulator-min-microvolt = <1600000>;
+				regulator-max-microvolt = <1600000>;
 			};
 
-			uart0_default: uart0-pins {
-				function = "uart0";
-				groups = "uart0";
-			};
-
-			emmc_data_default: emmc-data-pins {
-				function = "emmc";
-				groups = "emmc-data";
-				sprd,drive-level = <1>;
-				bias-pull-up;
-			};
-
-			emmc_clock_default: emmc-clock-pins {
-				function = "emmc";
-				groups = "emmc-clock";
-				sprd,drive-level = <2>;
-				bias-disable;
-			};
-
-			sdio1_default: sdio1-pins {
-				function = "sdio1";
-				groups = "sdio1";
+			vddwifipa: vddwifipa {
+				regulator-name = "vddwifipa";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
 			};
 		};
 
-		uart0: serial@70000000 {
-			compatible = "sprd,sc9830-uart", "sprd,sc9836-uart";
-			reg = <0x70000000 0x1000>;
-			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&apapb CLK_UART0_EB>, <&ap_clk CLK_UART0>,
-				 <&aon_gate CLK_TWPLL_48M>;
-			clock-names = "enable", "uart", "source";
-			pinctrl-names = "default";
-			pinctrl-0 = <&uart0_default>;
-
-			connectivity: mcu {
-				compatible = "sprd,sc2331";
-				vddcon-supply = <&vddcon>;
-				vddwifipa-supply = <&vddwifipa>;
-				clocks = <&aon_gate CLK_AUX0>;
-				clock-names = "ext_clock";
-				reset-gpios = <&gpio 130 GPIO_ACTIVE_LOW>;
-				host-wake-gpios = <&gpio 97 GPIO_ACTIVE_HIGH>;
-				device-wake-gpios = <&gpio 133 GPIO_ACTIVE_HIGH>;
-			};
-		};
-
-		i2c2: i2c@70700000 {
-			compatible = "sprd,sc9830-i2c";
-			reg = <0x70700000 0x1000>;
-			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ap_clk CLK_I2C2>, <&apapb CLK_I2C2_EB>;
-			clock-names = "i2c", "enable";
-			assigned-clocks = <&ap_clk CLK_I2C2>;
-			assigned-clock-parents = <&ext_26m>;
-			assigned-clock-rates = <26000000>;
-			clock-frequency = <100000>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&i2c2_default>;
+		efuse@200 {
+			compatible = "sprd,sc2723-efuse";
+			reg = <0x200>;
 			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "okay";
+			#size-cells = <1>;
 
-			charger: charger@49 {
-				compatible = "siliconmitus,sm5701";
-				reg = <0x49>;
-				interrupt-parent = <&gpio>;
-				interrupts = <92 IRQ_TYPE_EDGE_FALLING>;
+			calibration_state: calibration-state@0 {
+				reg = <0 1>;
+				bits = <7 1>;
+			};
+
+			adc_calibration: adc-calibration@7 {
+				reg = <7 2>;
+			};
+
+			adc_small_calibration: adc-small-calibration@9 {
+				reg = <9 2>;
+				};
+
+			vddcon_calibration: vddcon-calibration@d,1 {
+				reg = <13 1>;
+				bits = <1 7>;
+			};
+
+			wifipa_calibration: wifipa-calibration@14,4 {
+				reg = <20 2>;
+				bits = <4 6>;
+			};
+
+			fgu_voltage_calibration: fgu-voltage@c {
+				reg = <12 2>;
+				bits = <0 9>;
+			};
+
+			fgu-current@d {
+				reg = <13 2>;
+				bits = <1 9>;
+			};
+
+			fgu-voltage-delta@e {
+				reg = <14 1>;
+				bits = <2 6>;
 			};
 		};
+	};
+};
 
-		hwlock: hwlock@40060000 {
-			compatible = "sprd,sc9830-hwspinlock";
-			reg = <0x40060000 0x1000>;
-			clocks = <&aon_gate CLK_SPLK_EB>;
-			clock-names = "enable";
-			#hwlock-cells = <1>;
-		};
+&usb {
+	status = "okay";
+	dr_mode = "peripheral";
+	maximum-speed = "full-speed";
+	phy_type = "utmi";
 
-		adi: spi@40030000 {
-			compatible = "sprd,sc9830-adi";
-			reg = <0x40030000 0x10000>;
-			clocks = <&aon_gate CLK_ADI_EB>;
-			hwlocks = <&hwlock 0>;
-			hwlock-names = "adi";
-			#address-cells = <1>;
-			#size-cells = <0>;
 
-			pmic: pmic@0 {
-				compatible = "sprd,sc2723";
-				reg = <0>;
-				spi-max-frequency = <26000000>;
-				interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-controller;
-				#interrupt-cells = <1>;
-				#address-cells = <1>;
-				#size-cells = <0>;
+};
 
-				rtc@80 {
-					compatible = "sprd,sc2723-rtc";
-					reg = <0x80>;
-					interrupts = <2>;
-					start-year = <2015>;
-				};
+&emmc {
+	status = "okay";
+	assigned-clocks = <&ap_clk CLK_EMMC>;
+	assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&emmc_clock_default>, <&emmc_data_default>;
+	bus-width = <1>;
+	max-frequency = <12000000>;
+	non-removable;
+	no-sd;
+	no-sdio;
 
-				adc: adc@300 {
-					compatible = "sprd,sc2723-adc";
-					reg = <0x300>;
-					interrupts = <0>;
-					#io-channel-cells = <1>;
-					hwlocks = <&hwlock 4>;
-					clocks = <&aon_gate CLK_SINDRV>;
-					clock-names = "reference";
-					nvmem-cells = <&calibration_state>,
-						      <&adc_calibration>, <&adc_small_calibration>;
-					nvmem-cell-names = "calibration_state",
-							   "big_scale_calib", "small_scale_calib";
-				};
 
-				fuel-gauge@500 {
-					monitored-battery = <&battery>;
-					power-supplies = <&charger>;
-					io-channels = <&battery_thermistor>, <&adc 5>;
-					io-channel-names = "bat-temp", "bat-voltage";
-					compatible = "sprd,sc2723-fgu";
-					reg = <0x500>;
-					interrupts = <4>;
-					nvmem-cells = <&calibration_state>,
-						      <&fgu_voltage_calibration>;
-					nvmem-cell-names = "calibration_state", "fgu_calib";
-					sprd,calib-resistance-micro-ohms = <19900>;
-				};
+};
 
-				regulators {
-					compatible = "sprd,sc2723-regulator";
-					nvmem-cells = <&calibration_state>, <&vddcon_calibration>,
-						      <&wifipa_calibration>;
-					nvmem-cell-names = "calibration_state", "vddcon",
-							   "vddwifipa";
+&sdio1 {
+	status = "okay";
+	assigned-clocks = <&ap_clk CLK_SDIO1>;
+	assigned-clock-rates = <96000000>;
+	bus-width = <4>;
+	max-frequency = <48000000>;
+	sprd,phy-delay = <3 3 3>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdio1_default>;
+	non-removable;
+	no-sd;
+	no-mmc;
+	no-1-8-v;
+	mmc-pwrseq = <&connectivity>;
 
-					vddcon: vddcon {
-						regulator-name = "vddcon";
-						regulator-min-microvolt = <1600000>;
-						regulator-max-microvolt = <1600000>;
-					};
-
-					vddwifipa: vddwifipa {
-						regulator-name = "vddwifipa";
-						regulator-min-microvolt = <3300000>;
-						regulator-max-microvolt = <3300000>;
-					};
-				};
-
-				efuse@200 {
-					compatible = "sprd,sc2723-efuse";
-					reg = <0x200>;
-					#address-cells = <1>;
-					#size-cells = <1>;
-
-					calibration_state: calibration-state@0 {
-						reg = <0 1>;
-						bits = <7 1>;
-					};
-
-					adc_calibration: adc-calibration@7 {
-						reg = <7 2>;
-					};
-
-					adc_small_calibration: adc-small-calibration@9 {
-						reg = <9 2>;
-						};
-
-					vddcon_calibration: vddcon-calibration@d,1 {
-						reg = <13 1>;
-						bits = <1 7>;
-					};
-
-					wifipa_calibration: wifipa-calibration@14,4 {
-						reg = <20 2>;
-						bits = <4 6>;
-					};
-
-					fgu_voltage_calibration: fgu-voltage@c {
-						reg = <12 2>;
-						bits = <0 9>;
-					};
-
-					fgu-current@d {
-						reg = <13 2>;
-						bits = <1 9>;
-					};
-
-					fgu-voltage-delta@e {
-						reg = <14 1>;
-						bits = <2 6>;
-					};
-				};
-			};
-		};
-
-		apahb: clock-controller@20e00000 {
-			compatible = "sprd,sc9830-apahb-gate";
-			reg = <0x20e00000 0x3000>;
-			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>,
-				 <&ap_clk CLK_EMMC>;
-			clock-names = "sdio0", "sdio1", "emmc";
-			#reset-cells = <1>;
-		};
-
-		gic: interrupt-controller@12001000 {
-			interrupt-parent = <&gic>;
-			compatible = "arm,cortex-a15-gic";
-			#interrupt-cells = <3>;
-			#address-cells = <0>;
-			interrupt-controller;
-			reg = <0x12001000 0x1000>, <0x12002000 0x1000>;
-		};
-
-		intc: interrupt-controller@71400000 {
-			compatible = "sprd,sc9830-intc";
-			reg = <0x71400000 0x1000>, <0x71500000 0x1000>,
-			      <0x71600000 0x1000>, <0x71700000 0x1000>,
-			      <0x40200000 0x1000>;
-			reg-names = "intc0", "intc1", "intc2", "intc3", "aon";
-			interrupt-controller;
-			#interrupt-cells = <3>;
-			#address-cells = <0>;
-			interrupt-parent = <&gic>;
-			clocks = <&apapb CLK_INTC0_EB>, <&apapb CLK_INTC1_EB>,
-				 <&apapb CLK_INTC2_EB>, <&apapb CLK_INTC3_EB>,
-				 <&aon_gate CLK_AON_INTC_EB>;
-			clock-names = "intc0", "intc1", "intc2", "intc3", "aon";
-		};
-
-		timer@40050000 {
-			compatible = "sprd,sc9830-timer";
-			reg = <0x40050000 0x60>;
-			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&aon_gate CLK_AON_TMR_EB>;
-		};
-
-		usb@20200000 {
-			compatible = "snps,dwc2";
-			reg = <0x20200000 0x1000>;
-			interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&apahb CLK_USB_EB>;
-			clock-names = "otg";
-			dr_mode = "peripheral";
-			maximum-speed = "full-speed";
-			phy_type = "utmi";
-		};
-
-		mmc@20600000 {
-			compatible = "sprd,sc9830-sdhci";
-			reg = <0x20600000 0x1000>;
-			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&apahb CLK_EMMC_EB>;
-			assigned-clocks = <&ap_clk CLK_EMMC>;
-			assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
-			resets = <&apahb RST_EMMC>;
-			reset-names = "host";
-			pinctrl-names = "default";
-			pinctrl-0 = <&emmc_clock_default>, <&emmc_data_default>;
-			bus-width = <1>;
-			max-frequency = <12000000>;
-			non-removable;
-			no-sd;
-			no-sdio;
-		};
-
-		sdio1: mmc@20400000 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-			compatible = "sprd,sc9830-sdio";
-			reg = <0x20400000 0x1000>;
-			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&apahb CLK_SDIO1_EB>;
-			assigned-clocks = <&ap_clk CLK_SDIO1>;
-			assigned-clock-rates = <96000000>;
-			bus-width = <4>;
-			max-frequency = <48000000>;
-			sprd,phy-delay = <3 3 3>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&sdio1_default>;
-			non-removable;
-			no-sd;
-			no-mmc;
-			no-1-8-v;
-			mmc-pwrseq = <&connectivity>;
-
-			wifi@1 {
-				compatible = "sprd,sc2331-wifi";
-				reg = <1>;
-				sprd,boot-controller = <&connectivity>;
-			};
-		};
+	wifi@1 {
+		compatible = "sprd,sc2331-wifi";
+		reg = <1>;
+		sprd,boot-controller = <&connectivity>;
 	};
 };

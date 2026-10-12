@@ -20,11 +20,11 @@ static void __init sc9830_init_time(void)
 }
 
 static const char * const sc9830_dt_compat[] __initconst = {
-	"samsung,j3xnlte",
+	"sprd,sc9830",
 	NULL,
 };
 
-DT_MACHINE_START(SC9830, "SC9830 RAM bring-up")
+DT_MACHINE_START(SC9830, "Spreadtrum SC9830")
 	.dt_compat = sc9830_dt_compat,
 	.init_irq = sc9830_init_irq,
 	.init_time = sc9830_init_time,

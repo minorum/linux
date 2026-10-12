@@ -1,0 +1,188 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/sprd,sc9830-clk.h>
+#include <dt-bindings/reset/sprd,sc9830-reset.h>
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	compatible = "sprd,sc9830";
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&intc>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0>;
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		gpio: gpio@40280000 {
+			compatible = "sprd,sc9830-gpio", "sprd,sc9860-gpio";
+			reg = <0x40280000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		aon_gate: clock-controller@402e0000 {
+			compatible = "sprd,sc9830-aon-clk";
+			reg = <0x402e0000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&ext_26m>, <&ext_32k>;
+			clock-names = "ext-26m", "ext-32k";
+		};
+
+		ap_clk: clock-controller@21500000 {
+			compatible = "sprd,sc9830-ap-clk";
+			reg = <0x21500000 0x1000>;
+			#clock-cells = <1>;
+			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_48M>,
+				 <&aon_gate CLK_TWPLL_51M2>, <&aon_gate CLK_TWPLL_153M6>,
+				 <&aon_gate CLK_TWPLL_256M>, <&aon_gate CLK_TWPLL_307M2>,
+				 <&aon_gate CLK_TWPLL_384M>, <&aon_gate CLK_TWPLL_96M>;
+			clock-names = "ext-26m", "twpll-48m", "twpll-51m2",
+				      "twpll-153m6", "twpll-256m", "twpll-307m2",
+				      "twpll-384m", "twpll-96m";
+			status = "okay";
+		};
+
+		apapb: clock-controller@71300000 {
+			compatible = "sprd,sc9830-apapb-gate";
+			reg = <0x71300000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&ap_clk CLK_I2C2>, <&ap_clk CLK_UART0>;
+			clock-names = "i2c2", "uart0";
+			status = "okay";
+		};
+
+		pinctrl: pinctrl@402a0000 {
+			compatible = "sprd,sc9830-pinctrl";
+			reg = <0x402a0000 0x1000>;
+			status = "okay";
+		};
+
+		uart0: serial@70000000 {
+			compatible = "sprd,sc9830-uart", "sprd,sc9836-uart";
+			reg = <0x70000000 0x1000>;
+			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apapb CLK_UART0_EB>, <&ap_clk CLK_UART0>,
+				 <&aon_gate CLK_TWPLL_48M>;
+			clock-names = "enable", "uart", "source";
+			status = "disabled";
+		};
+
+		i2c2: i2c@70700000 {
+			compatible = "sprd,sc9830-i2c";
+			reg = <0x70700000 0x1000>;
+			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ap_clk CLK_I2C2>, <&apapb CLK_I2C2_EB>;
+			clock-names = "i2c", "enable";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		hwlock: hwlock@40060000 {
+			compatible = "sprd,sc9830-hwspinlock";
+			reg = <0x40060000 0x1000>;
+			clocks = <&aon_gate CLK_SPLK_EB>;
+			clock-names = "enable";
+			#hwlock-cells = <1>;
+		};
+
+		adi: spi@40030000 {
+			compatible = "sprd,sc9830-adi";
+			reg = <0x40030000 0x10000>;
+			clocks = <&aon_gate CLK_ADI_EB>;
+			hwlocks = <&hwlock 0>;
+			hwlock-names = "adi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		apahb: clock-controller@20e00000 {
+			compatible = "sprd,sc9830-apahb-gate";
+			reg = <0x20e00000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>,
+				 <&ap_clk CLK_EMMC>;
+			clock-names = "sdio0", "sdio1", "emmc";
+			#reset-cells = <1>;
+		};
+
+		gic: interrupt-controller@12001000 {
+			interrupt-parent = <&gic>;
+			compatible = "arm,cortex-a15-gic";
+			#interrupt-cells = <3>;
+			#address-cells = <0>;
+			interrupt-controller;
+			reg = <0x12001000 0x1000>, <0x12002000 0x1000>;
+		};
+
+		intc: interrupt-controller@71400000 {
+			compatible = "sprd,sc9830-intc";
+			reg = <0x71400000 0x1000>, <0x71500000 0x1000>,
+			      <0x71600000 0x1000>, <0x71700000 0x1000>,
+			      <0x40200000 0x1000>;
+			reg-names = "intc0", "intc1", "intc2", "intc3", "aon";
+			interrupt-controller;
+			#interrupt-cells = <3>;
+			#address-cells = <0>;
+			interrupt-parent = <&gic>;
+			clocks = <&apapb CLK_INTC0_EB>, <&apapb CLK_INTC1_EB>,
+				 <&apapb CLK_INTC2_EB>, <&apapb CLK_INTC3_EB>,
+				 <&aon_gate CLK_AON_INTC_EB>;
+			clock-names = "intc0", "intc1", "intc2", "intc3", "aon";
+		};
+
+		timer@40050000 {
+			compatible = "sprd,sc9830-timer";
+			reg = <0x40050000 0x60>;
+			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&aon_gate CLK_AON_TMR_EB>;
+		};
+
+		usb: usb@20200000 {
+			compatible = "snps,dwc2";
+			reg = <0x20200000 0x1000>;
+			interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apahb CLK_USB_EB>;
+			clock-names = "otg";
+			status = "disabled";
+		};
+
+		emmc: mmc@20600000 {
+			compatible = "sprd,sc9830-sdhci";
+			reg = <0x20600000 0x1000>;
+			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apahb CLK_EMMC_EB>;
+			resets = <&apahb RST_EMMC>;
+			reset-names = "host";
+			status = "disabled";
+		};
+
+		sdio1: mmc@20400000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			compatible = "sprd,sc9830-sdio";
+			reg = <0x20400000 0x1000>;
+			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apahb CLK_SDIO1_EB>;
+			status = "disabled";
+		};
+	};
+};
