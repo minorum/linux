@@ -3,6 +3,7 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
+#include <linux/reset/reset-simple.h>
 
 #include <dt-bindings/clock/sprd,sc9830-clk.h>
 
@@ -259,11 +260,15 @@ static const struct clk_parent_data uart0_parents[] = {
 static SPRD_COMP_CLK_DATA(uart0_clk, "sc9830-uart0", uart0_parents,
 			  0x54, 0, 2, 8, 3, 0);
 
+static SPRD_MUX_CLK_DATA(emmc_clk, "sc9830-emmc", sdio0_parents,
+			 0x48, 0, 2, 0);
+
 static struct sprd_clk_common *sc9830_ap_clks[] = {
 	&i2c2_clk.common,
 	&sdio0_clk.common,
 	&uart0_clk.common,
 	&sdio1_clk.common,
+	&emmc_clk.common,
 };
 
 static struct clk_hw_onecell_data sc9830_ap_hws = {
@@ -272,6 +277,7 @@ static struct clk_hw_onecell_data sc9830_ap_hws = {
 		[CLK_SDIO0] = &sdio0_clk.common.hw,
 		[CLK_UART0] = &uart0_clk.common.hw,
 		[CLK_SDIO1] = &sdio1_clk.common.hw,
+		[CLK_EMMC] = &emmc_clk.common.hw,
 	},
 	.num = CLK_AP_CLK_NUM,
 };
@@ -372,10 +378,18 @@ static struct sprd_gate sdio1_eb = {
 					    &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
 };
 
+static struct sprd_gate emmc_eb = {
+	.enable_mask = BIT(11),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-emmc-eb", "emmc",
+					    &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
+};
+
 static struct sprd_clk_common *sc9830_apahb_clks[] = {
 	&sdio0_eb.common,
 	&usb_eb.common,
 	&sdio1_eb.common,
+	&emmc_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_apahb_hws = {
@@ -383,6 +397,7 @@ static struct clk_hw_onecell_data sc9830_apahb_hws = {
 		[CLK_SDIO0_EB] = &sdio0_eb.common.hw,
 		[CLK_USB_EB] = &usb_eb.common.hw,
 		[CLK_SDIO1_EB] = &sdio1_eb.common.hw,
+		[CLK_EMMC_EB] = &emmc_eb.common.hw,
 	},
 	.num = CLK_AP_AHB_GATE_NUM,
 };
@@ -391,6 +406,15 @@ static const struct sprd_clk_desc sc9830_apahb_desc = {
 	.clk_clks = sc9830_apahb_clks,
 	.num_clk_clks = ARRAY_SIZE(sc9830_apahb_clks),
 	.hw_clks = &sc9830_apahb_hws,
+};
+
+static struct reset_simple_data sc9830_apahb_reset = {
+	.rcdev = {
+		.owner = THIS_MODULE,
+		.nr_resets = 32,
+		.ops = &reset_simple_ops,
+	},
+	.reset_us = 10,
 };
 
 static int __init sc9830_clk_register(struct device_node *node,
@@ -406,12 +430,15 @@ static int __init sc9830_clk_register(struct device_node *node,
 	struct regmap *regmap;
 	void __iomem *base;
 	unsigned int i;
+	bool reset = desc == &sc9830_apahb_desc &&
+		of_property_present(node, "#reset-cells");
 	int ret;
 
 	ret = of_address_to_resource(node, 0, &res);
 	if (ret)
 		return ret;
-	if (resource_size(&res) < 4 || resource_size(&res) > U32_MAX)
+	if (resource_size(&res) < (reset ? 8 : 4) ||
+	    resource_size(&res) > U32_MAX)
 		return -EINVAL;
 	config.max_register = resource_size(&res) - 4;
 	base = of_iomap(node, 0);
@@ -432,9 +459,19 @@ static int __init sc9830_clk_register(struct device_node *node,
 		if (ret)
 			goto unregister;
 	}
+	if (reset) {
+		sc9830_apahb_reset.membase = base + 4;
+		sc9830_apahb_reset.rcdev.of_node = node;
+		spin_lock_init(&sc9830_apahb_reset.lock);
+		ret = reset_controller_register(&sc9830_apahb_reset.rcdev);
+		if (ret)
+			goto unregister;
+	}
 	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, desc->hw_clks);
 	if (!ret)
 		return 0;
+	if (reset)
+		reset_controller_unregister(&sc9830_apahb_reset.rcdev);
 unregister:
 	while (i--)
 		if (desc->hw_clks->hws[i])

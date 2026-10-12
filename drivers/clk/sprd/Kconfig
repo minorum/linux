@@ -12,6 +12,8 @@ if SPRD_COMMON_CLK
 config SPRD_SC9830_CLK
 	bool "Support for the Spreadtrum SC9830 clocks"
 	depends on SPRD_COMMON_CLK=y
+	select RESET_CONTROLLER
+	select RESET_SIMPLE
 	depends on ARCH_SC9830 || COMPILE_TEST
 	help
 	  Support for SC9830 peripheral clocks and gates, registered early

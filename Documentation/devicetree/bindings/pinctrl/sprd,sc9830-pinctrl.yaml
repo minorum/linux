@@ -11,7 +11,7 @@ maintainers:
 
 description:
   The controller has per-pad registers and separate global controls.
-  The I2C2, UART0 and SDIO1 alternate functions are supported. GPIO
+  The I2C2, UART0, SDIO1 and eMMC alternate functions are supported. GPIO
   mode selects the pad function and does not configure the GPIO controller.
 
 allOf:
@@ -27,15 +27,28 @@ properties:
 patternProperties:
   '-pins$':
     type: object
-    $ref: pinmux-node.yaml#
-    additionalProperties: false
+    allOf:
+      - $ref: pinmux-node.yaml#
+    unevaluatedProperties: false
     properties:
       function:
-        enum: [i2c2, gpio, uart0, sdio1]
+        enum: [i2c2, gpio, uart0, sdio1, emmc]
       groups:
         items:
-          enum: [i2c2, uart0, sdio1]
+          enum: [i2c2, uart0, sdio1, emmc-data, emmc-clock]
         maxItems: 1
+      pins: false
+      bias-disable:
+        type: boolean
+      bias-pull-up:
+        type: boolean
+      bias-pull-down:
+        type: boolean
+      sprd,drive-level:
+        description: Raw two-bit drive selector; no current in milliamps is implied.
+        $ref: /schemas/types.yaml#/definitions/uint32
+        minimum: 0
+        maximum: 3
     required:
       - function
       - groups

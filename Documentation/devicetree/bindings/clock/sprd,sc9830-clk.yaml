@@ -24,6 +24,10 @@ properties:
   '#clock-cells':
     const: 1
 
+  '#reset-cells':
+    description: AP AHB reset bit index; bit 14 resets the eMMC host.
+    const: 1
+
   clocks:
     minItems: 1
     maxItems: 8
@@ -33,6 +37,14 @@ properties:
     maxItems: 8
 
 allOf:
+  - if:
+      properties:
+        compatible:
+          not:
+            const: sprd,sc9830-apahb-gate
+    then:
+      properties:
+        '#reset-cells': false
   - if:
       properties:
         compatible:
@@ -102,12 +114,13 @@ allOf:
       properties:
         clocks:
           minItems: 1
-          maxItems: 2
+          maxItems: 3
         clock-names:
           minItems: 1
           items:
             - const: sdio0
             - const: sdio1
+            - const: emmc
       required:
         - clocks
         - clock-names

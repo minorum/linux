@@ -3,6 +3,7 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/sprd,sc9830-clk.h>
+#include <dt-bindings/reset/sprd,sc9830-reset.h>
 #include <dt-bindings/gpio/gpio.h>
 
 / {
@@ -95,11 +96,7 @@
 		clock-frequency = <26000000>;
 	};
 
-	emmc_parent: clock-384m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <384000000>;
-	};
+
 
 	battery: battery {
 		compatible = "simple-battery";
@@ -231,6 +228,20 @@
 			uart0_default: uart0-pins {
 				function = "uart0";
 				groups = "uart0";
+			};
+
+			emmc_data_default: emmc-data-pins {
+				function = "emmc";
+				groups = "emmc-data";
+				sprd,drive-level = <1>;
+				bias-pull-up;
+			};
+
+			emmc_clock_default: emmc-clock-pins {
+				function = "emmc";
+				groups = "emmc-clock";
+				sprd,drive-level = <2>;
+				bias-disable;
 			};
 
 			sdio1_default: sdio1-pins {
@@ -418,8 +429,10 @@
 			compatible = "sprd,sc9830-apahb-gate";
 			reg = <0x20e00000 0x3000>;
 			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>;
-			clock-names = "sdio0", "sdio1";
+			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>,
+				 <&ap_clk CLK_EMMC>;
+			clock-names = "sdio0", "sdio1", "emmc";
+			#reset-cells = <1>;
 		};
 
 		gic: interrupt-controller@12001000 {
@@ -469,7 +482,13 @@
 			compatible = "sprd,sc9830-sdhci";
 			reg = <0x20600000 0x1000>;
 			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&emmc_parent>;
+			clocks = <&apahb CLK_EMMC_EB>;
+			assigned-clocks = <&ap_clk CLK_EMMC>;
+			assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
+			resets = <&apahb RST_EMMC>;
+			reset-names = "host";
+			pinctrl-names = "default";
+			pinctrl-0 = <&emmc_clock_default>, <&emmc_data_default>;
 			bus-width = <1>;
 			max-frequency = <12000000>;
 			non-removable;

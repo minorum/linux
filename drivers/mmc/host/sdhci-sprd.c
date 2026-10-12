@@ -5,6 +5,7 @@
 // Copyright (C) 2018 Spreadtrum, Inc.
 // Author: Chunyan Zhang <chunyan.zhang@unisoc.com>
 
+#include <linux/reset.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/highmem.h>
@@ -1011,26 +1012,40 @@ static int sc9830_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
 	struct sdhci_pltfm_host *pltfm;
+	struct reset_control *reset = NULL;
+	struct clk *clk;
 	const struct sdhci_pltfm_data *data = of_device_get_match_data(&pdev->dev);
 	bool sdio = data == &sc9830_sdio_data;
 	int ret;
 
 	if (!sc9830_probe_enabled)
 		return -ENODEV;
-	dev_info(&pdev->dev, "probe start\n");
+	if (!sdio) {
+		reset = devm_reset_control_get_exclusive(&pdev->dev, "host");
+		if (IS_ERR(reset))
+			return PTR_ERR(reset);
+	}
+	clk = devm_clk_get_enabled(&pdev->dev, NULL);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+	if (!clk_get_rate(clk))
+		return -EINVAL;
+	if (!sdio) {
+		ret = reset_control_reset(reset);
+		if (ret)
+			return ret;
+	}
 	host = sdhci_pltfm_init(pdev, data, sdio ? 3 * sizeof(u32) : 0);
 	if (IS_ERR(host))
 		return PTR_ERR(host);
 	pltfm = sdhci_priv(host);
+	pltfm->clk = clk;
 	if (sdio) {
 		ret = device_property_read_u32_array(&pdev->dev, "sprd,phy-delay",
 						     sdhci_pltfm_priv(pltfm), 3);
 		if (ret)
 			return ret;
 	}
-	pltfm->clk = devm_clk_get_enabled(&pdev->dev, NULL);
-	if (IS_ERR(pltfm->clk))
-		return PTR_ERR(pltfm->clk);
 	dev_info(&pdev->dev, "clock rate %lu\n", clk_get_rate(pltfm->clk));
 	ret = mmc_of_parse(host->mmc);
 	if (ret)

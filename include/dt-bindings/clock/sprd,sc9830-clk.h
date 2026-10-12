@@ -26,7 +26,8 @@
 #define CLK_SDIO0		1
 #define CLK_UART0		2
 #define CLK_SDIO1		3
-#define CLK_AP_CLK_NUM	4
+#define CLK_EMMC		4
+#define CLK_AP_CLK_NUM	5
 
 #define CLK_I2C2_EB		0
 #define CLK_UART0_EB		1
@@ -39,6 +40,7 @@
 #define CLK_SDIO0_EB		0
 #define CLK_USB_EB		1
 #define CLK_SDIO1_EB		2
-#define CLK_AP_AHB_GATE_NUM	3
+#define CLK_EMMC_EB		3
+#define CLK_AP_AHB_GATE_NUM	4
 
 #endif

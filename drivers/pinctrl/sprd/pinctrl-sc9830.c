@@ -7,10 +7,14 @@
 #include <linux/spinlock.h>
 
 #include <linux/pinctrl/pinconf-generic.h>
+#include <linux/pinctrl/pinconf.h>
 #include <linux/pinctrl/pinctrl.h>
 #include <linux/pinctrl/pinmux.h>
 
 #define SC9830_AF_MASK GENMASK(5, 4)
+#define SC9830_DRIVE_MASK GENMASK(20, 19)
+#define SC9830_BIAS_MASK GENMASK(7, 6)
+#define SC9830_CONFIG_DRIVE_LEVEL (PIN_CONFIG_END + 1)
 
 struct sc9830_pinctrl {
 	void __iomem *base;
@@ -208,8 +212,19 @@ static const unsigned int sc9830_sdio1_pins[] = {
 	0xf8 / 4, 0xfc / 4, 0x100 / 4, 0x104 / 4, 0x108 / 4, 0x10c / 4,
 };
 
-static const char * const sc9830_groups[] = { "i2c2", "uart0", "sdio1" };
-static const char * const sc9830_functions[] = { "i2c2", "gpio", "uart0", "sdio1" };
+static const unsigned int sc9830_emmc_data_pins[] = {
+	0x1c4 / 4, 0x1a0 / 4, 0x1a4 / 4, 0x1a8 / 4, 0x1ac / 4,
+	0x1b4 / 4, 0x1b8 / 4, 0x1c0 / 4, 0x1c8 / 4, 0x1cc / 4,
+};
+
+static const unsigned int sc9830_emmc_clock_pins[] = { 0x1b0 / 4 };
+
+static const char * const sc9830_groups[] = {
+	"i2c2", "uart0", "sdio1", "emmc-data", "emmc-clock",
+};
+static const char * const sc9830_functions[] = {
+	"i2c2", "gpio", "uart0", "sdio1", "emmc",
+};
 
 static int sc9830_get_groups_count(struct pinctrl_dev *pctldev)
 {
@@ -235,9 +250,15 @@ static int sc9830_get_group_pins(struct pinctrl_dev *pctldev,
 	} else if (selector == 1) {
 		*pins = sc9830_uart0_pins;
 		*num_pins = ARRAY_SIZE(sc9830_uart0_pins);
-	} else {
+	} else if (selector == 2) {
 		*pins = sc9830_sdio1_pins;
 		*num_pins = ARRAY_SIZE(sc9830_sdio1_pins);
+	} else if (selector == 3) {
+		*pins = sc9830_emmc_data_pins;
+		*num_pins = ARRAY_SIZE(sc9830_emmc_data_pins);
+	} else {
+		*pins = sc9830_emmc_clock_pins;
+		*num_pins = ARRAY_SIZE(sc9830_emmc_clock_pins);
 	}
 	return 0;
 }
@@ -270,7 +291,7 @@ static int sc9830_get_function_groups(struct pinctrl_dev *pctldev,
 		return -EINVAL;
 
 	*groups = &sc9830_groups[selector < 2 ? 0 : selector - 1];
-	*num_groups = 1;
+	*num_groups = selector == 4 ? 2 : 1;
 	return 0;
 }
 
@@ -284,11 +305,12 @@ static int sc9830_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 	u32 value, af;
 
 	if (!((group == 0 && function < 2) || (group == 1 && function == 2) ||
-	      (group == 2 && function == 3)))
+	      (group == 2 && function == 3) ||
+	      ((group == 3 || group == 4) && function == 4)))
 		return -EINVAL;
 
 	sc9830_get_group_pins(pctldev, group, &pins, &num_pins);
-	af = function == 1 ? SC9830_AF_MASK : 0;
+	af = function == 4 ? BIT(4) : function == 1 ? SC9830_AF_MASK : 0;
 	spin_lock_irqsave(&pctl->lock, flags);
 	for (i = 0; i < num_pins; i++) {
 		value = readl(pctl->base + pins[i] * 4);
@@ -307,12 +329,94 @@ static const struct pinmux_ops sc9830_pinmux_ops = {
 	.strict = true,
 };
 
+static int sc9830_pinconf_encode(unsigned long config, u32 *mask, u32 *bits)
+{
+	unsigned int arg = pinconf_to_config_argument(config);
+	u32 field, value;
+
+	switch ((unsigned int)pinconf_to_config_param(config)) {
+	case SC9830_CONFIG_DRIVE_LEVEL:
+		if (arg > 3)
+			return -EINVAL;
+		field = SC9830_DRIVE_MASK;
+		value = arg << 19;
+		break;
+	case PIN_CONFIG_BIAS_DISABLE:
+		field = SC9830_BIAS_MASK;
+		value = 0;
+		break;
+	case PIN_CONFIG_BIAS_PULL_UP:
+	case PIN_CONFIG_BIAS_PULL_DOWN:
+		if (!arg)
+			return -EINVAL;
+		field = SC9830_BIAS_MASK;
+		value = pinconf_to_config_param(config) == PIN_CONFIG_BIAS_PULL_UP ?
+			BIT(7) : BIT(6);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+	*mask |= field;
+	*bits = (*bits & ~field) | value;
+	return 0;
+}
+
+static int sc9830_pinconf_set(struct pinctrl_dev *pctldev, unsigned int group,
+			      unsigned long *configs, unsigned int count)
+{
+	struct sc9830_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
+	const unsigned int *pins;
+	unsigned int i, num_pins;
+	unsigned long flags;
+	u32 mask = 0, bits = 0, value;
+	int ret;
+
+	if (group != 3 && group != 4)
+		return -EOPNOTSUPP;
+	for (i = 0; i < count; i++) {
+		ret = sc9830_pinconf_encode(configs[i], &mask, &bits);
+		if (ret)
+			return ret;
+	}
+	ret = sc9830_get_group_pins(pctldev, group, &pins, &num_pins);
+	if (ret)
+		return ret;
+	spin_lock_irqsave(&pctl->lock, flags);
+	for (i = 0; i < num_pins; i++) {
+		value = readl(pctl->base + pins[i] * 4);
+		writel((value & ~mask) | bits, pctl->base + pins[i] * 4);
+	}
+	spin_unlock_irqrestore(&pctl->lock, flags);
+	return 0;
+}
+
+static const struct pinconf_ops sc9830_pinconf_ops = {
+	.is_generic = true,
+	.pin_config_group_set = sc9830_pinconf_set,
+};
+
+static const struct pinconf_generic_params sc9830_dt_params[] = {
+	{ "sprd,drive-level", SC9830_CONFIG_DRIVE_LEVEL, 0 },
+};
+
+#ifdef CONFIG_DEBUG_FS
+static const struct pin_config_item sc9830_conf_items[] = {
+	PCONFDUMP(SC9830_CONFIG_DRIVE_LEVEL, "drive level", NULL, true),
+};
+#endif
+
 static const struct pinctrl_desc sc9830_pinctrl_desc = {
 	.name = "sc9830-pinctrl",
 	.pins = sc9830_pins,
 	.npins = ARRAY_SIZE(sc9830_pins),
 	.pctlops = &sc9830_pinctrl_ops,
 	.pmxops = &sc9830_pinmux_ops,
+	.confops = &sc9830_pinconf_ops,
+	.num_custom_params = ARRAY_SIZE(sc9830_dt_params),
+	.custom_params = sc9830_dt_params,
+#ifdef CONFIG_DEBUG_FS
+	.custom_conf_items = sc9830_conf_items,
+#endif
 	.owner = THIS_MODULE,
 };
 

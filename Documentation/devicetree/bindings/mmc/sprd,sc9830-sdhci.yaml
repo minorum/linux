@@ -10,7 +10,8 @@ maintainers:
   - minorum <mit.mis@gmail.com>
 
 description:
-  Conservative eMMC access with firmware-initialized power and board pad setup.
+  Conservative eMMC access with firmware-initialized power, an owned host
+  clock gate, reset and board pin configuration.
 
 allOf:
   - $ref: mmc-controller.yaml#
@@ -24,6 +25,10 @@ properties:
     maxItems: 1
   clocks:
     maxItems: 1
+  resets:
+    maxItems: 1
+  reset-names:
+    const: host
   bus-width:
     const: 1
   max-frequency:
@@ -34,6 +39,10 @@ required:
   - reg
   - interrupts
   - clocks
+  - resets
+  - reset-names
+  - pinctrl-names
+  - pinctrl-0
   - non-removable
 
 unevaluatedProperties: false
