@@ -167,10 +167,9 @@ config ARCH_SC9830
 	select SC9830_TIMER
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
-	select SERIAL_EARLYCON
 	help
 	  Temporary single-CPU support for SM-J320FN RAM boot experiments.
-	  Enables the GIC, SC9830 timer and inherited USB early console.
+	  Enables the GIC and SC9830 timer.
 	  Peripheral gates are initialized from the selected vendor sources.
 	  PHY power and the parent clock tree remain firmware-initialized.
 

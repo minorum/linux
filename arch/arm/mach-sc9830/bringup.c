@@ -73,28 +73,9 @@ static void __init sc9830_emmc_setup(void)
 	iounmap(ahb);
 }
 
-static void __init sc9830_usb_snapshot(void)
-{
-	void __iomem *base = ioremap(0x20200000, 0x1000);
-	u32 hwcfg4, count, fifo;
-
-	if (!base)
-		return;
-	hwcfg4 = readl(base + 0x50);
-	pr_info("SC9830_USB_INHERITED cfg2=%08x cfg3=%08x cfg4=%08x rx=%08x np=%08x\n",
-		readl(base + 0x48), readl(base + 0x4c), hwcfg4,
-		readl(base + 0x24), readl(base + 0x28));
-	count = hwcfg4 & BIT(25) ? (hwcfg4 >> 26) & 0xf : hwcfg4 & 0xf;
-	for (fifo = 1; fifo <= count; fifo++)
-		pr_info("SC9830_USB_INHERITED tx%u=%08x\n", fifo,
-			readl(base + 0x100 + fifo * 4));
-	iounmap(base);
-}
-
 static void __init sc9830_init_machine(void)
 {
 	sc9830_emmc_setup();
-	sc9830_usb_snapshot();
 }
 
 static const char * const sc9830_dt_compat[] __initconst = {
