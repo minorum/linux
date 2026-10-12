@@ -15,6 +15,9 @@ description: |
   delimit windows. Bandwidth and latency units are not calibrated. Monitor
   clock gates and reset bits share one PUB register. Firmware must leave
   monitoring idle for Linux ownership.
+  Each port also supports address-range transaction matching with a shared
+  completion interrupt. Address matching and counter windows use exclusive
+  monitoring modes.
 
 properties:
   compatible:
