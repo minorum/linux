@@ -103,6 +103,8 @@ static void ddr_rearm(struct sc9830_ddr_pmu *ddr, unsigned int port)
 		writel(BIT(0) | DDR_ACK, base);
 		if (readl(base) & DDR_STATUS) {
 			ddr->ports[port].failed = true;
+			pr_err_ratelimited("sc9830-ddr: port %u match acknowledgement failed\n",
+					   port);
 			return;
 		}
 		writel(BIT(0) | DDR_IRQ, base);
@@ -543,6 +545,7 @@ static irqreturn_t ddr_irq(int irq, void *data)
 				continue;
 			if (!(readl(ddr->pub + 4) & DDR_GATE(port))) {
 				p->failed = true;
+				pr_err_ratelimited("sc9830-ddr: port %u lost its clock\n", port);
 				continue;
 			}
 			ctrl = readl(base);
