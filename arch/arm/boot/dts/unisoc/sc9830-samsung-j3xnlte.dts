@@ -434,7 +434,7 @@
 			compatible = "sprd,sc9830-timer";
 			reg = <0x40050000 0x60>;
 			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_32k>;
+			clocks = <&aon_gate CLK_AON_TMR_EB>;
 		};
 
 		usb@20200000 {

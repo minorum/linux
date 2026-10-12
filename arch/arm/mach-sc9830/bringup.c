@@ -31,7 +31,7 @@ static void __init sc9830_enable_irq(phys_addr_t address, u32 bits)
 static void __init sc9830_init_irq(void)
 {
 	sc9830_set_bits(0x71300000, BIT(19) | BIT(20));
-	sc9830_set_bits(0x402e0000, BIT(11) | BIT(15));
+	sc9830_set_bits(0x402e0000, BIT(15));
 	sc9830_enable_irq(0x71400008, BIT(28));
 	sc9830_enable_irq(0x71500008, BIT(6) | BIT(23) | BIT(28));
 	sc9830_enable_irq(0x40200008, BIT(2) | BIT(4));

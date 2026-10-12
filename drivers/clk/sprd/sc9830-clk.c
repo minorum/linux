@@ -2,7 +2,7 @@
 #include <linux/bitfield.h>
 #include <linux/math64.h>
 #include <linux/module.h>
-#include <linux/platform_device.h>
+#include <linux/of_address.h>
 
 #include <dt-bindings/clock/sprd,sc9830-clk.h>
 
@@ -165,6 +165,13 @@ static struct sprd_gate aux0_eb = {
 				       &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
 };
 
+static struct sprd_gate aon_tmr_eb = {
+	.enable_mask = BIT(11),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-aon-tmr-eb", "ext-32k",
+					    &sprd_sc_gate_ops, 0),
+};
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
@@ -172,6 +179,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&twpll,
 	&aux0_mux.common,
 	&aux0_eb.common,
+	&aon_tmr_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
@@ -191,6 +199,7 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_384M] = &twpll_384m.hw,
 		[CLK_TWPLL_76M8] = &twpll_76m8.hw,
 		[CLK_TWPLL_128M] = &twpll_128m.hw,
+		[CLK_AON_TMR_EB] = &aon_tmr_eb.common.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
@@ -339,16 +348,59 @@ static const struct sprd_clk_desc sc9830_apahb_desc = {
 	.hw_clks = &sc9830_apahb_hws,
 };
 
-static int sc9830_clk_probe(struct platform_device *pdev)
+static int __init sc9830_clk_register(struct device_node *node,
+				      const struct sprd_clk_desc *desc)
 {
-	const struct sprd_clk_desc *desc = device_get_match_data(&pdev->dev);
+	struct regmap_config config = {
+		.reg_bits = 32,
+		.reg_stride = 4,
+		.val_bits = 32,
+		.fast_io = true,
+	};
+	struct resource res;
+	struct regmap *regmap;
+	void __iomem *base;
+	unsigned int i;
 	int ret;
 
-	ret = sprd_clk_regmap_init(pdev, desc);
+	ret = of_address_to_resource(node, 0, &res);
 	if (ret)
 		return ret;
-
-	return sprd_clk_probe(&pdev->dev, desc->hw_clks);
+	if (resource_size(&res) < 4 || resource_size(&res) > U32_MAX)
+		return -EINVAL;
+	config.max_register = resource_size(&res) - 4;
+	base = of_iomap(node, 0);
+	if (!base)
+		return -ENOMEM;
+	regmap = regmap_init_mmio(NULL, base, &config);
+	if (IS_ERR(regmap)) {
+		ret = PTR_ERR(regmap);
+		goto unmap;
+	}
+	for (i = 0; i < desc->num_clk_clks; i++)
+		if (desc->clk_clks[i])
+			desc->clk_clks[i]->regmap = regmap;
+	for (i = 0; i < desc->hw_clks->num; i++) {
+		if (!desc->hw_clks->hws[i])
+			continue;
+		ret = of_clk_hw_register(node, desc->hw_clks->hws[i]);
+		if (ret)
+			goto unregister;
+	}
+	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, desc->hw_clks);
+	if (!ret)
+		return 0;
+unregister:
+	while (i--)
+		if (desc->hw_clks->hws[i])
+			clk_hw_unregister(desc->hw_clks->hws[i]);
+	for (i = 0; i < desc->num_clk_clks; i++)
+		if (desc->clk_clks[i])
+			desc->clk_clks[i]->regmap = NULL;
+	regmap_exit(regmap);
+unmap:
+	iounmap(base);
+	return ret;
 }
 
 static const struct of_device_id sc9830_clk_match[] = {
@@ -359,16 +411,21 @@ static const struct of_device_id sc9830_clk_match[] = {
 	{ .compatible = "sprd,sc9830-apahb-gate", .data = &sc9830_apahb_desc },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, sc9830_clk_match);
+static void __init sc9830_clk_init(struct device_node *node)
+{
+	const struct of_device_id *match = of_match_node(sc9830_clk_match, node);
+	int ret;
 
-static struct platform_driver sc9830_clk_driver = {
-	.probe = sc9830_clk_probe,
-	.driver = {
-		.name = "sc9830-clock",
-		.of_match_table = sc9830_clk_match,
-	},
-};
-module_platform_driver(sc9830_clk_driver);
+	ret = sc9830_clk_register(node, match->data);
+	if (ret)
+		pr_err("%pOF: clock registration failed: %d\n", node, ret);
+}
+
+CLK_OF_DECLARE(sc9830_aon_gate, "sprd,sc9830-aon-gate", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_aon_clk, "sprd,sc9830-aon-clk", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_ap_clk, "sprd,sc9830-ap-clk", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_apapb_gate, "sprd,sc9830-apapb-gate", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_apahb_gate, "sprd,sc9830-apahb-gate", sc9830_clk_init);
 
 MODULE_DESCRIPTION("Spreadtrum SC9830 clock driver");
 MODULE_LICENSE("GPL");

@@ -10,13 +10,12 @@ if SPRD_COMMON_CLK
 # SoC Drivers
 
 config SPRD_SC9830_CLK
-	tristate "Support for the Spreadtrum SC9830 clocks"
+	bool "Support for the Spreadtrum SC9830 clocks"
+	depends on SPRD_COMMON_CLK=y
 	depends on ARCH_SC9830 || COMPILE_TEST
 	help
-	  Support for the always-on peripheral gates on SC9830 devices.
-	  This provides the ADI and hardware spinlock enable clocks.
-	  The upstream Spreadtrum clock framework controls their gates.
-	  Parent clock initialization remains provided by firmware.
+	  Support for SC9830 peripheral clocks and gates, registered early
+	  for the system timer. PLL programming remains provided by firmware.
 
 config SPRD_SC9860_CLK
 	tristate "Support for the Spreadtrum SC9860 clocks"

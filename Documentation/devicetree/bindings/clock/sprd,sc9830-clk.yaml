@@ -40,10 +40,10 @@ allOf:
     then:
       properties:
         clocks:
-          minItems: 1
+          minItems: 2
           maxItems: 6
         clock-names:
-          minItems: 1
+          minItems: 2
           items:
             - const: ext-26m
             - const: ext-32k
