@@ -172,6 +172,13 @@ static struct sprd_gate aon_tmr_eb = {
 					    &sprd_sc_gate_ops, 0),
 };
 
+static struct sprd_gate aon_intc_eb = {
+	.enable_mask = BIT(15),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-aon-intc-eb",
+					       &sprd_sc_gate_ops, 0),
+};
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
@@ -180,6 +187,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&aux0_mux.common,
 	&aux0_eb.common,
 	&aon_tmr_eb.common,
+	&aon_intc_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
@@ -200,6 +208,7 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_76M8] = &twpll_76m8.hw,
 		[CLK_TWPLL_128M] = &twpll_128m.hw,
 		[CLK_AON_TMR_EB] = &aon_tmr_eb.common.hw,
+		[CLK_AON_INTC_EB] = &aon_intc_eb.common.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
@@ -287,15 +296,51 @@ static struct sprd_gate uart0_eb = {
 					    &sprd_sc_gate_ops, 0),
 };
 
+static struct sprd_gate intc0_eb = {
+	.enable_mask = BIT(19),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-intc0-eb",
+					       &sprd_sc_gate_ops, 0),
+};
+
+static struct sprd_gate intc1_eb = {
+	.enable_mask = BIT(20),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-intc1-eb",
+					       &sprd_sc_gate_ops, 0),
+};
+
+static struct sprd_gate intc2_eb = {
+	.enable_mask = BIT(21),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-intc2-eb",
+					       &sprd_sc_gate_ops, 0),
+};
+
+static struct sprd_gate intc3_eb = {
+	.enable_mask = BIT(22),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-intc3-eb",
+					       &sprd_sc_gate_ops, 0),
+};
+
 static struct sprd_clk_common *sc9830_apapb_clks[] = {
 	&i2c2_eb.common,
 	&uart0_eb.common,
+	&intc0_eb.common,
+	&intc1_eb.common,
+	&intc2_eb.common,
+	&intc3_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_apapb_hws = {
 	.hws = {
 		[CLK_I2C2_EB] = &i2c2_eb.common.hw,
 		[CLK_UART0_EB] = &uart0_eb.common.hw,
+		[CLK_INTC0_EB] = &intc0_eb.common.hw,
+		[CLK_INTC1_EB] = &intc1_eb.common.hw,
+		[CLK_INTC2_EB] = &intc2_eb.common.hw,
+		[CLK_INTC3_EB] = &intc3_eb.common.hw,
 	},
 	.num = CLK_AP_APB_GATE_NUM,
 };

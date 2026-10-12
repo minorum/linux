@@ -10,7 +10,7 @@
 	compatible = "samsung,j3xnlte", "sprd,sc9830";
 	#address-cells = <1>;
 	#size-cells = <1>;
-	interrupt-parent = <&gic>;
+	interrupt-parent = <&intc>;
 
 	aliases {
 		serial0 = &uart0;
@@ -423,11 +423,28 @@
 		};
 
 		gic: interrupt-controller@12001000 {
+			interrupt-parent = <&gic>;
 			compatible = "arm,cortex-a15-gic";
 			#interrupt-cells = <3>;
 			#address-cells = <0>;
 			interrupt-controller;
 			reg = <0x12001000 0x1000>, <0x12002000 0x1000>;
+		};
+
+		intc: interrupt-controller@71400000 {
+			compatible = "sprd,sc9830-intc";
+			reg = <0x71400000 0x1000>, <0x71500000 0x1000>,
+			      <0x71600000 0x1000>, <0x71700000 0x1000>,
+			      <0x40200000 0x1000>;
+			reg-names = "intc0", "intc1", "intc2", "intc3", "aon";
+			interrupt-controller;
+			#interrupt-cells = <3>;
+			#address-cells = <0>;
+			interrupt-parent = <&gic>;
+			clocks = <&apapb CLK_INTC0_EB>, <&apapb CLK_INTC1_EB>,
+				 <&apapb CLK_INTC2_EB>, <&apapb CLK_INTC3_EB>,
+				 <&aon_gate CLK_AON_INTC_EB>;
+			clock-names = "intc0", "intc1", "intc2", "intc3", "aon";
 		};
 
 		timer@40050000 {

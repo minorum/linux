@@ -1,41 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/init.h>
+#include <linux/clockchips.h>
+#include <linux/clocksource.h>
+#include <linux/of_clk.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/irqchip.h>
 
 #include <asm/mach/arch.h>
 
-static void __init sc9830_set_bits(phys_addr_t address, u32 bits)
-{
-	void __iomem *reg = ioremap(address, sizeof(u32));
-
-	if (!reg)
-		panic("SC9830 gate mapping failed\n");
-	writel(readl(reg) | bits, reg);
-	readl(reg);
-	iounmap(reg);
-}
-
-static void __init sc9830_enable_irq(phys_addr_t address, u32 bits)
-{
-	void __iomem *reg = ioremap(address, sizeof(u32));
-
-	if (!reg)
-		panic("SC9830 IRQ mapping failed\n");
-	writel(bits, reg);
-	readl(reg);
-	iounmap(reg);
-}
-
 static void __init sc9830_init_irq(void)
 {
-	sc9830_set_bits(0x71300000, BIT(19) | BIT(20));
-	sc9830_set_bits(0x402e0000, BIT(15));
-	sc9830_enable_irq(0x71400008, BIT(28));
-	sc9830_enable_irq(0x71500008, BIT(6) | BIT(23) | BIT(28));
-	sc9830_enable_irq(0x40200008, BIT(2) | BIT(4));
+	of_clk_init(NULL);
 	irqchip_init();
+}
+
+static void __init sc9830_init_time(void)
+{
+	timer_probe();
+	tick_setup_hrtimer_broadcast();
 }
 
 static void __init sc9830_emmc_setup(void)
@@ -86,5 +69,6 @@ static const char * const sc9830_dt_compat[] __initconst = {
 DT_MACHINE_START(SC9830, "SC9830 RAM bring-up")
 	.dt_compat = sc9830_dt_compat,
 	.init_irq = sc9830_init_irq,
+	.init_time = sc9830_init_time,
 	.init_machine = sc9830_init_machine,
 MACHINE_END

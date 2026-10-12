@@ -165,6 +165,9 @@ config ARCH_SC9830
 	select ARM_GIC
 	select COMMON_CLK
 	select SC9830_TIMER
+	select SC9830_INTC
+	select SPRD_COMMON_CLK
+	select SPRD_SC9830_CLK
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
 	help

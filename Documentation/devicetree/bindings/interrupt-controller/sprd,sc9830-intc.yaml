@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interrupt-controller/sprd,sc9830-intc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 auxiliary interrupt controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  Four AP source banks and one shared always-on route bank accompany the GIC.
+  Interrupt specifiers use three cells matching GIC SPI specifiers. PPIs must
+  connect directly to the GIC. The auxiliary banks cover SPI sources 2-31,
+  34-63, 66-95 and 98-124.
+
+allOf:
+  - $ref: /schemas/interrupt-controller.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-intc
+
+  reg:
+    minItems: 5
+    maxItems: 5
+
+  reg-names:
+    items:
+      - const: intc0
+      - const: intc1
+      - const: intc2
+      - const: intc3
+      - const: aon
+
+  clocks:
+    minItems: 5
+    maxItems: 5
+
+  clock-names:
+    items:
+      - const: intc0
+      - const: intc1
+      - const: intc2
+      - const: intc3
+      - const: aon
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 3
+
+  '#address-cells':
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - clocks
+  - clock-names
+  - interrupt-controller
+  - '#interrupt-cells'
+  - '#address-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/sprd,sc9830-clk.h>
+
+    interrupt-controller@71400000 {
+        compatible = "sprd,sc9830-intc";
+        reg = <0x71400000 0x1000>, <0x71500000 0x1000>,
+              <0x71600000 0x1000>, <0x71700000 0x1000>,
+              <0x40200000 0x1000>;
+        reg-names = "intc0", "intc1", "intc2", "intc3", "aon";
+        interrupt-controller;
+        #interrupt-cells = <3>;
+        #address-cells = <0>;
+        interrupt-parent = <&gic>;
+        clocks = <&apapb CLK_INTC0_EB>, <&apapb CLK_INTC1_EB>,
+                 <&apapb CLK_INTC2_EB>, <&apapb CLK_INTC3_EB>,
+                 <&aon_gate CLK_AON_INTC_EB>;
+        clock-names = "intc0", "intc1", "intc2", "intc3", "aon";
+    };

@@ -845,4 +845,8 @@ config SUNPLUS_SP7021_INTC
 	  chained controller, routing all interrupt source in P-Chip to
 	  the primary controller on C-Chip.
 
+config SC9830_INTC
+	bool
+	select IRQ_DOMAIN_HIERARCHY
+
 endmenu
