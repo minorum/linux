@@ -494,9 +494,11 @@ static int ddr_probe(struct platform_device *pdev)
 	ret = cpuhp_state_add_instance_nocalls(ddr->cpuhp_state, &ddr->node);
 	if (ret)
 		goto remove_state;
-	ret = irq_set_affinity(ddr->irq, cpumask_of(ddr->cpu));
-	if (ret)
-		goto remove_instance;
+	if (IS_ENABLED(CONFIG_SMP)) {
+		ret = irq_set_affinity(ddr->irq, cpumask_of(ddr->cpu));
+		if (ret)
+			goto remove_instance;
+	}
 	ret = perf_pmu_register(&ddr->pmu, "sc9830_ddr", -1);
 	if (ret)
 		goto remove_instance;
