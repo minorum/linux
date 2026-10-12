@@ -612,6 +612,7 @@ static const struct attribute_group ddr_format_group = {
 #define DDR_EVENT(name, value) \
 	static struct perf_pmu_events_attr ddr_event_##name = { \
 		.attr = __ATTR(name, 0444, perf_event_sysfs_show, NULL), \
+		.event_str = "event=" __stringify(value), \
 		.id = value, \
 	}
 DDR_EVENT(read_transactions, 0);
