@@ -14,6 +14,7 @@ properties:
     enum:
       - sprd,sc9830-aon-gate
       - sprd,sc9830-aon-clk
+      - sprd,sc9830-aon-mux-clk
       - sprd,sc9830-ap-clk
       - sprd,sc9830-apapb-gate
       - sprd,sc9830-apahb-gate
@@ -41,7 +42,8 @@ allOf:
       properties:
         compatible:
           not:
-            const: sprd,sc9830-apahb-gate
+            contains:
+              const: sprd,sc9830-apahb-gate
     then:
       properties:
         '#reset-cells': false
@@ -63,6 +65,28 @@ allOf:
             - const: ext-4m
             - const: dpll-42m
             - const: mpll-56m
+      required:
+        - clocks
+        - clock-names
+  - if:
+      properties:
+        compatible:
+          const: sprd,sc9830-aon-mux-clk
+    then:
+      properties:
+        clocks:
+          minItems: 8
+          maxItems: 8
+        clock-names:
+          items:
+            - const: ext-26m
+            - const: twpll-192m
+            - const: twpll-307m2
+            - const: twpll-384m
+            - const: twpll-512m
+            - const: twpll-614m4
+            - const: twpll-768m
+            - const: dpll
       required:
         - clocks
         - clock-names

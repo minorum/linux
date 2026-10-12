@@ -45,6 +45,19 @@
 			clock-names = "ext-26m", "ext-32k";
 		};
 
+		aon_mux: clock-controller@402d0000 {
+			compatible = "sprd,sc9830-aon-mux-clk";
+			reg = <0x402d0000 0x1000>;
+			#clock-cells = <1>;
+			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_192M>,
+				 <&aon_gate CLK_TWPLL_307M2>, <&aon_gate CLK_TWPLL_384M>,
+				 <&aon_gate CLK_TWPLL_512M>, <&aon_gate CLK_TWPLL_614M4>,
+				 <&aon_gate CLK_TWPLL_768M>, <&aon_gate CLK_DPLL>;
+			clock-names = "ext-26m", "twpll-192m", "twpll-307m2",
+				      "twpll-384m", "twpll-512m", "twpll-614m4",
+				      "twpll-768m", "dpll";
+		};
+
 		ap_clk: clock-controller@21500000 {
 			compatible = "sprd,sc9830-ap-clk";
 			reg = <0x21500000 0x1000>;

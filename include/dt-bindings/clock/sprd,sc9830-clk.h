@@ -20,7 +20,15 @@
 #define CLK_TWPLL_128M	14
 #define CLK_AON_TMR_EB	15
 #define CLK_AON_INTC_EB	16
-#define CLK_AON_CLK_NUM	17
+#define CLK_DPLL		17
+#define CLK_TWPLL_192M	18
+#define CLK_TWPLL_512M	19
+#define CLK_TWPLL_614M4	20
+#define CLK_TWPLL_768M	21
+#define CLK_AON_CLK_NUM	22
+
+#define CLK_EMC		0
+#define CLK_AON_MUX_NUM	1
 
 #define CLK_I2C2		0
 #define CLK_SDIO0		1

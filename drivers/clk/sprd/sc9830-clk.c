@@ -126,6 +126,59 @@ static struct sprd_clk_common twpll = {
 				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
 };
 
+static int sc9830_dpll_decode(u32 cfg1, u32 cfg2, unsigned long parent_rate,
+			      unsigned long *rate)
+{
+	static const u32 reference_mhz[] = { 2, 4, 13, 26 };
+	u32 reference = reference_mhz[FIELD_GET(GENMASK(19, 18), cfg1)];
+	u64 value;
+
+	if (parent_rate != 26000000)
+		return -EINVAL;
+	if (cfg1 & BIT(26)) {
+		value = (u64)reference * FIELD_GET(GENMASK(29, 24), cfg2) * 1000000;
+		if (cfg1 & BIT(24))
+			value += DIV_ROUND_CLOSEST_ULL((u64)reference *
+				FIELD_GET(GENMASK(19, 0), cfg2) * 1000000, 1048576);
+	} else {
+		value = (u64)reference * FIELD_GET(GENMASK(10, 0), cfg1) * 1000000;
+	}
+	if (!value)
+		return -EINVAL;
+	if (value > ULONG_MAX)
+		return -ERANGE;
+	*rate = value;
+	return 0;
+}
+
+static unsigned long sc9830_dpll_recalc(struct clk_hw *hw,
+					unsigned long parent_rate)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	unsigned long rate;
+	u32 cfg[2];
+	int ret;
+
+	ret = sc9830_twpll_read(clock, cfg);
+	if (!ret)
+		ret = sc9830_dpll_decode(cfg[0], cfg[1], parent_rate, &rate);
+	if (ret) {
+		pr_debug_ratelimited("SC9830 DPLL rate unavailable: %d\n", ret);
+		return 0;
+	}
+	return rate;
+}
+
+static const struct clk_ops sc9830_dpll_ops = {
+	.recalc_rate = sc9830_dpll_recalc,
+};
+
+static struct sprd_clk_common dpll = {
+	.reg = 0x4c,
+	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-dpll", "ext-26m",
+				      &sc9830_dpll_ops, CLK_GET_RATE_NOCACHE),
+};
+
 static CLK_FIXED_FACTOR_HW(twpll_48m, "sc9830-twpll-48m", &twpll.hw,
 			   32, 1, CLK_GET_RATE_NOCACHE);
 static CLK_FIXED_FACTOR_HW(twpll_51m2, "sc9830-twpll-51m2", &twpll.hw,
@@ -144,6 +197,14 @@ static CLK_FIXED_FACTOR_HW(twpll_76m8, "sc9830-twpll-76m8", &twpll.hw,
 			   20, 1, CLK_GET_RATE_NOCACHE);
 static CLK_FIXED_FACTOR_HW(twpll_128m, "sc9830-twpll-128m", &twpll.hw,
 			   12, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_192m, "sc9830-twpll-192m", &twpll.hw,
+			   8, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_512m, "sc9830-twpll-512m", &twpll.hw,
+			   3, 1, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_614m4, "sc9830-twpll-614m4", &twpll.hw,
+			   5, 2, CLK_GET_RATE_NOCACHE);
+static CLK_FIXED_FACTOR_HW(twpll_768m, "sc9830-twpll-768m", &twpll.hw,
+			   2, 1, CLK_GET_RATE_NOCACHE);
 
 static const struct clk_parent_data aux0_parents[] = {
 	{ .fw_name = "ext-32k" },
@@ -185,6 +246,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&splk_eb.common,
 	&sindrv.common,
 	&twpll,
+	&dpll,
 	&aux0_mux.common,
 	&aux0_eb.common,
 	&aon_tmr_eb.common,
@@ -210,6 +272,11 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_128M] = &twpll_128m.hw,
 		[CLK_AON_TMR_EB] = &aon_tmr_eb.common.hw,
 		[CLK_AON_INTC_EB] = &aon_intc_eb.common.hw,
+		[CLK_DPLL] = &dpll.hw,
+		[CLK_TWPLL_192M] = &twpll_192m.hw,
+		[CLK_TWPLL_512M] = &twpll_512m.hw,
+		[CLK_TWPLL_614M4] = &twpll_614m4.hw,
+		[CLK_TWPLL_768M] = &twpll_768m.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
@@ -218,6 +285,85 @@ static const struct sprd_clk_desc sc9830_aon_full_desc = {
 	.clk_clks = sc9830_aon_full_clks,
 	.num_clk_clks = ARRAY_SIZE(sc9830_aon_full_clks),
 	.hw_clks = &sc9830_aon_full_hws,
+};
+
+static const struct clk_parent_data emc_parents[] = {
+	{ .fw_name = "ext-26m" },
+	{ .fw_name = "twpll-192m" },
+	{ .fw_name = "twpll-307m2" },
+	{ .fw_name = "twpll-384m" },
+	{ .fw_name = "twpll-512m" },
+	{ .fw_name = "twpll-614m4" },
+	{ .fw_name = "twpll-768m" },
+	{ .fw_name = "dpll" },
+};
+
+static u8 sc9830_emc_get_parent(struct clk_hw *hw)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	u32 cfg;
+
+	if (regmap_read(clock->regmap, clock->reg, &cfg))
+		return 0;
+	return FIELD_GET(GENMASK(2, 0), cfg);
+}
+
+static unsigned long sc9830_emc_recalc(struct clk_hw *hw,
+				       unsigned long parent_rate)
+{
+	static const u8 divisors[] = { 1, 8, 5, 4, 3, 5, 2, 1 };
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	unsigned long rate;
+	u32 first, second, selector;
+	int attempt;
+
+	for (attempt = 0; attempt < 3; attempt++) {
+		if (regmap_read(clock->regmap, clock->reg, &first))
+			return 0;
+		selector = FIELD_GET(GENMASK(2, 0), first);
+		if (!selector) {
+			rate = 26000000;
+		} else if (selector == 7) {
+			if (!dpll.regmap)
+				return 0;
+			rate = sc9830_dpll_recalc(&dpll.hw, 26000000);
+		} else {
+			if (!twpll.regmap)
+				return 0;
+			rate = sc9830_twpll_recalc(&twpll.hw, 26000000);
+			rate = div_u64((u64)rate * (selector == 5 ? 2 : 1),
+				       divisors[selector]);
+		}
+		if (regmap_read(clock->regmap, clock->reg, &second))
+			return 0;
+		if (first == second)
+			return rate / (2 * (FIELD_GET(GENMASK(10, 8), first) + 1));
+	}
+	return 0;
+}
+
+static const struct clk_ops sc9830_emc_ops = {
+	.get_parent = sc9830_emc_get_parent,
+	.recalc_rate = sc9830_emc_recalc,
+};
+
+static struct sprd_clk_common emc_clk = {
+	.reg = 0x58,
+	.hw.init = CLK_HW_INIT_PARENTS_DATA("sc9830-emc", emc_parents,
+					  &sc9830_emc_ops, CLK_GET_RATE_NOCACHE),
+};
+
+static struct sprd_clk_common *sc9830_aon_mux_clks[] = { &emc_clk };
+
+static struct clk_hw_onecell_data sc9830_aon_mux_hws = {
+	.hws = { [CLK_EMC] = &emc_clk.hw },
+	.num = CLK_AON_MUX_NUM,
+};
+
+static const struct sprd_clk_desc sc9830_aon_mux_desc = {
+	.clk_clks = sc9830_aon_mux_clks,
+	.num_clk_clks = ARRAY_SIZE(sc9830_aon_mux_clks),
+	.hw_clks = &sc9830_aon_mux_hws,
 };
 
 static const struct clk_parent_data i2c2_parents[] = {
@@ -488,6 +634,7 @@ unmap:
 static const struct of_device_id sc9830_clk_match[] = {
 	{ .compatible = "sprd,sc9830-aon-gate", .data = &sc9830_aon_desc },
 	{ .compatible = "sprd,sc9830-aon-clk", .data = &sc9830_aon_full_desc },
+	{ .compatible = "sprd,sc9830-aon-mux-clk", .data = &sc9830_aon_mux_desc },
 	{ .compatible = "sprd,sc9830-ap-clk", .data = &sc9830_ap_desc },
 	{ .compatible = "sprd,sc9830-apapb-gate", .data = &sc9830_apapb_desc },
 	{ .compatible = "sprd,sc9830-apahb-gate", .data = &sc9830_apahb_desc },
@@ -505,6 +652,7 @@ static void __init sc9830_clk_init(struct device_node *node)
 
 CLK_OF_DECLARE(sc9830_aon_gate, "sprd,sc9830-aon-gate", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_aon_clk, "sprd,sc9830-aon-clk", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_aon_mux_clk, "sprd,sc9830-aon-mux-clk", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_ap_clk, "sprd,sc9830-ap-clk", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_apapb_gate, "sprd,sc9830-apapb-gate", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_apahb_gate, "sprd,sc9830-apahb-gate", sc9830_clk_init);
