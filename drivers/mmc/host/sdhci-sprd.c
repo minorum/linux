@@ -898,9 +898,6 @@ static void sdhci_sprd_r11_remove(struct platform_device *pdev)
 	clk_disable_unprepare(sprd_host->clk_2x_enable);
 }
 
-static bool sc9830_probe_enabled = true;
-module_param(sc9830_probe_enabled, bool, 0644);
-
 static void sc9830_writeb(struct sdhci_host *host, u8 val, int reg)
 {
 	if (reg == SDHCI_SOFTWARE_RESET)
@@ -1018,8 +1015,6 @@ static int sc9830_probe(struct platform_device *pdev)
 	bool sdio = data == &sc9830_sdio_data;
 	int ret;
 
-	if (!sc9830_probe_enabled)
-		return -ENODEV;
 	if (!sdio) {
 		reset = devm_reset_control_get_exclusive(&pdev->dev, "host");
 		if (IS_ERR(reset))
