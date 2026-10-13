@@ -219,15 +219,9 @@ static int sc9830_pm_probe(struct platform_device *pdev)
 	pm = devm_kzalloc(dev, sizeof(*pm), GFP_KERNEL);
 	if (!pm)
 		return -ENOMEM;
-	pm->ring.base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(pm->ring.base))
-		return PTR_ERR(pm->ring.base);
 	mutex_init(&pm->lock);
 	spin_lock_init(&pm->rx_lock);
 	init_completion(&pm->done);
-	ret = sc9830_pm_ring_init(&pm->ring);
-	if (ret)
-		return dev_err_probe(dev, ret, "PM rings require zero indices\n");
 	emc = devm_clk_get(dev, "emc");
 	if (IS_ERR(emc))
 		return PTR_ERR(emc);
@@ -240,9 +234,17 @@ static int sc9830_pm_probe(struct platform_device *pdev)
 	pm->channel = mbox_request_channel_byname(&pm->client, "pm");
 	if (IS_ERR(pm->channel))
 		return dev_err_probe(dev, PTR_ERR(pm->channel), "PM mailbox unavailable\n");
+	pm->ring.base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(pm->ring.base)) {
+		mbox_free_channel(pm->channel);
+		return PTR_ERR(pm->ring.base);
+	}
 	ret = devm_add_action_or_reset(dev, sc9830_pm_release, pm);
 	if (ret)
 		return ret;
+	ret = sc9830_pm_ring_init(&pm->ring);
+	if (ret)
+		return dev_err_probe(dev, ret, "PM rings require zero indices\n");
 	mutex_lock(&pm->lock);
 	ret = sc9830_pm_exchange(pm, SC9830_PM_OPEN, SC9830_PM_OPEN, 0);
 	if (!ret)
