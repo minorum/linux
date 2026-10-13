@@ -1,0 +1,22 @@
+What:           /sys/bus/platform/devices/*/frequency
+Date:           October 2026
+Description:
+                Current DDR frequency in Hz, queried from Samsung J320FN PM
+                firmware. Reading issues a serialized firmware request.
+
+What:           /sys/bus/platform/devices/*/target_frequency
+Date:           October 2026
+Description:
+                Firmware's stored DDR target in Hz. This target can change
+                independently of the current rate or application processor.
+
+What:           /sys/bus/platform/devices/*/high_rate_lock
+Date:           October 2026
+Description:
+                Write-only boolean application processor vote. True requests
+                a 640 MHz lock; false releases the lock to the firmware's
+                stored target and permits autonomous modem-driven changes.
+                False does not select 192 MHz. Firmware owns clock changes
+                and coordinator side effects. A failed command can already
+                have changed the vote; subsequent requests fail until a
+                qualified fresh boot. No previous vote restoration is implied.

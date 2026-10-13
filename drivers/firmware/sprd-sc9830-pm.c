@@ -82,6 +82,8 @@ static int sc9830_pm_exchange(struct sc9830_pm *pm, u32 request, u32 reply, u32 
 	} else {
 		ret = pm->result;
 	}
+	if (!ret && request == SC9830_PM_RATE && value == 640 && pm->value != 640)
+		ret = -EPROTO;
 	if (!ret)
 		ret = readl_poll_timeout(pm->ring.base + SC9830_PM_TX_RD,
 					 consumed, consumed == pm->ring.tx, 10, 500000);
@@ -97,19 +99,58 @@ fault:
 	return ret;
 }
 
-static ssize_t frequency_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t sc9830_pm_frequency(struct device *dev, u32 request, char *buf)
 {
 	struct sc9830_pm *pm = dev_get_drvdata(dev);
 	u32 mhz;
 	int ret;
 
 	mutex_lock(&pm->lock);
-	ret = sc9830_pm_exchange(pm, SC9830_PM_QUERY, SC9830_PM_QUERIED, pm->desired);
+	ret = sc9830_pm_exchange(pm, request, SC9830_PM_QUERIED, pm->desired);
 	mhz = pm->value;
 	mutex_unlock(&pm->lock);
 	return ret ? ret : sysfs_emit(buf, "%u\n", mhz * 1000000);
 }
+
+static ssize_t frequency_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sc9830_pm_frequency(dev, SC9830_PM_QUERY, buf);
+}
 static DEVICE_ATTR_RO(frequency);
+
+static ssize_t target_frequency_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sc9830_pm_frequency(dev, SC9830_PM_TARGET, buf);
+}
+static DEVICE_ATTR_RO(target_frequency);
+
+static ssize_t high_rate_lock_store(struct device *dev, struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct sc9830_pm *pm = dev_get_drvdata(dev);
+	bool enabled;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+	mutex_lock(&pm->lock);
+	ret = sc9830_pm_exchange(pm, SC9830_PM_RATE, SC9830_PM_RATE_REPLY,
+				enabled ? 640 : 192);
+	mutex_unlock(&pm->lock);
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_WO(high_rate_lock);
+
+static struct attribute *sc9830_pm_attrs[] = {
+	&dev_attr_frequency.attr,
+	&dev_attr_target_frequency.attr,
+	&dev_attr_high_rate_lock.attr,
+	NULL,
+};
+static const struct attribute_group sc9830_pm_group = {
+	.attrs = sc9830_pm_attrs,
+};
 
 static void sc9830_pm_release(void *data)
 {
@@ -166,16 +207,11 @@ static int sc9830_pm_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(dev, ret, "PM startup exchange failed\n");
 	platform_set_drvdata(pdev, pm);
-	ret = device_create_file(dev, &dev_attr_frequency);
+	ret = devm_device_add_group(dev, &sc9830_pm_group);
 	if (ret)
 		return ret;
 	dev_info(dev, "PM firmware frequency %u MHz\n", pm->value);
 	return 0;
-}
-
-static void sc9830_pm_remove(struct platform_device *pdev)
-{
-	device_remove_file(&pdev->dev, &dev_attr_frequency);
 }
 
 static const struct of_device_id sc9830_pm_match[] = {
@@ -186,7 +222,6 @@ MODULE_DEVICE_TABLE(of, sc9830_pm_match);
 
 static struct platform_driver sc9830_pm_driver = {
 	.probe = sc9830_pm_probe,
-	.remove = sc9830_pm_remove,
 	.driver = {
 		.name = "sc9830-pm",
 		.of_match_table = sc9830_pm_match,

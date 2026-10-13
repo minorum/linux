@@ -9,6 +9,9 @@
 #define SC9830_PM_OPEN 0xbeee0116
 #define SC9830_PM_ENABLE 0x03000d16
 #define SC9830_PM_QUERY 0x05000d16
+#define SC9830_PM_TARGET 0x05030d16
+#define SC9830_PM_RATE 0x00000d16
+#define SC9830_PM_RATE_REPLY 0x00000e16
 #define SC9830_PM_ENABLED 0x03000e16
 #define SC9830_PM_QUERIED 0x05000e16
 #define SC9830_PM_FAILED 0x0f0f0e16
@@ -50,6 +53,7 @@ static int sc9830_pm_publish(struct sc9830_pm_ring *ring, u32 header, u32 value)
 
 static int sc9830_pm_receive(struct sc9830_pm_ring *ring, u32 expected, u32 *value)
 {
+	static const int status[] = { 1, -EINVAL, -EBUSY, 1, -EIO, -EACCES };
 	u32 rd = readl(ring->base + SC9830_PM_RX_RD);
 	u32 wr = readl(ring->base + SC9830_PM_RX_WR);
 	u32 header, reply, offset;
@@ -64,14 +68,20 @@ static int sc9830_pm_receive(struct sc9830_pm_ring *ring, u32 expected, u32 *val
 	offset = 0x400 + (rd & 127) * 8;
 	header = readl(ring->base + offset);
 	reply = readl(ring->base + offset + 4);
-	if (header != expected &&
+	if (expected == SC9830_PM_RATE_REPLY) {
+		if (header != SC9830_PM_FAILED &&
+		    ((header & 0xffff) != SC9830_PM_RATE_REPLY || header >> 16 > 5))
+			return -EPROTO;
+	} else if (header != expected &&
 	    !(expected != SC9830_PM_OPEN && header == SC9830_PM_FAILED))
 		return -EPROTO;
 	if (header == SC9830_PM_OPEN && reply != 0xff00)
 		return -EPROTO;
 	if (header == SC9830_PM_ENABLED && reply)
 		return -EPROTO;
-	if (header == SC9830_PM_QUERIED && reply != 192 && reply != 384 &&
+	if ((header == SC9830_PM_QUERIED ||
+	     (expected == SC9830_PM_RATE_REPLY && header != SC9830_PM_FAILED)) &&
+	    reply != 192 && reply != 384 &&
 	    reply != 500 && reply != 640)
 		return -EPROTO;
 	if (readl(ring->base + SC9830_PM_RX_RD) != rd ||
@@ -82,6 +92,8 @@ static int sc9830_pm_receive(struct sc9830_pm_ring *ring, u32 expected, u32 *val
 	mb();
 	writel(++ring->rx, ring->base + SC9830_PM_RX_RD);
 	wmb();
-	return header == SC9830_PM_FAILED ? -EREMOTEIO : 1;
+	if (header == SC9830_PM_FAILED)
+		return -EREMOTEIO;
+	return expected == SC9830_PM_RATE_REPLY ? status[header >> 16] : 1;
 }
 #endif
