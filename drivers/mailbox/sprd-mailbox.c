@@ -472,8 +472,7 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->outbox_base))
 		return PTR_ERR(priv->outbox_base);
 
-	clk = priv->info->version == SPRD_MBOX_SC9830 ?
-		devm_clk_get(dev, "enable") : devm_clk_get_enabled(dev, "enable");
+	clk = devm_clk_get_enabled(dev, "enable");
 	if (IS_ERR(clk)) {
 		dev_err(dev, "failed to get mailbox clock\n");
 		return PTR_ERR(clk);

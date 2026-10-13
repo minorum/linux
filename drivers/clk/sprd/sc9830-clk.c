@@ -241,6 +241,23 @@ static struct sprd_gate aon_intc_eb = {
 					       &sprd_sc_gate_ops, 0),
 };
 
+static int sc9830_mbox_is_enabled(struct clk_hw *hw)
+{
+	return sprd_sc_gate_ops.is_enabled(hw) > 0;
+}
+
+static const struct clk_ops sc9830_mbox_ops = {
+	.is_enabled = sc9830_mbox_is_enabled,
+};
+
+static struct sprd_gate mbox_eb = {
+	.enable_mask = BIT(21),
+	.common.reg = 0x4,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-mbox-eb",
+					       &sc9830_mbox_ops,
+					       CLK_IS_CRITICAL),
+};
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
@@ -251,6 +268,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&aux0_eb.common,
 	&aon_tmr_eb.common,
 	&aon_intc_eb.common,
+	&mbox_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
@@ -277,6 +295,7 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_512M] = &twpll_512m.hw,
 		[CLK_TWPLL_614M4] = &twpll_614m4.hw,
 		[CLK_TWPLL_768M] = &twpll_768m.hw,
+		[CLK_MBOX_EB] = &mbox_eb.common.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
