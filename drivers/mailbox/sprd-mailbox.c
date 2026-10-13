@@ -347,6 +347,11 @@ static int sc9830_mbox_send(struct mbox_chan *chan, void *data)
 	return 0;
 }
 
+static irqreturn_t sc9830_mbox_inbox_isr(int irq, void *data)
+{
+	return IRQ_NONE;
+}
+
 static irqreturn_t sc9830_mbox_isr(int irq, void *data)
 {
 	struct sprd_mbox_priv *priv = data;
@@ -482,6 +487,13 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 			return dev_err_probe(dev, -EIO, "firmware mailbox gate is disabled\n");
 		if (readl(priv->outbox_base + SPRD_MBOX_FIFO_RST) != BIT(16))
 			return dev_err_probe(dev, -EBUSY, "mailbox mode handover is unqualified\n");
+		inbox_irq = platform_get_irq_byname(pdev, "inbox");
+		if (inbox_irq < 0)
+			return inbox_irq;
+		ret = devm_request_irq(dev, inbox_irq, sc9830_mbox_inbox_isr,
+				       IRQF_NO_AUTOEN, dev_name(dev), priv);
+		if (ret)
+			return ret;
 		outbox_irq = platform_get_irq_byname(pdev, "outbox");
 		if (outbox_irq < 0)
 			return outbox_irq;
