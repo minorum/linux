@@ -10,10 +10,13 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/mailbox_controller.h>
+#include <linux/mailbox_client.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
+#include <linux/spinlock.h>
 
 #define SPRD_MBOX_ID		0x0
 #define SPRD_MBOX_MSG_LOW	0x4
@@ -69,6 +72,7 @@
 enum sprd_mbox_version {
 	SPRD_MBOX_R1,
 	SPRD_MBOX_R2,
+	SPRD_MBOX_SC9830,
 };
 
 struct sprd_mbox_info {
@@ -89,6 +93,10 @@ struct sprd_mbox_priv {
 
 	struct mutex		lock;
 	u32			refcnt;
+	spinlock_t		doorbell_lock;
+	u32			active;
+	u32			saved_mask;
+	int			outbox_irq;
 	struct mbox_chan	chan[SPRD_MBOX_R2_CHAN_MAX];
 };
 
@@ -327,6 +335,104 @@ static const struct mbox_chan_ops sprd_mbox_ops = {
 	.shutdown	= sprd_mbox_shutdown,
 };
 
+static int sc9830_mbox_send(struct mbox_chan *chan, void *data)
+{
+	struct sprd_mbox_priv *priv = to_sprd_mbox_priv(chan->mbox);
+	unsigned long flags;
+
+	spin_lock_irqsave(&priv->doorbell_lock, flags);
+	writel((unsigned long)chan->con_priv, priv->inbox_base + SPRD_MBOX_ID);
+	writel(1, priv->inbox_base + SPRD_MBOX_TRIGGER);
+	spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+	return 0;
+}
+
+static irqreturn_t sc9830_mbox_isr(int irq, void *data)
+{
+	struct sprd_mbox_priv *priv = data;
+	unsigned long flags;
+	u32 status, active;
+	unsigned int id;
+
+	spin_lock_irqsave(&priv->doorbell_lock, flags);
+	active = priv->active;
+	if (!active) {
+		spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+		return IRQ_NONE;
+	}
+	status = readl(priv->outbox_base + SPRD_MBOX_FIFO_STS);
+	writel(status & (active << 8), priv->outbox_base + SPRD_MBOX_IRQ_STS);
+	spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+	for (id = 0; id < SPRD_MBOX_R1_CHAN_MAX; id++)
+		if (active & BIT(id))
+			mbox_chan_received_data(&priv->chan[id], NULL);
+	return IRQ_HANDLED;
+}
+
+static int sc9830_mbox_startup(struct mbox_chan *chan)
+{
+	struct sprd_mbox_priv *priv = to_sprd_mbox_priv(chan->mbox);
+	unsigned int id = (unsigned long)chan->con_priv;
+	unsigned long flags;
+	u32 mask, unowned, bit = BIT(id + 8);
+	bool first;
+
+	if (!chan->cl->knows_txdone)
+		return -EINVAL;
+	mutex_lock(&priv->lock);
+	spin_lock_irqsave(&priv->doorbell_lock, flags);
+	if (readl(priv->outbox_base + SPRD_MBOX_FIFO_RST) != BIT(16)) {
+		spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+		mutex_unlock(&priv->lock);
+		return -EBUSY;
+	}
+	mask = readl(priv->outbox_base + SPRD_MBOX_IRQ_MSK);
+	unowned = GENMASK(15, 8) & ~(priv->active << 8);
+	if ((mask & unowned) != unowned) {
+		spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+		mutex_unlock(&priv->lock);
+		return -EBUSY;
+	}
+	first = !priv->active;
+	priv->saved_mask = (priv->saved_mask & ~bit) | (mask & bit);
+	priv->active |= BIT(id);
+	writel(mask & ~bit, priv->outbox_base + SPRD_MBOX_IRQ_MSK);
+	spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+	if (first)
+		enable_irq(priv->outbox_irq);
+	mutex_unlock(&priv->lock);
+	return 0;
+}
+
+static void sc9830_mbox_shutdown(struct mbox_chan *chan)
+{
+	struct sprd_mbox_priv *priv = to_sprd_mbox_priv(chan->mbox);
+	unsigned int id = (unsigned long)chan->con_priv;
+	unsigned long flags;
+	u32 mask, bit = BIT(id + 8);
+	bool last;
+
+	mutex_lock(&priv->lock);
+	spin_lock_irqsave(&priv->doorbell_lock, flags);
+	priv->active &= ~BIT(id);
+	last = !priv->active;
+	mask = readl(priv->outbox_base + SPRD_MBOX_IRQ_MSK);
+	writel((mask & ~bit) | (priv->saved_mask & bit),
+	       priv->outbox_base + SPRD_MBOX_IRQ_MSK);
+	spin_unlock_irqrestore(&priv->doorbell_lock, flags);
+	if (last)
+		disable_irq(priv->outbox_irq);
+	else
+		synchronize_irq(priv->outbox_irq);
+	mutex_unlock(&priv->lock);
+}
+
+static const struct mbox_chan_ops sc9830_mbox_ops = {
+	.send_data = sc9830_mbox_send,
+	.startup = sc9830_mbox_startup,
+	.shutdown = sc9830_mbox_shutdown,
+};
+
 static int sprd_mbox_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -341,6 +447,7 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 
 	priv->dev = dev;
 	mutex_init(&priv->lock);
+	spin_lock_init(&priv->doorbell_lock);
 
 	priv->info = of_device_get_match_data(dev);
 	if (!priv->info)
@@ -365,10 +472,27 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->outbox_base))
 		return PTR_ERR(priv->outbox_base);
 
-	clk = devm_clk_get_enabled(dev, "enable");
+	clk = priv->info->version == SPRD_MBOX_SC9830 ?
+		devm_clk_get(dev, "enable") : devm_clk_get_enabled(dev, "enable");
 	if (IS_ERR(clk)) {
 		dev_err(dev, "failed to get mailbox clock\n");
 		return PTR_ERR(clk);
+	}
+	if (priv->info->version == SPRD_MBOX_SC9830) {
+		if (!__clk_is_enabled(clk))
+			return dev_err_probe(dev, -EIO, "firmware mailbox gate is disabled\n");
+		if (readl(priv->outbox_base + SPRD_MBOX_FIFO_RST) != BIT(16))
+			return dev_err_probe(dev, -EBUSY, "mailbox mode handover is unqualified\n");
+		outbox_irq = platform_get_irq_byname(pdev, "outbox");
+		if (outbox_irq < 0)
+			return outbox_irq;
+		priv->outbox_irq = outbox_irq;
+		ret = devm_request_irq(dev, outbox_irq, sc9830_mbox_isr, IRQF_NO_AUTOEN,
+				       dev_name(dev), priv);
+		if (ret)
+			return ret;
+		priv->mbox.ops = &sc9830_mbox_ops;
+		goto register_controller;
 	}
 
 	inbox_irq = platform_get_irq_byname(pdev, "inbox");
@@ -414,10 +538,12 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 	/* Get the default outbox FIFO depth */
 	priv->outbox_fifo_depth =
 		readl(priv->outbox_base + SPRD_MBOX_FIFO_DEPTH) + 1;
-	priv->mbox.dev = dev;
-	priv->mbox.chans = &priv->chan[0];
 	priv->mbox.ops = &sprd_mbox_ops;
 	priv->mbox.txdone_irq = true;
+
+register_controller:
+	priv->mbox.dev = dev;
+	priv->mbox.chans = &priv->chan[0];
 
 	if (priv->info->version == SPRD_MBOX_R2)
 		priv->mbox.num_chans = SPRD_MBOX_R2_CHAN_MAX;
@@ -440,6 +566,10 @@ static const struct sprd_mbox_info sc9860_mbox_info = {
 	.version = SPRD_MBOX_R1,
 };
 
+static const struct sprd_mbox_info sc9830_mbox_info = {
+	.version = SPRD_MBOX_SC9830,
+};
+
 static const struct sprd_mbox_info sc9863a_mbox_info = {
 	.version = SPRD_MBOX_R1,
 	.supp_id = 7,
@@ -451,6 +581,7 @@ static const struct sprd_mbox_info ums9230_mbox_info = {
 };
 
 static const struct of_device_id sprd_mbox_of_match[] = {
+	{ .compatible = "sprd,sc9830-mailbox", .data = &sc9830_mbox_info },
 	{ .compatible = "sprd,sc9860-mailbox", .data = &sc9860_mbox_info },
 	{ .compatible = "sprd,sc9863a-mailbox", .data = &sc9863a_mbox_info },
 	{ .compatible = "sprd,ums9230-mailbox", .data = &ums9230_mbox_info },
