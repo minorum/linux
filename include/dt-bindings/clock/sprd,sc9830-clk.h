@@ -25,7 +25,8 @@
 #define CLK_TWPLL_512M	19
 #define CLK_TWPLL_614M4	20
 #define CLK_TWPLL_768M	21
-#define CLK_AON_CLK_NUM	22
+#define CLK_MBOX_EB	22
+#define CLK_AON_CLK_NUM	23
 
 #define CLK_EMC		0
 #define CLK_AON_MUX_NUM	1
