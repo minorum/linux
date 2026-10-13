@@ -302,4 +302,13 @@ source "drivers/firmware/smccc/Kconfig"
 source "drivers/firmware/tegra/Kconfig"
 source "drivers/firmware/xilinx/Kconfig"
 
+config SAMSUNG_J320FN_PM
+	tristate "Samsung J320FN PM firmware transport"
+	depends on OF && COMMON_CLK && MAILBOX
+	depends on ARCH_SPRD || COMPILE_TEST
+	select SPRD_MBOX
+	help
+	  Transport for the Samsung J320FN PM firmware DDR commands.
+	  Requires a qualified mailbox handover and fresh shared rings.
+
 endmenu

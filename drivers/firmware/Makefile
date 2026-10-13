@@ -38,3 +38,4 @@ obj-y				+= samsung/
 obj-y				+= smccc/
 obj-y				+= tegra/
 obj-y				+= xilinx/
+obj-$(CONFIG_SAMSUNG_J320FN_PM)	+= sprd-sc9830-pm.o
