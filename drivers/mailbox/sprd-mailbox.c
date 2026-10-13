@@ -8,7 +8,10 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/irqdomain.h>
 #include <linux/io.h>
+#include <linux/ioport.h>
 #include <linux/mailbox_controller.h>
 #include <linux/mailbox_client.h>
 #include <linux/module.h>
@@ -78,6 +81,7 @@ enum sprd_mbox_version {
 struct sprd_mbox_info {
 	enum sprd_mbox_version version;
 	unsigned long supp_id;
+	bool j320fn_handover;
 };
 
 struct sprd_mbox_priv {
@@ -438,6 +442,91 @@ static const struct mbox_chan_ops sc9830_mbox_ops = {
 	.shutdown = sc9830_mbox_shutdown,
 };
 
+static void j320fn_mbox_snapshot(struct sprd_mbox_priv *priv, void __iomem *counters,
+				 void __iomem *pm, struct clk *clk, u32 *state)
+{
+	static const u32 offsets[] = { SPRD_MBOX_FIFO_RST, SPRD_MBOX_FIFO_STS, SPRD_MBOX_IRQ_MSK };
+	unsigned int i;
+
+	state[12] = __clk_is_enabled(clk);
+	if (!state[12])
+		return;
+	for (i = 0; i < 3; i++) {
+		state[i] = readl(priv->inbox_base + offsets[i]);
+		state[i + 3] = readl(priv->outbox_base + offsets[i]);
+	}
+	state[6] = readl(pm + 0x10);
+	state[7] = readl(pm + 0x1c);
+	for (i = 0; i < 4; i++)
+		state[i + 8] = readl(counters + i * 4);
+}
+
+static int j320fn_mbox_initialize(struct sprd_mbox_priv *priv, void __iomem *counters,
+				   void __iomem *pm, struct clk *clk)
+{
+	static const u32 inherited[] = { 0, 3, 0x2f, 0, 0x07008001, 0x1e,
+					0x10000, 0x1f, 0, 0, 0, 0, 1 };
+	static const u32 initialized[] = { 0, 3, 0x3f, 0x10000, 2, 0xff00,
+					  0x10000, 0x1f, 0, 0, 0, 0, 1 };
+	u32 before[13] = {}, after[13] = {};
+
+	j320fn_mbox_snapshot(priv, counters, pm, clk, before);
+	j320fn_mbox_snapshot(priv, counters, pm, clk, after);
+	if (memcmp(before, inherited, sizeof(before)) || memcmp(before, after, sizeof(before)))
+		return -EBUSY;
+	writel(1, priv->inbox_base + SPRD_MBOX_FIFO_RST);
+	writel(1, priv->outbox_base + SPRD_MBOX_FIFO_RST);
+	writel(0, priv->inbox_base + SPRD_MBOX_FIFO_RST);
+	writel(0xffffffff, priv->inbox_base + SPRD_MBOX_IRQ_MSK);
+	writel(BIT(16), priv->outbox_base + SPRD_MBOX_FIFO_RST);
+	writel(0xff00, priv->outbox_base + SPRD_MBOX_IRQ_MSK);
+	j320fn_mbox_snapshot(priv, counters, pm, clk, after);
+	return memcmp(after, initialized, sizeof(after)) ? -EIO : 0;
+}
+
+static int j320fn_mbox_prepare(struct platform_device *pdev, struct sprd_mbox_priv *priv,
+			      struct clk *clk)
+{
+	static const resource_size_t starts[] = { 0x400a0000, 0x400a8000, 0x5000c800, 0x400a8100 };
+	static const resource_size_t sizes[] = { 0x100, 0x100, 0x10, 0x100 };
+	struct device *dev = &pdev->dev;
+	struct resource *resource;
+	struct irq_data *data;
+	void __iomem *counters, *pm;
+	unsigned int i;
+	int ret, irq;
+
+	if (!of_machine_is_compatible("samsung,j3xnlte"))
+		return -ENODEV;
+	for (i = 0; i < 2; i++) {
+		irq = platform_get_irq_byname(pdev, i ? "outbox" : "inbox");
+		if (irq < 0)
+			return irq;
+		data = irq_get_irq_data(irq);
+		if (!data || data->hwirq != 68 + i ||
+		    irq_get_trigger_type(irq) != IRQ_TYPE_LEVEL_HIGH ||
+		    !of_device_is_compatible(irq_domain_get_of_node(data->domain),
+				     "sprd,sc9830-intc"))
+			return -EINVAL;
+	}
+	for (i = 0; i < ARRAY_SIZE(starts); i++) {
+		resource = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		if (!resource || resource->start != starts[i] ||
+		    resource_size(resource) != sizes[i])
+			return -EINVAL;
+	}
+	counters = devm_platform_ioremap_resource(pdev, 2);
+	if (IS_ERR(counters))
+		return PTR_ERR(counters);
+	pm = devm_platform_ioremap_resource(pdev, 3);
+	if (IS_ERR(pm))
+		return PTR_ERR(pm);
+	ret = j320fn_mbox_initialize(priv, counters, pm, clk);
+	devm_iounmap(dev, counters);
+	devm_release_mem_region(dev, starts[2], sizes[2]);
+	return ret;
+}
+
 static int sprd_mbox_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -485,7 +574,8 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 	if (priv->info->version == SPRD_MBOX_SC9830) {
 		if (!__clk_is_enabled(clk))
 			return dev_err_probe(dev, -EIO, "firmware mailbox gate is disabled\n");
-		if (readl(priv->outbox_base + SPRD_MBOX_FIFO_RST) != BIT(16))
+		if (!priv->info->j320fn_handover &&
+		    readl(priv->outbox_base + SPRD_MBOX_FIFO_RST) != BIT(16))
 			return dev_err_probe(dev, -EBUSY, "mailbox mode handover is unqualified\n");
 		inbox_irq = platform_get_irq_byname(pdev, "inbox");
 		if (inbox_irq < 0)
@@ -502,6 +592,12 @@ static int sprd_mbox_probe(struct platform_device *pdev)
 				       dev_name(dev), priv);
 		if (ret)
 			return ret;
+		if (priv->info->j320fn_handover) {
+			ret = j320fn_mbox_prepare(pdev, priv, clk);
+			if (ret)
+				return dev_err_probe(dev, ret,
+						     "firmware mailbox handover failed\n");
+		}
 		priv->mbox.ops = &sc9830_mbox_ops;
 		goto register_controller;
 	}
@@ -581,6 +677,11 @@ static const struct sprd_mbox_info sc9830_mbox_info = {
 	.version = SPRD_MBOX_SC9830,
 };
 
+static const struct sprd_mbox_info j320fn_mbox_info = {
+	.version = SPRD_MBOX_SC9830,
+	.j320fn_handover = true,
+};
+
 static const struct sprd_mbox_info sc9863a_mbox_info = {
 	.version = SPRD_MBOX_R1,
 	.supp_id = 7,
@@ -592,6 +693,7 @@ static const struct sprd_mbox_info ums9230_mbox_info = {
 };
 
 static const struct of_device_id sprd_mbox_of_match[] = {
+	{ .compatible = "samsung,j320fn-mailbox", .data = &j320fn_mbox_info },
 	{ .compatible = "sprd,sc9830-mailbox", .data = &sc9830_mbox_info },
 	{ .compatible = "sprd,sc9860-mailbox", .data = &sc9860_mbox_info },
 	{ .compatible = "sprd,sc9863a-mailbox", .data = &sc9863a_mbox_info },
