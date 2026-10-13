@@ -63,10 +63,16 @@ For example, with a known physical range owned by the test producer::
 
 PERF_SAMPLE_ADDR and PERF_SAMPLE_PHYS_ADDR contain the captured bus address.
 The sampled IP and task describe interrupt context, not the transaction's
-origin. PERF_SAMPLE_RAW contains five native-endian 32-bit words: version
-(currently 1), port, captured control, captured command, and captured ID.
+origin. By default PERF_SAMPLE_RAW contains five native-endian 32-bit words:
+version 1, port, captured control, captured command, and captured ID.
 The ID is an uninterpreted register value; its origin and stability are unverified.
-Captured data payloads are not exported because their meaning is unverified.
+``extra_regs=1`` selects RAW version 2 and appends the register reads at
+offsets 0x3c and 0x40, in that order, for a total of seven words. This option
+requires CAP_SYS_RAWIO and permission under the perf lockdown policy.
+These are sequential register observations before acknowledgment, not
+validated memory contents at the captured address. They can be stale or
+reflect another beat or transaction. Data lane, burst and read-payload
+semantics remain unverified. Version 1 is unchanged without this option.
 Counts report serviced matches; transactions while handling or rearming the
 monitor may be lost. Address sampling does not enable global counter windows.
 

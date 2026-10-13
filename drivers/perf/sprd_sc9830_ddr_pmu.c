@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/bitfield.h>
+#include <linux/capability.h>
 #include <linux/cpuhotplug.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/perf_event.h>
 #include <linux/platform_device.h>
+#include <linux/security.h>
 #include <linux/spinlock.h>
 #include <asm/irq_regs.h>
 
@@ -14,6 +16,7 @@
 #define DDR_ADDRESS	6
 #define DDR_SLOTS	7
 #define DDR_ACCESS	GENMASK_ULL(17, 16)
+#define DDR_EXTRA_REGS	BIT_ULL(18)
 #define DDR_PROFILES	0x3bf
 #define DDR_MATCH	BIT(31)
 #define DDR_STRIDE	0x10000
@@ -64,12 +67,14 @@ struct sc9830_address_record {
 	u32 control;
 	u32 command;
 	u32 id;
+	u32 regs[2];
 };
 
 struct sc9830_address_sample {
 	struct perf_event *event;
 	struct sc9830_address_record record;
 	u32 address;
+	u32 raw_size;
 };
 
 #define to_ddr(p)	container_of(p, struct sc9830_ddr_pmu, pmu)
@@ -168,7 +173,7 @@ static bool ddr_address_valid(struct perf_event *event)
 {
 	u64 config = event->attr.config;
 
-	return !(config & ~(DDR_EVENT_MASK | DDR_ACCESS)) &&
+	return !(config & ~(DDR_EVENT_MASK | DDR_ACCESS | DDR_EXTRA_REGS)) &&
 		FIELD_GET(GENMASK_ULL(11, 8), config) < DDR_PORTS &&
 		FIELD_GET(DDR_ACCESS, config) < 3 &&
 		event->attr.config1 <= U32_MAX && event->attr.config2 <= U32_MAX &&
@@ -199,6 +204,7 @@ static int ddr_event_init(struct perf_event *event)
 {
 	struct sc9830_ddr_pmu *ddr = to_ddr(event->pmu);
 	struct perf_event *sibling;
+	int ret;
 
 	if (event->attr.type != event->pmu->type)
 		return -ENOENT;
@@ -208,6 +214,13 @@ static int ddr_event_init(struct perf_event *event)
 	if (ddr_is_address(event)) {
 		if (!ddr_address_valid(event))
 			return -EINVAL;
+		if (event->attr.config & DDR_EXTRA_REGS) {
+			if (!capable(CAP_SYS_RAWIO))
+				return -EPERM;
+			ret = security_locked_down(LOCKDOWN_PERF);
+			if (ret)
+				return ret;
+		}
 	} else {
 		if (is_sampling_event(event))
 			return -EOPNOTSUPP;
@@ -556,8 +569,15 @@ static irqreturn_t ddr_irq(int irq, void *data)
 			samples[nr].record = (struct sc9830_address_record) {
 				.version = 1, .port = port, .control = ctrl,
 				.command = readl(base + 0x38),
-				.id = readl(base + 0x64),
 			};
+			samples[nr].raw_size = offsetof(struct sc9830_address_record, regs);
+			if (samples[nr].event->attr.config & DDR_EXTRA_REGS) {
+				samples[nr].record.version = 2;
+				samples[nr].record.regs[0] = readl(base + 0x3c);
+				samples[nr].record.regs[1] = readl(base + 0x40);
+				samples[nr].raw_size = sizeof(samples[nr].record);
+			}
+			samples[nr].record.id = readl(base + 0x64);
 			local64_add(1, &samples[nr].event->count);
 			nr++;
 			writel(BIT(0), base);
@@ -572,7 +592,7 @@ static irqreturn_t ddr_irq(int irq, void *data)
 	for (i = 0; i < nr; i++) {
 		struct perf_sample_data sample;
 		struct perf_raw_record raw = {
-			.frag = { .size = sizeof(samples[i].record),
+			.frag = { .size = samples[i].raw_size,
 				  .data = &samples[i].record },
 		};
 
@@ -598,11 +618,13 @@ static DEVICE_ATTR_RO(cpumask);
 PMU_FORMAT_ATTR(event, "config:0-2");
 PMU_FORMAT_ATTR(port, "config:8-11");
 PMU_FORMAT_ATTR(access, "config:16-17");
+PMU_FORMAT_ATTR(extra_regs, "config:18");
 PMU_FORMAT_ATTR(start, "config1:0-31");
 PMU_FORMAT_ATTR(end, "config2:0-31");
 static struct attribute *ddr_format_attrs[] = {
 	&format_attr_event.attr, &format_attr_port.attr,
 	&format_attr_access.attr, &format_attr_start.attr, &format_attr_end.attr,
+	&format_attr_extra_regs.attr,
 	NULL,
 };
 static const struct attribute_group ddr_format_group = {
