@@ -150,7 +150,7 @@ static int sc9830_pm_probe(struct platform_device *pdev)
 	pm->client.dev = dev;
 	pm->client.rx_callback = sc9830_pm_rx;
 	pm->client.knows_txdone = true;
-	pm->channel = mbox_request_channel(&pm->client, 0);
+	pm->channel = mbox_request_channel_byname(&pm->client, "pm");
 	if (IS_ERR(pm->channel))
 		return dev_err_probe(dev, PTR_ERR(pm->channel), "PM mailbox unavailable\n");
 	ret = devm_add_action_or_reset(dev, sc9830_pm_release, pm);
