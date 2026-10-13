@@ -41,6 +41,12 @@ properties:
     items:
       - const: emc
 
+  '#clock-cells':
+    const: 0
+    description: |
+      Provides the firmware-reported effective DDR clock. The input emc clock
+      describes the inherited AON configuration and must not use this output.
+
 required:
   - compatible
   - reg

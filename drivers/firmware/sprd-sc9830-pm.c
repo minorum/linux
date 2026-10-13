@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/completion.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -13,6 +14,7 @@
 #include "sprd-sc9830-pm.h"
 
 struct sc9830_pm {
+	struct clk_hw clock;
 	struct sc9830_pm_ring ring;
 	struct mbox_client client;
 	struct mbox_chan *channel;
@@ -112,6 +114,50 @@ static ssize_t sc9830_pm_frequency(struct device *dev, u32 request, char *buf)
 	return ret ? ret : sysfs_emit(buf, "%u\n", mhz * 1000000);
 }
 
+static unsigned long sc9830_pm_clock_rate(struct clk_hw *hw,
+					unsigned long parent_rate)
+{
+	struct sc9830_pm *pm = container_of(hw, struct sc9830_pm, clock);
+	u32 mhz;
+	int ret;
+
+	mutex_lock(&pm->lock);
+	ret = sc9830_pm_exchange(pm, SC9830_PM_QUERY, SC9830_PM_QUERIED, pm->desired);
+	mhz = pm->value;
+	mutex_unlock(&pm->lock);
+	return ret ? 0 : mhz * 1000000UL;
+}
+
+static const struct clk_ops sc9830_pm_clock_ops = {
+	.recalc_rate = sc9830_pm_clock_rate,
+};
+
+static int sc9830_pm_register_clock(struct device *dev, struct sc9830_pm *pm)
+{
+	struct clk_init_data init = {
+		.ops = &sc9830_pm_clock_ops,
+		.flags = CLK_GET_RATE_NOCACHE,
+	};
+	u32 cells;
+	int ret;
+
+	if (!of_property_present(dev->of_node, "#clock-cells"))
+		return 0;
+	ret = of_property_read_u32(dev->of_node, "#clock-cells", &cells);
+	if (ret || cells)
+		return -EINVAL;
+	init.name = devm_kasprintf(dev, GFP_KERNEL, "%s-ddr", dev_name(dev));
+	if (!init.name)
+		return -ENOMEM;
+	pm->clock.init = &init;
+	ret = devm_clk_hw_register(dev, &pm->clock);
+	if (ret)
+		return ret;
+	if (READ_ONCE(pm->fault))
+		return -EIO;
+	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, &pm->clock);
+}
+
 static ssize_t frequency_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return sc9830_pm_frequency(dev, SC9830_PM_QUERY, buf);
@@ -207,6 +253,9 @@ static int sc9830_pm_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(dev, ret, "PM startup exchange failed\n");
 	platform_set_drvdata(pdev, pm);
+	ret = sc9830_pm_register_clock(dev, pm);
+	if (ret)
+		return dev_err_probe(dev, ret, "PM clock registration failed\n");
 	ret = devm_device_add_group(dev, &sc9830_pm_group);
 	if (ret)
 		return ret;
