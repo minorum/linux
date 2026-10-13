@@ -17,6 +17,19 @@
 	chosen {
 	};
 
+	soc {
+		pm: pm@5000c000 {
+			compatible = "samsung,j320fn-pm";
+			reg = <0x5000c000 0x1000>;
+			mboxes = <&mailbox 1>;
+			mbox-names = "pm";
+			clocks = <&aon_mux CLK_EMC>;
+			clock-names = "emc";
+			#clock-cells = <0>;
+			status = "disabled";
+		};
+	};
+
 	memory@80000000 {
 		device_type = "memory";
 		reg = <0x80000000 0x60000000>;
@@ -159,6 +172,12 @@
 		};
 	};
 
+};
+
+&mailbox {
+	compatible = "samsung,j320fn-mailbox";
+	reg = <0x400a0000 0x100>, <0x400a8000 0x100>,
+	      <0x5000c800 0x10>, <0x400a8100 0x100>;
 };
 
 &pinctrl {
