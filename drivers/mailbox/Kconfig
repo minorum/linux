@@ -334,7 +334,7 @@ config SUN6I_MSGBOX
 
 config SPRD_MBOX
 	tristate "Spreadtrum Mailbox"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SPRD || ARCH_SC9830 || COMPILE_TEST
 	help
 	  Mailbox driver implementation for the Spreadtrum platform. It is used
 	  to send message between application processors and MCU. Say Y here if

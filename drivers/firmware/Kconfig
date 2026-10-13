@@ -305,7 +305,7 @@ source "drivers/firmware/xilinx/Kconfig"
 config SAMSUNG_J320FN_PM
 	tristate "Samsung J320FN PM firmware transport"
 	depends on OF && COMMON_CLK && MAILBOX
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SPRD || ARCH_SC9830 || COMPILE_TEST
 	select SPRD_MBOX
 	help
 	  Transport for the Samsung J320FN PM firmware DDR commands.
