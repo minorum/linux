@@ -334,7 +334,7 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 	u32 filters[10] = { };
 	static const u32 modes[] = { 1, 3, 0 };
 	unsigned int i;
-	u32 ctrl;
+	u32 ctrl, actual;
 	int ret;
 
 	ret = ddr_check_owners(ddr);
@@ -359,7 +359,7 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 		filters[2] = event->attr.config2;
 		if (DDR_PROFILES & BIT(port)) {
 			filters[4] = 0x0fffffff;
-			filters[5] = 0x0fffffff;
+			filters[5] = port == 3 || port == 5 ? 0 : 0x0fffffff;
 		} else {
 			filters[6] = U32_MAX;
 			filters[7] = U32_MAX;
@@ -381,8 +381,12 @@ static int ddr_claim(struct sc9830_ddr_pmu *ddr, unsigned int port,
 			writel(filters[i], base + 4 + i * 4);
 		writel(0, base + DDR_WINDOW);
 		for (i = 0; i < ARRAY_SIZE(filters); i++) {
-			if (readl(base + 4 + i * 4) != filters[i])
+			actual = readl(base + 4 + i * 4);
+			if (actual != filters[i]) {
+				pr_debug("DDR_CLAIM_READBACK port=%u offset=%#x expected=%#x actual=%#x\n",
+					 port, 4 + i * 4, filters[i], actual);
 				goto restore_address;
+			}
 		}
 		if (readl(base + DDR_WINDOW) || readl(base) & DDR_STATUS)
 			goto restore_address;
@@ -486,8 +490,10 @@ static int ddr_add(struct perf_event *event, int flags)
 	}
 	if (!p->users) {
 		ret = ddr_claim(ddr, port, event);
-		if (ret)
+		if (ret) {
+			pr_debug("DDR_CLAIM_REJECT port=%u result=%d\n", port, ret);
 			goto out;
+		}
 	}
 	p->events[counter] = event;
 	p->users++;
