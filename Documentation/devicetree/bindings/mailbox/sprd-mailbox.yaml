@@ -6,6 +6,11 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Spreadtrum mailbox controller
 
+description: |
+  The Samsung SM-J320FN compatible selects the installed firmware handover
+  protocol. The additional resources expose shared counters temporarily during
+  AP bank initialization and the separate PM processor bank for read-only checks.
+
 maintainers:
   - Orson Zhai <orsonzhai@gmail.com>
   - Baolin Wang <baolin.wang7@gmail.com>
@@ -14,15 +19,19 @@ maintainers:
 properties:
   compatible:
     enum:
+      - samsung,j320fn-mailbox
       - sprd,sc9830-mailbox
       - sprd,sc9860-mailbox
       - sprd,sc9863a-mailbox
       - sprd,ums9230-mailbox
 
   reg:
+    minItems: 2
     items:
       - description: inbox registers' base address
       - description: outbox registers' base address
+      - description: Temporary handover view of four PM shared-ring counters
+      - description: Read-only PM processor outbox bank
 
   interrupts:
     minItems: 2
@@ -55,6 +64,24 @@ required:
   - clock-names
 
 additionalProperties: false
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          const: samsung,j320fn-mailbox
+    then:
+      properties:
+        reg:
+          minItems: 4
+        interrupts:
+          maxItems: 2
+        interrupt-names:
+          maxItems: 2
+    else:
+      properties:
+        reg:
+          maxItems: 2
 
 examples:
   - |
