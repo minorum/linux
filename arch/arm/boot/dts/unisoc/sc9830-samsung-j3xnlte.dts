@@ -178,6 +178,31 @@
 	compatible = "samsung,j320fn-mailbox";
 	reg = <0x400a0000 0x100>, <0x400a8000 0x100>,
 	      <0x5000c800 0x10>, <0x400a8100 0x100>;
+	status = "okay";
+};
+
+&pm {
+	status = "okay";
+};
+
+&mm_domain {
+	status = "okay";
+};
+
+&mm_gate {
+	status = "okay";
+};
+
+&mm_clk {
+	status = "okay";
+};
+
+&ddr_icc {
+	status = "okay";
+};
+
+&rotator {
+	status = "okay";
 };
 
 &pinctrl {
