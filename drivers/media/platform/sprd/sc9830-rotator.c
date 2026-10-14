@@ -441,6 +441,29 @@ static void sc9830_job_abort(void *priv)
 	spin_unlock_irqrestore(&ctx->rot->irq_lock, flags);
 }
 
+static int sc9830_suspend(struct device *dev)
+{
+	struct sc9830_rot *rot = dev_get_drvdata(dev);
+
+	v4l2_m2m_suspend(rot->m2m);
+	flush_work(&rot->work);
+	if (rot->faulted || rot->job_ctx || rot->pins[0] || rot->pins[1] ||
+	    rot->irq_live || rot->irq_enabled || rot->pm_held ||
+	    rot->dcam_held || rot->mmu_held || rot->module_held) {
+		v4l2_m2m_resume(rot->m2m);
+		return -EBUSY;
+	}
+	return 0;
+}
+
+static int sc9830_resume(struct device *dev)
+{
+	struct sc9830_rot *rot = dev_get_drvdata(dev);
+
+	v4l2_m2m_resume(rot->m2m);
+	return 0;
+}
+
 static const struct v4l2_m2m_ops sc9830_m2m_ops = {
 	.device_run = sc9830_device_run,
 	.job_abort = sc9830_job_abort,
@@ -736,6 +759,7 @@ static int sc9830_probe(struct platform_device *pdev)
 	if (!rot)
 		return -ENOMEM;
 	rot->dev = dev;
+	platform_set_drvdata(pdev, rot);
 	rot->dcam = devm_platform_ioremap_resource_byname(pdev, "dcam");
 	if (IS_ERR(rot->dcam))
 		return PTR_ERR(rot->dcam);
@@ -820,11 +844,14 @@ static const struct of_device_id sc9830_of_match[] = {
 	{ }
 };
 
+static DEFINE_SIMPLE_DEV_PM_OPS(sc9830_pm_ops, sc9830_suspend, sc9830_resume);
+
 static struct platform_driver sc9830_driver = {
 	.probe = sc9830_probe,
 	.driver = {
 		.name = "sc9830-rotator",
 		.of_match_table = sc9830_of_match,
+		.pm = pm_sleep_ptr(&sc9830_pm_ops),
 		.suppress_bind_attrs = true,
 	},
 };
