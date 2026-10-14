@@ -44,6 +44,14 @@
 			interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		ddr_icc: interconnect@30000000 {
+			compatible = "sprd,sc9830-dcam-interconnect";
+			reg = <0x30000000 0x1000>;
+			#interconnect-cells = <1>;
+			sprd,pmu = <&pmu>;
+			status = "disabled";
+		};
+
 		mailbox: mailbox@400a0000 {
 			compatible = "sprd,sc9830-mailbox";
 			reg = <0x400a0000 0x100>, <0x400a8000 0x100>;
