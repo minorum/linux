@@ -10,6 +10,16 @@
 	#size-cells = <1>;
 	interrupt-parent = <&intc>;
 
+	mm_domain: power-controller {
+		compatible = "sprd,sc9830-mm-pwrc";
+		#power-domain-cells = <0>;
+		sprd,pmu = <&pmu>;
+		sprd,aon = <&aon_gate>;
+		sprd,mm-ahb = <&mm_gate>;
+		sprd,mm-clk = <&mm_clk>;
+		status = "disabled";
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -57,11 +67,35 @@
 		};
 
 		aon_gate: clock-controller@402e0000 {
-			compatible = "sprd,sc9830-aon-clk";
+			compatible = "sprd,sc9830-aon-clk", "syscon";
 			reg = <0x402e0000 0x3000>;
 			#clock-cells = <1>;
 			clocks = <&ext_26m>, <&ext_32k>;
 			clock-names = "ext-26m", "ext-32k";
+		};
+
+		pmu: syscon@402b0000 {
+			compatible = "sprd,sc9830-pmu", "syscon";
+			reg = <0x402b0000 0x3000>;
+		};
+
+		mm_gate: clock-controller@60d00000 {
+			compatible = "sprd,sc9830-mm-gate", "syscon";
+			reg = <0x60d00000 0x3000>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			clocks = <&aon_gate CLK_TWPLL_307M2>;
+			clock-names = "dcam-source";
+			power-domains = <&mm_domain>;
+			sprd,mm-clk = <&mm_clk>;
+			sprd,pmu = <&pmu>;
+			status = "disabled";
+		};
+
+		mm_clk: syscon@60e00000 {
+			compatible = "sprd,sc9830-mm-clk", "syscon";
+			reg = <0x60e00000 0x1000>;
+			status = "disabled";
 		};
 
 		aon_mux: clock-controller@402d0000 {
