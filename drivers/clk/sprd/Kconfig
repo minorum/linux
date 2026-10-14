@@ -24,6 +24,18 @@ config SPRD_SC9860_CLK
 	depends on (ARM64 && ARCH_SPRD) || COMPILE_TEST
 	default ARM64 && ARCH_SPRD
 
+config SPRD_SC9830_MM_CLK
+	tristate "Spreadtrum SC9830 multimedia clocks and resets"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on PM_GENERIC_DOMAINS
+	select MFD_SYSCON
+	depends on RESET_CONTROLLER
+	help
+	  DCAM and multimedia MMU gates with runtime power-domain ownership.
+	  The provider controls multimedia AHB resets and the DCAM clock
+	  selection using shared system registers. It requires the SC9830
+	  multimedia power domain to be available before register access.
+
 config SPRD_SC9863A_CLK
 	tristate "Support for the Spreadtrum SC9863A clocks"
 	depends on (ARM64 && ARCH_SPRD) || COMPILE_TEST

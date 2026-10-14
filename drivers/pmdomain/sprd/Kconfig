@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config SC9830_MM_PD
+	bool "Spreadtrum SC9830 multimedia power domain"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && PM
+	select MFD_SYSCON
+	select PM_GENERIC_DOMAINS
+	help
+	  Enable the multimedia power domain on Spreadtrum SC9830.
+	  The domain retains its clock configuration across power cycles.
+	  Only an initially powered-off, ungated domain can be acquired.
+	  Register access failures prevent further consumer activation.
