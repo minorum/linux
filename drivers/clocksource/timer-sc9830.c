@@ -25,10 +25,54 @@ static u64 notrace sc9830_read_sched_clock(void)
 	return ~readl_relaxed(sc9830_source);
 }
 
+static u64 sc9830_clocksource_read(struct clocksource *source)
+{
+	return sc9830_read_sched_clock();
+}
+
+static void sc9830_clocksource_suspend(struct clocksource *source)
+{
+	void __iomem *base = sc9830_source - TIMER_SHADOW;
+
+	writel_relaxed(0, base + TIMER_CTL);
+	readl(base + TIMER_CTL);
+}
+
+static void sc9830_clocksource_resume(struct clocksource *source)
+{
+	void __iomem *base = sc9830_source - TIMER_SHADOW;
+
+	writel_relaxed(0, base + TIMER_CTL);
+	writel_relaxed(TIMER_IRQ_CLEAR, base + TIMER_INT);
+	writel_relaxed(U32_MAX, base + TIMER_LOAD);
+	writel_relaxed(TIMER_PERIODIC | TIMER_NEW | TIMER_ENABLE,
+		       base + TIMER_CTL);
+	readl(base + TIMER_CTL);
+}
+
+static struct clocksource sc9830_clocksource = {
+	.name = "sc9830-source",
+	.rating = 200,
+	.read = sc9830_clocksource_read,
+	.suspend = sc9830_clocksource_suspend,
+	.resume = sc9830_clocksource_resume,
+	.mask = CLOCKSOURCE_MASK(32),
+	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
+};
+
 static int sc9830_shutdown(struct clock_event_device *event)
 {
 	writel_relaxed(0, timer_of_base(to_timer_of(event)) + TIMER_CTL);
 	return 0;
+}
+
+static void sc9830_event_resume(struct clock_event_device *event)
+{
+	void __iomem *base = timer_of_base(to_timer_of(event));
+
+	writel_relaxed(0, base + TIMER_CTL);
+	writel_relaxed(TIMER_IRQ_ENABLE | TIMER_IRQ_CLEAR, base + TIMER_INT);
+	readl(base + TIMER_INT);
 }
 
 static int sc9830_next_event(unsigned long cycles,
@@ -68,6 +112,7 @@ static struct timer_of sc9830_timer = {
 		.set_state_shutdown = sc9830_shutdown,
 		.set_state_oneshot = sc9830_shutdown,
 		.set_next_event = sc9830_next_event,
+		.resume = sc9830_event_resume,
 		.cpumask = cpu_possible_mask,
 	},
 	.of_irq = {
@@ -91,11 +136,9 @@ static int __init sc9830_timer_init(struct device_node *node)
 			       base + channel * TIMER_STRIDE + TIMER_INT);
 	}
 	sc9830_source = base + TIMER_STRIDE + TIMER_SHADOW;
-	writel_relaxed(U32_MAX, base + TIMER_STRIDE + TIMER_LOAD);
-	writel_relaxed(TIMER_PERIODIC | TIMER_NEW | TIMER_ENABLE,
-		       base + TIMER_STRIDE + TIMER_CTL);
-	ret = clocksource_mmio_init(sc9830_source, "sc9830-source", timer_of_rate(&sc9830_timer),
-				    200, 32, clocksource_mmio_readl_down);
+	sc9830_clocksource_resume(&sc9830_clocksource);
+	ret = clocksource_register_hz(&sc9830_clocksource,
+				      timer_of_rate(&sc9830_timer));
 	if (ret) {
 		writel_relaxed(0, base + TIMER_STRIDE + TIMER_CTL);
 		sc9830_source = NULL;
