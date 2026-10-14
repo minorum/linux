@@ -101,8 +101,9 @@ static int sc9830_mm_enable(struct clk_hw *hw)
 		sc9830_mm_fault(clock->mm);
 		return -EIO;
 	}
-	ret = regmap_write(clock->mm->ahb, clock->dcam ? 0x1008 : 0x1000,
-			   clock->dcam ? BIT(3) : BIT(7));
+	ret = clock->dcam ?
+		regmap_update_bits(clock->mm->ahb, 8, BIT(3), BIT(3)) :
+		regmap_write(clock->mm->ahb, 0x1000, BIT(7));
 	if (ret)
 		sc9830_mm_fault(clock->mm);
 	return ret;
@@ -111,10 +112,16 @@ static int sc9830_mm_enable(struct clk_hw *hw)
 static void sc9830_mm_disable(struct clk_hw *hw)
 {
 	struct sc9830_mm_clock *clock = to_mm_clock(hw);
+	int ret;
 
-	if (!sc9830_mm_ready(clock->mm) ||
-	    regmap_write(clock->mm->ahb, clock->dcam ? 0x2008 : 0x2000,
-			 clock->dcam ? BIT(3) : BIT(7)))
+	if (!sc9830_mm_ready(clock->mm)) {
+		sc9830_mm_fault(clock->mm);
+		return;
+	}
+	ret = clock->dcam ?
+		regmap_update_bits(clock->mm->ahb, 8, BIT(3), 0) :
+		regmap_write(clock->mm->ahb, 0x2000, BIT(7));
+	if (ret)
 		sc9830_mm_fault(clock->mm);
 }
 
