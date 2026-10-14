@@ -8,6 +8,7 @@
 #define SC9830_PM_RX_WR 0x80c
 #define SC9830_PM_OPEN 0xbeee0116
 #define SC9830_PM_ENABLE 0x03000d16
+#define SC9830_PM_DISABLE 0x03050d16
 #define SC9830_PM_QUERY 0x05000d16
 #define SC9830_PM_TARGET 0x05030d16
 #define SC9830_PM_RATE 0x00000d16
@@ -72,12 +73,13 @@ static int sc9830_pm_receive(struct sc9830_pm_ring *ring, u32 expected, u32 *val
 		if (header != SC9830_PM_FAILED &&
 		    ((header & 0xffff) != SC9830_PM_RATE_REPLY || header >> 16 > 5))
 			return -EPROTO;
-	} else if (header != expected &&
+	} else if (header != (expected == SC9830_PM_DISABLE ? SC9830_PM_ENABLED : expected) &&
 	    !(expected != SC9830_PM_OPEN && header == SC9830_PM_FAILED))
 		return -EPROTO;
 	if (header == SC9830_PM_OPEN && reply != 0xff00)
 		return -EPROTO;
-	if (header == SC9830_PM_ENABLED && reply)
+	if (header == SC9830_PM_ENABLED &&
+	    reply != (expected == SC9830_PM_DISABLE ? 640 : 0))
 		return -EPROTO;
 	if ((header == SC9830_PM_QUERIED ||
 	     (expected == SC9830_PM_RATE_REPLY && header != SC9830_PM_FAILED)) &&
