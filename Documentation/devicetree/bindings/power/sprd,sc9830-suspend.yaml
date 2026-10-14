@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/sprd,sc9830-suspend.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 suspend controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  Coordinates AP clock and DDR retention with the SC2723 analog policy.
+  Firmware initializes DDR before Linux starts.
+
+properties:
+  compatible:
+    const: sprd,sc9830-suspend
+
+  sprd,ap-clk:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: AP clock registers.
+
+  sprd,ap-ahb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: AP AHB registers.
+
+  sprd,ap-apb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: AP APB registers.
+
+  sprd,aon:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Always-on APB registers.
+
+  sprd,pub:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: DDR monitor and PUB register resources.
+
+  sprd,pmu:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Power management registers.
+
+  sprd,dmc:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: DDR controller registers.
+
+  sprd,phy:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: DDR PHY registers.
+
+  sprd,pmic:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: SC2723 analog register provider.
+
+required:
+  - compatible
+  - sprd,ap-clk
+  - sprd,ap-ahb
+  - sprd,ap-apb
+  - sprd,aon
+  - sprd,pub
+  - sprd,pmu
+  - sprd,dmc
+  - sprd,phy
+  - sprd,pmic
+
+additionalProperties: false
+
+examples:
+  - |
+    suspend-controller {
+        compatible = "sprd,sc9830-suspend";
+        sprd,ap-clk = <&ap_clk>;
+        sprd,ap-ahb = <&ap_ahb>;
+        sprd,ap-apb = <&ap_apb>;
+        sprd,aon = <&aon>;
+        sprd,pub = <&pub>;
+        sprd,pmu = <&pmu>;
+        sprd,dmc = <&dmc>;
+        sprd,phy = <&phy>;
+        sprd,pmic = <&pmic>;
+    };

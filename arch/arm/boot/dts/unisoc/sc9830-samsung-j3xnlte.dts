@@ -407,3 +407,27 @@
 		sprd,boot-controller = <&connectivity>;
 	};
 };
+
+&{/soc} {
+	retention_phy: phy@30010000 {
+		compatible = "sprd,sc9830-ddr-phy", "syscon";
+		reg = <0x30010000 0x1000>;
+		status = "disabled";
+	};
+
+};
+
+&{/} {
+	retention {
+		compatible = "sprd,sc9830-suspend";
+		sprd,ap-clk = <&ap_clk>;
+		sprd,ap-ahb = <&apahb>;
+		sprd,ap-apb = <&apapb>;
+		sprd,aon = <&aon_gate>;
+		sprd,pub = <&ddr_pmu>;
+		sprd,pmu = <&pmu>;
+		sprd,dmc = <&ddr_icc>;
+		sprd,phy = <&retention_phy>;
+		sprd,pmic = <&pmic>;
+	};
+};

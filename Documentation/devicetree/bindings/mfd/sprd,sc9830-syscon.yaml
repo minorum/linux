@@ -13,6 +13,7 @@ properties:
   compatible:
     items:
       - enum:
+          - sprd,sc9830-ddr-phy
           - sprd,sc9830-pmu
           - sprd,sc9830-mm-clk
       - const: syscon

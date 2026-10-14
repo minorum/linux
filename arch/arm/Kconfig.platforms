@@ -175,6 +175,14 @@ config ARCH_SC9830
 	  timer and peripheral clock providers. DDR initialization, PLL
 	  programming and PHY power remain provided by firmware.
 
+config SC9830_PM_SLEEP
+	bool "SC9830 guarded suspend-to-RAM"
+	depends on ARCH_SC9830 && PM_SLEEP && !SMP
+	depends on ARM_CPU_SUSPEND && !CPU_THUMBONLY
+	help
+	  Native CPU0 suspend with SRAM reset recovery on SM-J320FN.
+	  Requires an independently armed SC2723 recovery watchdog.
+
 menuconfig ARCH_SUNPLUS
 	bool "Sunplus SoCs"
 	depends on ARCH_MULTI_V7
