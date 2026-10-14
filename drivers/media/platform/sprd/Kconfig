@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config VIDEO_SC9830_ROTATOR
+	bool "Spreadtrum SC9830 DCAM rotator"
+	depends on V4L_MEM2MEM_DRIVERS && OF && HAS_DMA
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on INTERCONNECT_SC9830
+	select MFD_SYSCON
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L2_MEM2MEM_DEV
+	help
+	  RGB565 memory-to-memory rotation using the SC9830 DCAM engine.
+	  Only contiguous MMAP buffers and translation-disabled MMU state
+	  are supported. Jobs use a five-second completion budget.
