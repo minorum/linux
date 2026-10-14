@@ -7,6 +7,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/slab.h>
+#include <linux/syscore_ops.h>
 
 #define SC9830_IRQ_EN 0x08
 #define SC9830_IRQ_DIS 0x0c
@@ -19,6 +20,8 @@ struct sc9830_intc {
 	DECLARE_BITMAP(active, SC9830_IRQ_COUNT);
 	unsigned int users[32];
 	u32 inherited;
+	u32 saved[5];
+	struct syscore syscore;
 };
 
 static bool sc9830_irq_valid(unsigned long hwirq)
@@ -159,6 +162,35 @@ static const struct irq_domain_ops sc9830_irq_ops = {
 	.free = irq_domain_free_irqs_common,
 };
 
+static int sc9830_irq_suspend(void *data)
+{
+	struct sc9830_intc *intc = data;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(intc->base); i++)
+		intc->saved[i] = readl(intc->base[i] + SC9830_IRQ_EN);
+	return 0;
+}
+
+static void sc9830_irq_resume(void *data)
+{
+	struct sc9830_intc *intc = data;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(intc->base); i++)
+		writel(readl(intc->base[i] + SC9830_IRQ_EN) & ~intc->saved[i],
+		       intc->base[i] + SC9830_IRQ_DIS);
+	for (i = ARRAY_SIZE(intc->base); i-- > 0;) {
+		writel(intc->saved[i], intc->base[i] + SC9830_IRQ_EN);
+		readl(intc->base[i] + SC9830_IRQ_EN);
+	}
+}
+
+static const struct syscore_ops sc9830_irq_syscore_ops = {
+	.suspend = sc9830_irq_suspend,
+	.resume = sc9830_irq_resume,
+};
+
 static int __init sc9830_irq_init(struct device_node *node,
 				 struct device_node *parent)
 {
@@ -202,8 +234,12 @@ static int __init sc9830_irq_init(struct device_node *node,
 	intc->inherited = readl_relaxed(intc->base[4] + SC9830_IRQ_EN);
 	domain = irq_domain_create_hierarchy(parent_domain, 0, SC9830_IRQ_COUNT,
 					     of_fwnode_handle(node), &sc9830_irq_ops, intc);
-	if (domain)
+	if (domain) {
+		intc->syscore.ops = &sc9830_irq_syscore_ops;
+		intc->syscore.data = intc;
+		register_syscore(&intc->syscore);
 		return 0;
+	}
 	ret = -ENOMEM;
 fail:
 	while (enabled)
