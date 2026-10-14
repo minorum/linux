@@ -8,5 +8,5 @@ config SC9830_MM_PD
 	help
 	  Enable the multimedia power domain on Spreadtrum SC9830.
 	  The domain retains its clock configuration across power cycles.
-	  Only an initially powered-off, ungated domain can be acquired.
+	  Only an initially powered-off domain can be acquired.
 	  Register access failures prevent further consumer activation.

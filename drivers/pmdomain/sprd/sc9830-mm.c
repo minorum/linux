@@ -252,7 +252,7 @@ static int sc9830_mm_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct sc9830_mm *mm;
-	unsigned int state, aon;
+	unsigned int state;
 	int ret, poll;
 
 	mm = devm_kzalloc(dev, sizeof(*mm), GFP_KERNEL);
@@ -278,11 +278,6 @@ static int sc9830_mm_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, poll ?: ret, "unstable MM domain\n");
 	if (state != MM_STATE_OFF)
 		return dev_err_probe(dev, -EBUSY, "MM domain is not unowned\n");
-	ret = regmap_read(mm->aon, 0, &aon);
-	if (ret)
-		return ret;
-	if (aon & MM_AON_EB)
-		return dev_err_probe(dev, -EBUSY, "inherited MM gate enabled\n");
 	mm->genpd.name = "sc9830-mm";
 	mm->genpd.power_on = sc9830_mm_power_on;
 	mm->genpd.power_off = sc9830_mm_power_off;
