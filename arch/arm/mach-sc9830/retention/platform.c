@@ -15,6 +15,7 @@
 #include "sram.c"
 #include "analog.c"
 #include "guard.c"
+#include "wake.c"
 
 struct sc9830_retention_platform {
 	struct sc9830_retention_entry entry;
@@ -57,7 +58,6 @@ static int sc9830_retention_begin_locked(suspend_state_t target)
 {
 	struct sc9830_retention_platform *state = sc9830_platform;
 	phys_addr_t resume = __pa_symbol(cpu_resume);
-	u32 ticks;
 	int ret;
 
 	if (target == PM_SUSPEND_TO_IDLE)
@@ -67,7 +67,7 @@ static int sc9830_retention_begin_locked(suspend_state_t target)
 		return -EINVAL;
 	if (!state->available)
 		return -ENODEV;
-	ret = sc9830_retention_guard_check(state->analog.map, &ticks);
+	ret = sc9830_retention_wake_check(state->analog.map, state->pmic);
 	if (ret)
 		return ret;
 	state->active = true;
@@ -109,12 +109,12 @@ static int sc9830_retention_begin(suspend_state_t target)
 
 static int sc9830_retention_prepare(void)
 {
-	u32 ticks;
 	int ret;
 
 	mutex_lock(&sc9830_analog_lock);
 	ret = sc9830_platform->available ?
-		sc9830_retention_guard_check(sc9830_platform->analog.map, &ticks) : -ENODEV;
+		sc9830_retention_wake_check(sc9830_platform->analog.map,
+					    sc9830_platform->pmic) : -ENODEV;
 	mutex_unlock(&sc9830_analog_lock);
 	return ret;
 }
