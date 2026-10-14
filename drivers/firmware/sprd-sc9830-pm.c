@@ -9,6 +9,7 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/spinlock.h>
 
 #include "sprd-sc9830-pm.h"
@@ -28,6 +29,7 @@ struct sc9830_pm {
 	bool pending;
 	bool fault;
 	bool disabled;
+	bool suspended;
 };
 
 static void sc9830_pm_rx(struct mbox_client *client, void *message)
@@ -57,6 +59,8 @@ static int sc9830_pm_exchange(struct sc9830_pm *pm, u32 request, u32 reply, u32 
 	int ret;
 
 	lockdep_assert_held(&pm->lock);
+	if (pm->suspended)
+		return -EBUSY;
 	if (pm->disabled && request != SC9830_PM_ENABLE)
 		return -EACCES;
 	spin_lock_irqsave(&pm->rx_lock, flags);
@@ -102,6 +106,33 @@ fault:
 	pm->fault = true;
 	spin_unlock_irqrestore(&pm->rx_lock, flags);
 	return ret;
+}
+
+static int sc9830_pm_suspend_late(struct device *dev)
+{
+	struct sc9830_pm *pm = dev_get_drvdata(dev);
+	unsigned long flags;
+	int ret = 0;
+
+	mutex_lock(&pm->lock);
+	spin_lock_irqsave(&pm->rx_lock, flags);
+	if (pm->fault || pm->pending)
+		ret = -EBUSY;
+	else
+		pm->suspended = true;
+	spin_unlock_irqrestore(&pm->rx_lock, flags);
+	mutex_unlock(&pm->lock);
+	return ret;
+}
+
+static int sc9830_pm_resume_early(struct device *dev)
+{
+	struct sc9830_pm *pm = dev_get_drvdata(dev);
+
+	mutex_lock(&pm->lock);
+	pm->suspended = false;
+	mutex_unlock(&pm->lock);
+	return 0;
 }
 
 static ssize_t sc9830_pm_frequency(struct device *dev, u32 request, char *buf)
@@ -346,11 +377,16 @@ static const struct of_device_id sc9830_pm_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sc9830_pm_match);
 
+static const struct dev_pm_ops sc9830_pm_ops = {
+	LATE_SYSTEM_SLEEP_PM_OPS(sc9830_pm_suspend_late, sc9830_pm_resume_early)
+};
+
 static struct platform_driver sc9830_pm_driver = {
 	.probe = sc9830_pm_probe,
 	.driver = {
 		.name = "sc9830-pm",
 		.of_match_table = sc9830_pm_match,
+		.pm = pm_sleep_ptr(&sc9830_pm_ops),
 	},
 };
 module_platform_driver(sc9830_pm_driver);
