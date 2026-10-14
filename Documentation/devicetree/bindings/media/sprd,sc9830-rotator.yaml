@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/sprd,sc9830-rotator.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 DCAM rotator
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  The DCAM rotator uses contiguous RGB565 buffers with translation disabled.
+  The entire DCAM engine must be exclusively owned by this consumer. The
+  driver observes the MMU control word without programming translation.
+  A five-second job budget supplies the deadline-derived interconnect vote.
+
+properties:
+  compatible:
+    const: sprd,sc9830-rotator
+
+  reg:
+    items:
+      - description: DCAM and rotator registers.
+      - description: Legacy multimedia MMU control word.
+
+  reg-names:
+    items:
+      - const: dcam
+      - const: mmu
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 2
+
+  clock-names:
+    items:
+      - const: dcam
+      - const: mmu
+
+  resets:
+    maxItems: 2
+
+  reset-names:
+    items:
+      - const: rotator
+      - const: all
+
+  power-domains:
+    maxItems: 1
+
+  interconnects:
+    maxItems: 1
+
+  interconnect-names:
+    const: dcam-ddr
+
+  sprd,pmu:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: PMU syscon containing multimedia power status.
+
+  sprd,mm-ahb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Multimedia clock gate syscon.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - clocks
+  - clock-names
+  - resets
+  - reset-names
+  - power-domains
+  - interconnects
+  - interconnect-names
+  - sprd,pmu
+  - sprd,mm-ahb
+
+additionalProperties: false
