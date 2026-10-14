@@ -210,7 +210,7 @@
 
 		apahb: clock-controller@20e00000 {
 			compatible = "sprd,sc9830-apahb-gate";
-			reg = <0x20e00000 0x3000>;
+			reg = <0x20e00000 0x4000>;
 			#clock-cells = <1>;
 			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>,
 				 <&ap_clk CLK_EMMC>;
