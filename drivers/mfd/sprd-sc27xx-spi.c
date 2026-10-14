@@ -72,6 +72,7 @@ static const struct mfd_cell sc2730_devices[] = {
 };
 
 static const struct mfd_cell sc2723_devices[] = {
+	MFD_CELL_OF("sc2723-wdt", NULL, NULL, 0, 0, "sprd,sc2723-wdt"),
 	MFD_CELL_OF("sc2723-regulator", NULL, NULL, 0, 0, "sprd,sc2723-regulator"),
 	MFD_CELL_OF("sc2723-adc", NULL, NULL, 0, 0, "sprd,sc2723-adc"),
 	MFD_CELL_OF("sc2723-efuse", NULL, NULL, 0, 0, "sprd,sc2723-efuse"),

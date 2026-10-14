@@ -285,6 +285,11 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
+		watchdog@40 {
+			compatible = "sprd,sc2723-wdt";
+			reg = <0x40>;
+		};
+
 		rtc@80 {
 			compatible = "sprd,sc2723-rtc";
 			reg = <0x80>;

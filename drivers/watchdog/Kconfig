@@ -1084,6 +1084,14 @@ config REALTEK_OTTO_WDT
 
 	  When built as a module this will be called realtek_otto_wdt.
 
+config SC2723_WATCHDOG
+	tristate "Spreadtrum SC2723 analog watchdog"
+	depends on MFD_SC27XX_PMIC && RTC_CLASS
+	select WATCHDOG_CORE
+	help
+	  Regmap watchdog owner for SC2723, retaining reset protection during
+	  bounded suspend-to-RAM with an armed RTC alarm.
+
 config SPRD_WATCHDOG
 	tristate "Spreadtrum watchdog support"
 	depends on ARCH_SPRD || COMPILE_TEST

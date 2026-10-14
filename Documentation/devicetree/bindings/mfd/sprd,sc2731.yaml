@@ -60,6 +60,10 @@ properties:
       - $ref: /schemas/regulator/sprd,sc2731-regulator.yaml#
 
 patternProperties:
+  "^watchdog@[0-9a-f]+$":
+    type: object
+    $ref: /schemas/watchdog/sprd,sc2723-wdt.yaml#
+
   "^adc@[0-9a-f]+$":
     type: object
     $ref: /schemas/iio/adc/sprd,sc2720-adc.yaml#
