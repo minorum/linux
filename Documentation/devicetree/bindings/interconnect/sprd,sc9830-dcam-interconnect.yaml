@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interconnect/sprd,sc9830-dcam-interconnect.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 DCAM DDR arbitration
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  The DCAM to DDR path selects a fixed camera arbitration profile whenever
+  aggregate interconnect demand is nonzero. Bandwidth requests do not change
+  DDR frequency or guarantee a bandwidth. The provider restores its saved
+  arbitration fields after the last demand is removed.
+
+properties:
+  compatible:
+    const: sprd,sc9830-dcam-interconnect
+
+  reg:
+    maxItems: 1
+    description: DDR controller register window.
+
+  '#interconnect-cells':
+    const: 1
+
+  sprd,pmu:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: PMU syscon containing multimedia power status.
+
+required:
+  - compatible
+  - reg
+  - '#interconnect-cells'
+  - sprd,pmu
+
+additionalProperties: false
+
+examples:
+  - |
+    interconnect@30000000 {
+        compatible = "sprd,sc9830-dcam-interconnect";
+        reg = <0x30000000 0x1000>;
+        #interconnect-cells = <1>;
+        sprd,pmu = <&pmu>;
+    };
