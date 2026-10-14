@@ -11,13 +11,17 @@ maintainers:
 
 properties:
   compatible:
-    enum:
-      - sprd,sc9830-aon-gate
-      - sprd,sc9830-aon-clk
-      - sprd,sc9830-aon-mux-clk
-      - sprd,sc9830-ap-clk
-      - sprd,sc9830-apapb-gate
-      - sprd,sc9830-apahb-gate
+    oneOf:
+      - enum:
+          - sprd,sc9830-aon-gate
+          - sprd,sc9830-aon-clk
+          - sprd,sc9830-aon-mux-clk
+          - sprd,sc9830-ap-clk
+          - sprd,sc9830-apapb-gate
+          - sprd,sc9830-apahb-gate
+      - items:
+          - const: sprd,sc9830-aon-clk
+          - const: syscon
 
   reg:
     maxItems: 1
@@ -50,7 +54,8 @@ allOf:
   - if:
       properties:
         compatible:
-          const: sprd,sc9830-aon-clk
+          contains:
+            const: sprd,sc9830-aon-clk
     then:
       properties:
         clocks:

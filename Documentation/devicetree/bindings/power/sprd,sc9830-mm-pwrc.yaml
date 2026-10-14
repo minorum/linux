@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/sprd,sc9830-mm-pwrc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 multimedia power domain
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  The multimedia domain shares power and clock control registers with
+  the PMU, AON APB, MM AHB and MM clock controllers. The provider retains
+  the MM clock configuration across power cycles.
+
+allOf:
+  - $ref: power-domain.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-mm-pwrc
+
+  '#power-domain-cells':
+    const: 0
+
+  sprd,pmu:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: PMU APB syscon.
+
+  sprd,aon:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: AON APB syscon.
+
+  sprd,mm-ahb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Multimedia AHB syscon.
+
+  sprd,mm-clk:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Multimedia clock syscon.
+
+required:
+  - compatible
+  - '#power-domain-cells'
+  - sprd,pmu
+  - sprd,aon
+  - sprd,mm-ahb
+  - sprd,mm-clk
+
+additionalProperties: false
+
+examples:
+  - |
+    power-controller {
+        compatible = "sprd,sc9830-mm-pwrc";
+        #power-domain-cells = <0>;
+        sprd,pmu = <&pmu>;
+        sprd,aon = <&aon_apb>;
+        sprd,mm-ahb = <&mm_ahb>;
+        sprd,mm-clk = <&mm_clk>;
+    };

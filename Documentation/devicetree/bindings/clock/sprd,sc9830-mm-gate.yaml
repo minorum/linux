@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/sprd,sc9830-mm-gate.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 multimedia clocks and resets
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+properties:
+  compatible:
+    items:
+      - const: sprd,sc9830-mm-gate
+      - const: syscon
+
+  reg:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 1
+
+  '#reset-cells':
+    description: |
+      Multimedia AHB reset IDs 0 (DCAM), 1 (AXI), 10 (rotator) and
+      32 (DCAM and AXI together).
+    const: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: dcam-source
+
+  power-domains:
+    maxItems: 1
+
+  sprd,mm-clk:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Multimedia clock selection syscon.
+
+  sprd,pmu:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Always-on PMU syscon containing multimedia power status.
+
+required:
+  - compatible
+  - reg
+  - '#clock-cells'
+  - '#reset-cells'
+  - clocks
+  - clock-names
+  - power-domains
+  - sprd,mm-clk
+  - sprd,pmu
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@60d00000 {
+        compatible = "sprd,sc9830-mm-gate", "syscon";
+        reg = <0x60d00000 0x3000>;
+        #clock-cells = <1>;
+        #reset-cells = <1>;
+        clocks = <&aon_gate 11>;
+        clock-names = "dcam-source";
+        power-domains = <&mm_domain>;
+        sprd,mm-clk = <&mm_clk>;
+        sprd,pmu = <&pmu>;
+    };
