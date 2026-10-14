@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/init.h>
-#include <linux/moduleparam.h>
 #include <linux/mutex.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
@@ -29,13 +28,6 @@ struct sc9830_retention_platform {
 
 static struct sc9830_retention_platform *sc9830_platform;
 static DEFINE_MUTEX(sc9830_analog_lock);
-static bool sc9830_trial;
-
-static int __init sc9830_retention_trial(char *value)
-{
-	return kstrtobool(value, &sc9830_trial);
-}
-early_param("sc9830_retention_trial", sc9830_retention_trial);
 
 static void sc9830_retention_end_locked(void)
 {
@@ -153,7 +145,7 @@ static void sc9830_retention_register(struct work_struct *work)
 		return;
 	suspend_set_ops(&sc9830_retention_ops);
 	if (READ_ONCE(sc9830_platform->available))
-		pr_info("SC9830_RETENTION_TRIAL_READY\n");
+		pr_info("SC9830_RETENTION_READY\n");
 }
 
 static DECLARE_WORK(sc9830_retention_registration, sc9830_retention_register);
@@ -171,7 +163,7 @@ static int sc9830_retention_platform_probe(struct platform_device *pdev)
 	unsigned int i;
 	int ret = -EINVAL;
 
-	if (!sc9830_trial || !of_machine_is_compatible("samsung,j3xnlte") ||
+	if (!of_machine_is_compatible("samsung,j3xnlte") ||
 	    !of_device_is_available(node))
 		return -ENODEV;
 	if (sc9830_platform)
@@ -279,7 +271,7 @@ static struct platform_driver sc9830_retention_driver = {
 
 static int __init sc9830_retention_platform_init(void)
 {
-	return sc9830_trial ? platform_driver_register(&sc9830_retention_driver) : 0;
+	return platform_driver_register(&sc9830_retention_driver);
 }
 late_initcall(sc9830_retention_platform_init);
 
