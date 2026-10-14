@@ -42,7 +42,7 @@
 
 		ddr_pmu: pmu@30040000 {
 			compatible = "sprd,sc9830-ddr-pmu";
-			reg = <0x30040000 0xa0000>, <0x30020000 0x8>;
+			reg = <0x30040000 0xa0000>, <0x30020000 0x1c>;
 			reg-names = "axi", "pub";
 			interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
 		};
