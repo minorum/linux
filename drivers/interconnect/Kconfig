@@ -15,6 +15,7 @@ source "drivers/interconnect/imx/Kconfig"
 source "drivers/interconnect/mediatek/Kconfig"
 source "drivers/interconnect/qcom/Kconfig"
 source "drivers/interconnect/samsung/Kconfig"
+source "drivers/interconnect/sprd/Kconfig"
 
 config INTERCONNECT_CLK
 	tristate

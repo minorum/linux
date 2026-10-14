@@ -8,6 +8,7 @@ obj-$(CONFIG_INTERCONNECT_IMX)		+= imx/
 obj-$(CONFIG_INTERCONNECT_MTK)		+= mediatek/
 obj-$(CONFIG_INTERCONNECT_QCOM)		+= qcom/
 obj-$(CONFIG_INTERCONNECT_SAMSUNG)	+= samsung/
+obj-$(CONFIG_INTERCONNECT_SC9830)		+= sprd/
 
 obj-$(CONFIG_INTERCONNECT_CLK)		+= icc-clk.o
 

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config INTERCONNECT_SC9830
+	bool "Spreadtrum SC9830 DCAM interconnect"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select MFD_SYSCON
+	select REGMAP_MMIO
+	help
+	  Apply the SC9830 camera DDR arbitration profile while the DCAM
+	  interconnect path has nonzero aggregate demand. The fixed profile
+	  does not guarantee a requested bandwidth or change the DDR frequency.
+	  The saved arbitration fields are restored when demand ends.
