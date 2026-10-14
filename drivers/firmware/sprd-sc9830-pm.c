@@ -269,7 +269,14 @@ static const struct attribute_group sc9830_pm_group = {
 static void sc9830_pm_release(void *data)
 {
 	struct sc9830_pm *pm = data;
+	int ret = 0;
 
+	mutex_lock(&pm->lock);
+	if (pm->disabled)
+		ret = sc9830_pm_set_enabled(pm, true);
+	mutex_unlock(&pm->lock);
+	if (ret)
+		dev_warn(pm->client.dev, "PM requests require recovery: %d\n", ret);
 	mbox_free_channel(pm->channel);
 }
 

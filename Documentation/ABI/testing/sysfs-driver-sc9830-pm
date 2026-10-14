@@ -11,3 +11,6 @@ Description:
                 or establish hardware quiescence. Frequency queries and rate
                 requests are refused locally while disabled. Transport errors
                 require recovery; requests are not retried automatically.
+                Teardown attempts acknowledged re-enable once when transport
+                is healthy. Failed restoration requires recovery and is not
+                retried. The AP 640 MHz lock remains held after restoration.
