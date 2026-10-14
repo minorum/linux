@@ -33,6 +33,14 @@ Events on other ports continue. Interrupt service delays cause gaps between
 acknowledgements; raw 32-bit hardware counter overflow cannot be reconstructed.
 These counts are not calibrated bytes, cycles or continuous utilization.
 
+On SM-J320FN port 3, controlled eMMC transfers show byte-scale increments:
+event 4 matched 512--4096-byte reads in 15 of 16 active intervals, and
+event 1 matched 4096--32768-byte writes in 7 of 8. The paired transaction
+counters averaged 32 counted bytes per increment, including the two intervals
+with shortfalls. This observation applies to those transfer families only.
+It does not establish partial-strobe semantics, other masters, latency units,
+or complete traffic coverage. The raw event ABI therefore remains unscaled.
+
 Counter events preserve the inherited match configuration. Firmware and other
 agents must leave monitoring idle: a Linux MMIO claim cannot exclude firmware.
 The driver refuses inherited global counting, reset bits, active monitor
