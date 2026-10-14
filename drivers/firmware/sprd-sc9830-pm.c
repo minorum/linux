@@ -27,6 +27,7 @@ struct sc9830_pm {
 	int result;
 	bool pending;
 	bool fault;
+	bool disabled;
 };
 
 static void sc9830_pm_rx(struct mbox_client *client, void *message)
@@ -56,6 +57,8 @@ static int sc9830_pm_exchange(struct sc9830_pm *pm, u32 request, u32 reply, u32 
 	int ret;
 
 	lockdep_assert_held(&pm->lock);
+	if (pm->disabled && request != SC9830_PM_ENABLE)
+		return -EACCES;
 	spin_lock_irqsave(&pm->rx_lock, flags);
 	if (pm->fault) {
 		spin_unlock_irqrestore(&pm->rx_lock, flags);
@@ -188,10 +191,75 @@ static ssize_t high_rate_lock_store(struct device *dev, struct device_attribute 
 }
 static DEVICE_ATTR_WO(high_rate_lock);
 
+static int sc9830_pm_set_enabled(struct sc9830_pm *pm, bool enabled)
+{
+	unsigned long flags;
+	int ret;
+
+	lockdep_assert_held(&pm->lock);
+	if (pm->fault)
+		return -EIO;
+	if (enabled == !pm->disabled)
+		return 0;
+	if (enabled) {
+		ret = sc9830_pm_exchange(pm, SC9830_PM_ENABLE, SC9830_PM_ENABLED, 640);
+		if (!ret)
+			pm->disabled = false;
+		return ret;
+	}
+	ret = sc9830_pm_exchange(pm, SC9830_PM_QUERY, SC9830_PM_QUERIED, 640);
+	if (ret)
+		return ret;
+	if (pm->value != 640)
+		return -ERANGE;
+	ret = sc9830_pm_exchange(pm, SC9830_PM_RATE, SC9830_PM_RATE_REPLY, 640);
+	if (ret)
+		return ret;
+	if (pm->ring.status != 3) {
+		spin_lock_irqsave(&pm->rx_lock, flags);
+		pm->fault = true;
+		spin_unlock_irqrestore(&pm->rx_lock, flags);
+		return -EPROTO;
+	}
+	ret = sc9830_pm_exchange(pm, SC9830_PM_DISABLE, SC9830_PM_DISABLE, 640);
+	if (!ret)
+		pm->disabled = true;
+	return ret;
+}
+
+static ssize_t dfs_enabled_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct sc9830_pm *pm = dev_get_drvdata(dev);
+	int ret;
+
+	mutex_lock(&pm->lock);
+	ret = pm->fault ? -EIO : sysfs_emit(buf, "%u\n", !pm->disabled);
+	mutex_unlock(&pm->lock);
+	return ret;
+}
+
+static ssize_t dfs_enabled_store(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct sc9830_pm *pm = dev_get_drvdata(dev);
+	bool enabled;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+	mutex_lock(&pm->lock);
+	ret = sc9830_pm_set_enabled(pm, enabled);
+	mutex_unlock(&pm->lock);
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_RW(dfs_enabled);
+
 static struct attribute *sc9830_pm_attrs[] = {
 	&dev_attr_frequency.attr,
 	&dev_attr_target_frequency.attr,
 	&dev_attr_high_rate_lock.attr,
+	&dev_attr_dfs_enabled.attr,
 	NULL,
 };
 static const struct attribute_group sc9830_pm_group = {

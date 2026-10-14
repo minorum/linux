@@ -21,6 +21,7 @@ struct sc9830_pm_ring {
 	void __iomem *base;
 	u32 tx;
 	u32 rx;
+	u32 status;
 };
 
 static int sc9830_pm_ring_init(struct sc9830_pm_ring *ring)
@@ -91,6 +92,7 @@ static int sc9830_pm_receive(struct sc9830_pm_ring *ring, u32 expected, u32 *val
 	    readl(ring->base + SC9830_PM_TX_WR) != ring->tx)
 		return -EPROTO;
 	*value = reply;
+	ring->status = header >> 16;
 	mb();
 	writel(++ring->rx, ring->base + SC9830_PM_RX_RD);
 	wmb();

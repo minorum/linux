@@ -1,0 +1,13 @@
+What:           /sys/bus/platform/devices/.../dfs_enabled
+Date:           October 2026
+Contact:        Linux kernel mailing list <linux-kernel@vger.kernel.org>
+Description:
+                Locally acknowledged firmware request-enable state.
+                Writing 0 requires current frequency 640 MHz and a successful
+                same-rate pin before globally inhibiting DFS requests,
+                including requests from other firmware peers. Writing 1
+                restores request acceptance and retains the AP 640 MHz lock.
+                This does not restore the previous autonomous frequency policy
+                or establish hardware quiescence. Frequency queries and rate
+                requests are refused locally while disabled. Transport errors
+                require recovery; requests are not retried automatically.
