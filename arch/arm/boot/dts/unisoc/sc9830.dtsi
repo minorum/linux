@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/sprd,sc9830-clk.h>
+#include <dt-bindings/clock/sprd,sc9830-mm-clk.h>
+#include <dt-bindings/interconnect/sprd,sc9830.h>
 #include <dt-bindings/reset/sprd,sc9830-reset.h>
+#include <dt-bindings/reset/sprd,sc9830-mm-reset.h>
 #include <dt-bindings/gpio/gpio.h>
 
 / {
@@ -49,6 +52,23 @@
 			reg = <0x30000000 0x1000>;
 			#interconnect-cells = <1>;
 			sprd,pmu = <&pmu>;
+			status = "disabled";
+		};
+
+		rotator: rotator@60800000 {
+			compatible = "sprd,sc9830-rotator";
+			reg = <0x60800000 0x100000>, <0x60f20000 0x4>;
+			reg-names = "dcam", "mmu";
+			interrupts = <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_gate CLK_MM_DCAM>, <&mm_gate CLK_MM_MMU>;
+			clock-names = "dcam", "mmu";
+			resets = <&mm_gate RESET_MM_ROT>, <&mm_gate RESET_MM_ALL>;
+			reset-names = "rotator", "all";
+			power-domains = <&mm_domain>;
+			interconnects = <&ddr_icc MASTER_DCAM &ddr_icc SLAVE_DDR>;
+			interconnect-names = "dcam-ddr";
+			sprd,pmu = <&pmu>;
+			sprd,mm-ahb = <&mm_gate>;
 			status = "disabled";
 		};
 
