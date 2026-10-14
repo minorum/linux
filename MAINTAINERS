@@ -25565,8 +25565,8 @@ F:	Documentation/devicetree/bindings/clock/sprd,sc9830-mm-gate.yaml
 F:	Documentation/devicetree/bindings/i2c/sprd,sc9830-i2c.yaml
 F:	Documentation/devicetree/bindings/interconnect/sprd,sc9830-dcam-interconnect.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/sprd,sc9830-intc.yaml
-F:	Documentation/devicetree/bindings/mfd/sprd,sc9830-syscon.yaml
 F:	Documentation/devicetree/bindings/media/sprd,sc9830-rotator.yaml
+F:	Documentation/devicetree/bindings/mfd/sprd,sc9830-syscon.yaml
 F:	Documentation/devicetree/bindings/mmc/sprd,sc9830-sdhci.yaml
 F:	Documentation/devicetree/bindings/mmc/sprd,sc9830-sdio.yaml
 F:	Documentation/devicetree/bindings/net/wireless/sprd,sc2331.yaml

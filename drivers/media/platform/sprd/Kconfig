@@ -11,3 +11,4 @@ config VIDEO_SC9830_ROTATOR
 	  RGB565 memory-to-memory rotation using the SC9830 DCAM engine.
 	  Only contiguous MMAP buffers and translation-disabled MMU state
 	  are supported. Jobs use a five-second completion budget.
+	  Uncertain DMA state blocks further jobs until device recovery.
