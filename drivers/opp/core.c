@@ -2278,7 +2278,7 @@ static int _opp_set_regulators(struct opp_table *opp_table, struct device *dev,
 	opp_table->regulator_count = count;
 
 	/* Set generic config_regulators() for single regulators here */
-	if (count == 1)
+	if (count == 1 && !opp_table->config_regulators)
 		opp_table->config_regulators = _opp_config_regulator_single;
 
 	return 0;
