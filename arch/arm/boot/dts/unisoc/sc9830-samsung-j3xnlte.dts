@@ -4,9 +4,62 @@
 #include "sc9830.dtsi"
 #include <dt-bindings/power/sprd,sc9830-reboot-mode.h>
 
+&cpu0 {
+	cpu-supply = <&vddarm>;
+	operating-points-v2 = <&cpu_opps>;
+};
+
+&cpu1 {
+	cpu-supply = <&vddarm>;
+	operating-points-v2 = <&cpu_opps>;
+};
+
+&cpu2 {
+	cpu-supply = <&vddarm>;
+	operating-points-v2 = <&cpu_opps>;
+};
+
+&cpu3 {
+	cpu-supply = <&vddarm>;
+	operating-points-v2 = <&cpu_opps>;
+};
+
 / {
 	model = "Samsung Galaxy J3 SM-J320FN";
 	compatible = "samsung,j3xnlte", "sprd,sc9830";
+
+	cpu_opps: opp-table-cpu {
+		compatible = "operating-points-v2-sprd-sc9830";
+		opp-shared;
+		nvmem-cells = <&calibration_state>, <&vddarm_calibration>, <&cpu_additional>;
+		nvmem-cell-names = "calibration_state", "vddarm", "additional";
+
+		opp-768000000 {
+			opp-hz = /bits/ 64 <768000000>;
+			opp-microvolt = <900000>;
+			opp-suspend;
+		};
+
+		opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <900000>;
+		};
+
+		opp-1200000000 {
+			opp-hz = /bits/ 64 <1200000000>;
+			opp-microvolt = <1000000>;
+		};
+
+		opp-1350000000 {
+			opp-hz = /bits/ 64 <1350000000>;
+			opp-microvolt = <1000000>;
+		};
+
+		opp-1500000000 {
+			opp-hz = /bits/ 64 <1500000000>;
+			opp-microvolt = <1100000>;
+		};
+	};
 
 	aliases {
 		serial0 = &uart0;
@@ -332,6 +385,14 @@
 			nvmem-cell-names = "calibration_state", "vddcon",
 					   "vddwifipa";
 
+			vddarm: vddarm {
+				regulator-name = "vddarm";
+				regulator-min-microvolt = <600000>;
+				regulator-max-microvolt = <3125000>;
+				regulator-always-on;
+				regulator-boot-on;
+			};
+
 			vddcon: vddcon {
 				regulator-name = "vddcon";
 				regulator-min-microvolt = <1600000>;
@@ -354,6 +415,16 @@
 			calibration_state: calibration-state@0 {
 				reg = <0 1>;
 				bits = <7 1>;
+			};
+
+			vddarm_calibration: vddarm-calibration@1,6 {
+				reg = <1 2>;
+				bits = <6 7>;
+			};
+
+			cpu_additional: cpu-additional@1f,6 {
+				reg = <31 1>;
+				bits = <6 2>;
 			};
 
 			adc_calibration: adc-calibration@7 {

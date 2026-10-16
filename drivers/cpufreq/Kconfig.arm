@@ -53,6 +53,14 @@ config ARM_ARMADA_8K_CPUFREQ
 
 	  If in doubt, say N.
 
+config ARM_SC9830_CPUFREQ
+	tristate "Spreadtrum SC9830 CPU frequency control"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && NVMEM && REGULATOR
+	select PM_OPP
+	help
+	  Shared-cluster frequency and calibrated voltage control for SC9830.
+
 config ARM_SCPI_CPUFREQ
 	tristate "SCPI based CPUfreq driver"
 	depends on ARM_SCPI_PROTOCOL && COMMON_CLK_SCPI
