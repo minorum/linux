@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "sc9830.dtsi"
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/power/sprd,sc9830-reboot-mode.h>
 
 &cpu0 {
@@ -322,6 +323,12 @@
 		reg = <0x49>;
 		interrupt-parent = <&gpio>;
 		interrupts = <92 IRQ_TYPE_EDGE_FALLING>;
+
+		led {
+			function = LED_FUNCTION_FLASH;
+			color = <LED_COLOR_ID_WHITE>;
+			led-max-microamp = <100000>;
+		};
 	};
 };
 
@@ -341,6 +348,11 @@
 		watchdog@40 {
 			compatible = "sprd,sc2723-wdt";
 			reg = <0x40>;
+		};
+
+		vibrator@8f8 {
+			compatible = "sprd,sc2723-vibrator";
+			reg = <0x8f8>;
 		};
 
 		rtc@80 {
