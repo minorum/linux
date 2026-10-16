@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/regulator/sprd,sc2723-regulator.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Spreadtrum SC2723 CPU and connectivity regulators
+title: Spreadtrum SC2723 CPU and fixed-voltage regulators
 
 maintainers:
   - Orson Zhai <orsonzhai@gmail.com>
@@ -13,29 +13,56 @@ maintainers:
 
 description: |
   Factory-calibrated connectivity supplies used at 1.6 V (vddcon) and
-  3.3 V (vddwifipa). Other operating voltages are currently unsupported.
+  3.3 V (vddwifipa), and the touchscreen supply at 3 V (vddsim2).
+  Other operating voltages are currently unsupported.
   Calibration state bit 7 at eFuse byte 0 must be clear. The connectivity
   trim occupies bits 105 through 111; the Wi-Fi PA trim occupies bits
   164 through 169. The trims are centered at 64 and 32 respectively.
   The always-on CPU supply supports linear or coarse/trim selector encoding,
   selected by the PMIC mode register. CPU voltages describe raw selector values;
   request-dependent factory compensation is applied by the CPU OPP policy.
+  The SIM2 trim occupies bits 206 through 211, centered at 32. Its trim is
+  scaled from the factory 1.8 V reference to the requested 3 V supply.
+
+allOf:
+  - if:
+      required: [vddsim2]
+    then:
+      properties:
+        nvmem-cells:
+          minItems: 4
+        nvmem-cell-names:
+          minItems: 4
 
 properties:
   compatible:
     const: sprd,sc2723-regulator
 
   nvmem-cells:
+    minItems: 3
     items:
       - description: Factory calibration validity bit
       - description: Connectivity voltage trim
       - description: Wi-Fi PA voltage trim
+      - description: SIM2 voltage trim
 
   nvmem-cell-names:
+    minItems: 3
     items:
       - const: calibration_state
       - const: vddcon
       - const: vddwifipa
+      - const: vddsim2
+
+  vddsim2:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 3000000
+      regulator-max-microvolt:
+        const: 3000000
+    unevaluatedProperties: false
 
   vddarm:
     type: object
