@@ -143,6 +143,9 @@
 		pmu: syscon@402b0000 {
 			compatible = "sprd,sc9830-pmu", "syscon";
 			reg = <0x402b0000 0x3000>;
+			#clock-cells = <1>;
+			clocks = <&aon_gate CLK_LTEPLL>;
+			clock-names = "ltepll";
 		};
 
 		mm_gate: clock-controller@60d00000 {
@@ -169,7 +172,7 @@
 			reg = <0x60100000 0x1000>;
 			#clock-cells = <0>;
 			clocks = <&aon_gate CLK_TWPLL_153M6>,
-				 <&aon_gate CLK_TWPLL_614M4>,
+				 <&pmu CLK_PMU_LTEPLL_614M4>,
 				 <&aon_gate CLK_TWPLL_256M>,
 				 <&aon_gate CLK_TWPLL_307M2>,
 				 <&aon_gate CLK_TWPLL_384M>,

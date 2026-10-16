@@ -471,6 +471,31 @@ static const struct sprd_clk_desc sc9830_aon_full_desc = {
 	.hw_clks = &sc9830_aon_full_hws,
 };
 
+static SPRD_PLL_SC_GATE_CLK_FW_NAME(ltepll_request, "sc9830-ltepll-request",
+				   "ltepll", 0x9c, 0x1000, BIT(0), 0, 0, 1000);
+
+static CLK_FIXED_FACTOR_HW(ltepll_614m4, "sc9830-ltepll-614m4",
+			   &ltepll_request.common.hw, 2, 1,
+			   CLK_GET_RATE_NOCACHE);
+
+static struct sprd_clk_common *sc9830_pmu_clks[] = {
+	&ltepll_request.common,
+};
+
+static struct clk_hw_onecell_data sc9830_pmu_hws = {
+	.hws = {
+		[CLK_PMU_LTEPLL_GATE] = &ltepll_request.common.hw,
+		[CLK_PMU_LTEPLL_614M4] = &ltepll_614m4.hw,
+	},
+	.num = CLK_PMU_CLK_NUM,
+};
+
+static const struct sprd_clk_desc sc9830_pmu_desc = {
+	.clk_clks = sc9830_pmu_clks,
+	.num_clk_clks = ARRAY_SIZE(sc9830_pmu_clks),
+	.hw_clks = &sc9830_pmu_hws,
+};
+
 static const struct clk_parent_data emc_parents[] = {
 	{ .fw_name = "ext-26m" },
 	{ .fw_name = "twpll-192m" },
@@ -997,6 +1022,7 @@ unmap:
 }
 
 static const struct of_device_id sc9830_clk_match[] = {
+	{ .compatible = "sprd,sc9830-pmu", .data = &sc9830_pmu_desc },
 	{ .compatible = "sprd,sc9830-aon-gate", .data = &sc9830_aon_desc },
 	{ .compatible = "sprd,sc9830-aon-clk", .data = &sc9830_aon_full_desc },
 	{ .compatible = "sprd,sc9830-aon-mux-clk", .data = &sc9830_aon_mux_desc },
@@ -1010,12 +1036,16 @@ static void __init sc9830_clk_init(struct device_node *node)
 	const struct of_device_id *match = of_match_node(sc9830_clk_match, node);
 	int ret;
 
+	if (match->data == &sc9830_pmu_desc &&
+	    !of_property_present(node, "#clock-cells"))
+		return;
 	ret = sc9830_clk_register(node, match->data);
 	if (ret)
 		pr_err("%pOF: clock registration failed: %d\n", node, ret);
 }
 
 CLK_OF_DECLARE(sc9830_aon_gate, "sprd,sc9830-aon-gate", sc9830_clk_init);
+CLK_OF_DECLARE(sc9830_pmu_clk, "sprd,sc9830-pmu", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_aon_clk, "sprd,sc9830-aon-clk", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_aon_mux_clk, "sprd,sc9830-aon-mux-clk", sc9830_clk_init);
 CLK_OF_DECLARE(sc9830_ap_clk, "sprd,sc9830-ap-clk", sc9830_clk_init);
