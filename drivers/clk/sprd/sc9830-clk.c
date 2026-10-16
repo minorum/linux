@@ -594,6 +594,9 @@ static const struct clk_parent_data i2c2_parents[] = {
 static SPRD_COMP_CLK_DATA(i2c2_clk, "sc9830-i2c2", i2c2_parents,
 			  0x70, 0, 2, 8, 3, 0);
 
+static SPRD_COMP_CLK_DATA(i2c1_clk, "sc9830-i2c1", i2c2_parents,
+			  0x6c, 0, 2, 8, 3, 0);
+
 static const struct clk_parent_data sdio0_parents[] = {
 	{ .fw_name = "ext-26m" },
 	{ .fw_name = "twpll-256m" },
@@ -628,6 +631,7 @@ static SPRD_MUX_CLK_DATA(emmc_clk, "sc9830-emmc", sdio0_parents,
 			 0x48, 0, 2, 0);
 
 static struct sprd_clk_common *sc9830_ap_clks[] = {
+	&i2c1_clk.common,
 	&i2c2_clk.common,
 	&sdio0_clk.common,
 	&uart0_clk.common,
@@ -638,6 +642,7 @@ static struct sprd_clk_common *sc9830_ap_clks[] = {
 static struct clk_hw_onecell_data sc9830_ap_hws = {
 	.hws = {
 		[CLK_I2C2] = &i2c2_clk.common.hw,
+		[CLK_I2C1] = &i2c1_clk.common.hw,
 		[CLK_SDIO0] = &sdio0_clk.common.hw,
 		[CLK_UART0] = &uart0_clk.common.hw,
 		[CLK_SDIO1] = &sdio1_clk.common.hw,
@@ -658,6 +663,9 @@ static struct sprd_gate i2c2_eb = {
 	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-i2c2-eb", "i2c2",
 					    &sprd_sc_gate_ops, 0),
 };
+
+static SPRD_SC_GATE_CLK_FW_NAME(i2c1_eb, "sc9830-i2c1-eb", "i2c1",
+			       0x0, 0x1000, BIT(9), 0, 0);
 
 static struct sprd_gate uart0_eb = {
 	.enable_mask = BIT(13),
@@ -695,6 +703,7 @@ static struct sprd_gate intc3_eb = {
 };
 
 static struct sprd_clk_common *sc9830_apapb_clks[] = {
+	&i2c1_eb.common,
 	&i2c2_eb.common,
 	&uart0_eb.common,
 	&intc0_eb.common,
@@ -706,6 +715,7 @@ static struct sprd_clk_common *sc9830_apapb_clks[] = {
 static struct clk_hw_onecell_data sc9830_apapb_hws = {
 	.hws = {
 		[CLK_I2C2_EB] = &i2c2_eb.common.hw,
+		[CLK_I2C1_EB] = &i2c1_eb.common.hw,
 		[CLK_UART0_EB] = &uart0_eb.common.hw,
 		[CLK_INTC0_EB] = &intc0_eb.common.hw,
 		[CLK_INTC1_EB] = &intc1_eb.common.hw,
