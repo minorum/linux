@@ -646,7 +646,7 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 
 	if (!sme->ssid || !sme->ssid_len || sme->ssid_len > IEEE80211_MAX_SSID_LEN ||
 	    sme->crypto.wpa_versions != NL80211_WPA_VERSION_2 ||
-	    sme->crypto.n_ciphers_pairwise != 1 || sme->crypto.n_akm_suites != 1 ||
+	    sme->crypto.n_ciphers_pairwise != 1 || sme->crypto.n_akm_suites < 1 ||
 	    sme->crypto.akm_suites[0] != WLAN_AKM_SUITE_PSK ||
 	    sme->mfp == NL80211_MFP_REQUIRED ||
 	    (sme->auth_type != NL80211_AUTHTYPE_OPEN_SYSTEM &&
@@ -907,6 +907,7 @@ static struct ieee80211_rate sc2331_rates[] = {
 };
 
 static const u32 sc2331_ciphers[] = { WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_TKIP };
+static const u32 sc2331_akm_suites[] = { WLAN_AKM_SUITE_PSK };
 
 static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot,
 				const u8 *mac)
@@ -958,6 +959,8 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->max_scan_ssids = 9;
 	wiphy->cipher_suites = sc2331_ciphers;
 	wiphy->n_cipher_suites = ARRAY_SIZE(sc2331_ciphers);
+	wiphy->akm_suites = sc2331_akm_suites;
+	wiphy->n_akm_suites = ARRAY_SIZE(sc2331_akm_suites);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	wiphy->reg_notifier = sc2331_reg_notify;
 	set_wiphy_dev(wiphy, &func->dev);
