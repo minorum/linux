@@ -16,6 +16,7 @@ properties:
   compatible:
     enum:
       - sprd,sc2721-vibrator
+      - sprd,sc2723-vibrator
       - sprd,sc2730-vibrator
       - sprd,sc2731-vibrator
 

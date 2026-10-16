@@ -23,6 +23,18 @@ properties:
   interrupts:
     maxItems: 1
 
+  led:
+    type: object
+    $ref: /schemas/leds/common.yaml#
+    unevaluatedProperties: false
+    properties:
+      led-max-microamp:
+        minimum: 10000
+        maximum: 320000
+        multipleOf: 10000
+    required:
+      - led-max-microamp
+
 required:
   - compatible
   - reg
