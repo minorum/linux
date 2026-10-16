@@ -232,8 +232,8 @@
 			reg = <0x20e00000 0x4000>;
 			#clock-cells = <1>;
 			clocks = <&ap_clk CLK_SDIO0>, <&ap_clk CLK_SDIO1>,
-				 <&ap_clk CLK_EMMC>;
-			clock-names = "sdio0", "sdio1", "emmc";
+				 <&ap_clk CLK_EMMC>, <&ext_26m>;
+			clock-names = "sdio0", "sdio1", "emmc", "ext-26m";
 			#reset-cells = <1>;
 		};
 

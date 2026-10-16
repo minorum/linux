@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "composite.h"
+#include "div.h"
 #include "gate.h"
 
 static struct sprd_gate adi_eb = {
@@ -134,6 +135,12 @@ static struct sprd_clk_common mpll = {
 
 static CLK_FIXED_FACTOR_HW(mpll_32, "sc9830-mpll-div32", &mpll.hw,
 			   32, 1, CLK_GET_RATE_NOCACHE);
+
+static struct sprd_clk_common ltepll = {
+	.reg = 0x5c,
+	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ltepll", "ext-26m",
+				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
+};
 
 static int sc9830_dpll_decode(u32 cfg1, u32 cfg2, unsigned long parent_rate,
 			      unsigned long *rate)
@@ -296,6 +303,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&sindrv.common,
 	&twpll,
 	&mpll,
+	&ltepll,
 	&dpll,
 	&aux0_mux.common,
 	&aux0_eb.common,
@@ -315,6 +323,7 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL] = &twpll.hw,
 		[CLK_MPLL] = &mpll.hw,
 		[CLK_MPLL_DIV32] = &mpll_32.hw,
+		[CLK_LTEPLL] = &ltepll.hw,
 		[CLK_TWPLL_48M] = &twpll_48m.hw,
 		[CLK_TWPLL_51M2] = &twpll_51m2.hw,
 		[CLK_TWPLL_153M6] = &twpll_153m6.hw,
@@ -591,11 +600,96 @@ static struct sprd_gate emmc_eb = {
 					    &sprd_sc_gate_ops, CLK_SET_RATE_PARENT),
 };
 
+static const struct clk_parent_data mcu_parents[] = {
+	{ .fw_name = "ext-26m" },
+	{ .hw = &twpll_512m.hw },
+	{ .hw = &twpll_768m.hw },
+	{ .hw = &dpll.hw },
+	{ .hw = &ltepll.hw },
+	{ .hw = &twpll.hw },
+	{ .hw = &mpll.hw },
+};
+
+static int sc9830_cpu_read(struct sprd_clk_common *clock, u32 *cfg)
+{
+	int ret;
+
+	ret = regmap_read(clock->regmap, clock->reg, &cfg[0]);
+	if (ret)
+		return ret;
+	return regmap_read(clock->regmap, 0x38, &cfg[1]);
+}
+
+static unsigned long sc9830_cpu_recalc(struct clk_hw *hw, unsigned long parent_rate)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	struct sprd_clk_common *pll;
+	unsigned long rate;
+	u32 first[2], second[2], selector, divisor;
+	int attempt;
+
+	for (attempt = 0; attempt < 3; attempt++) {
+		if (sc9830_cpu_read(clock, first))
+			return 0;
+		selector = FIELD_GET(GENMASK(2, 0), first[0]);
+		divisor = 1;
+		switch (selector) {
+		case 0:
+			rate = 26000000;
+			break;
+		case 1:
+		case 2:
+		case 5:
+			if (!twpll.regmap)
+				return 0;
+			rate = sc9830_twpll_recalc(&twpll.hw, 26000000);
+			divisor = selector == 1 ? 3 : selector == 2 ? 2 : 1;
+			break;
+		case 3:
+			if (!dpll.regmap)
+				return 0;
+			rate = sc9830_dpll_recalc(&dpll.hw, 26000000);
+			break;
+		case 4:
+		case 6:
+			pll = selector == 4 ? &ltepll : &mpll;
+			if (!pll->regmap)
+				return 0;
+			rate = sc9830_twpll_recalc(&pll->hw, 26000000);
+			break;
+		default:
+			return 0;
+		}
+		if (sc9830_cpu_read(clock, second))
+			return 0;
+		if (first[0] == second[0] && first[1] == second[1])
+			return rate / divisor / (FIELD_GET(GENMASK(6, 4), first[1]) + 1);
+	}
+	return 0;
+}
+
+static const struct clk_ops sc9830_cpu_ops = {
+	.get_parent = sc9830_emc_get_parent,
+	.recalc_rate = sc9830_cpu_recalc,
+};
+
+static struct sprd_clk_common mcu_clk = {
+	.reg = 0x54,
+	.hw.init = CLK_HW_INIT_PARENTS_DATA("sc9830-mcu", mcu_parents,
+					  &sc9830_cpu_ops,
+					  CLK_IS_CRITICAL | CLK_GET_RATE_NOCACHE),
+};
+
+static SPRD_DIV_CLK_HW(ca7_axi, "sc9830-ca7-axi", &mcu_clk.hw,
+		       0x38, 8, 3, CLK_GET_RATE_NOCACHE);
+
 static struct sprd_clk_common *sc9830_apahb_clks[] = {
 	&sdio0_eb.common,
 	&usb_eb.common,
 	&sdio1_eb.common,
 	&emmc_eb.common,
+	&mcu_clk,
+	&ca7_axi.common,
 };
 
 static struct clk_hw_onecell_data sc9830_apahb_hws = {
@@ -604,6 +698,8 @@ static struct clk_hw_onecell_data sc9830_apahb_hws = {
 		[CLK_USB_EB] = &usb_eb.common.hw,
 		[CLK_SDIO1_EB] = &sdio1_eb.common.hw,
 		[CLK_EMMC_EB] = &emmc_eb.common.hw,
+		[CLK_CA7_MCU] = &mcu_clk.hw,
+		[CLK_CA7_AXI] = &ca7_axi.common.hw,
 	},
 	.num = CLK_AP_AHB_GATE_NUM,
 };
