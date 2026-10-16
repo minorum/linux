@@ -10,28 +10,49 @@ maintainers:
   - minorum <mit.mis@gmail.com>
 
 description:
-  Three 32-bit down counters share one register block. Channel zero provides
-  a clock event and channel one provides a free-running clock source.
+  Four CPU timer blocks each contain three 32-bit down counters. Channel zero
+  provides a local clock event. CPU0 channel one provides the clock source.
+  Resources, interrupts and clocks are ordered by CPU affinity f00 through f03.
+  A single block describes the legacy CPU0-only configuration.
 
 properties:
   compatible:
     const: sprd,sc9830-timer
 
   reg:
-    maxItems: 1
+    minItems: 1
+    maxItems: 4
 
   interrupts:
-    maxItems: 1
+    minItems: 1
+    maxItems: 4
 
   clocks:
-    description: Gated functional clock for the timer register block.
-    maxItems: 1
+    description: Gated functional clock for each timer register block.
+    minItems: 1
+    maxItems: 4
 
 required:
   - compatible
   - reg
   - interrupts
   - clocks
+
+oneOf:
+  - properties:
+      reg:
+        maxItems: 1
+      interrupts:
+        maxItems: 1
+      clocks:
+        maxItems: 1
+  - properties:
+      reg:
+        minItems: 4
+      interrupts:
+        minItems: 4
+      clocks:
+        minItems: 4
 
 additionalProperties: false
 

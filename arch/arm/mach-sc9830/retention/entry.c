@@ -51,6 +51,11 @@ static int sc9830_retention_execute(struct sc9830_retention_entry *entry)
 		return -EBUSY;
 	raw_local_irq_save(flags);
 	asm volatile("cpsid aif" : : : "memory");
+	if (IS_ENABLED(CONFIG_SMP) &&
+	    (readl(entry->policy.pmu + 0xbc) & 0xfff00) != 0x77700) {
+		ret = -EBUSY;
+		goto out;
+	}
 	chip = readl(ctx->aon + 0xfc);
 	ctx->save_pub = chip && chip != 0x8300aaaa;
 	ret = sc9830_retention_context_save(ctx);

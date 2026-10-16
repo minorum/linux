@@ -241,6 +241,29 @@ static struct sprd_gate aon_intc_eb = {
 					       &sprd_sc_gate_ops, 0),
 };
 
+static struct sprd_gate ap_tmr0_eb = {
+	.enable_mask = BIT(12),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ap-tmr0-eb", "ext-32k",
+					    &sprd_sc_gate_ops, 0),
+};
+
+static struct sprd_gate ap_tmr1_eb = {
+	.enable_mask = BIT(9),
+	.sc_offset = 0x1000,
+	.common.reg = 0x4,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ap-tmr1-eb", "ext-32k",
+					    &sprd_sc_gate_ops, 0),
+};
+
+static struct sprd_gate ap_tmr2_eb = {
+	.enable_mask = BIT(10),
+	.sc_offset = 0x1000,
+	.common.reg = 0x4,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ap-tmr2-eb", "ext-32k",
+					    &sprd_sc_gate_ops, 0),
+};
+
 static int sc9830_mbox_is_enabled(struct clk_hw *hw)
 {
 	return sprd_sc_gate_ops.is_enabled(hw) > 0;
@@ -267,6 +290,9 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&aux0_mux.common,
 	&aux0_eb.common,
 	&aon_tmr_eb.common,
+	&ap_tmr0_eb.common,
+	&ap_tmr1_eb.common,
+	&ap_tmr2_eb.common,
 	&aon_intc_eb.common,
 	&mbox_eb.common,
 };
@@ -289,6 +315,9 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_76M8] = &twpll_76m8.hw,
 		[CLK_TWPLL_128M] = &twpll_128m.hw,
 		[CLK_AON_TMR_EB] = &aon_tmr_eb.common.hw,
+		[CLK_AP_TMR0_EB] = &ap_tmr0_eb.common.hw,
+		[CLK_AP_TMR1_EB] = &ap_tmr1_eb.common.hw,
+		[CLK_AP_TMR2_EB] = &ap_tmr2_eb.common.hw,
 		[CLK_AON_INTC_EB] = &aon_intc_eb.common.hw,
 		[CLK_DPLL] = &dpll.hw,
 		[CLK_TWPLL_192M] = &twpll_192m.hw,

@@ -178,7 +178,7 @@ config ARCH_SC9830
 
 config SC9830_PM_SLEEP
 	bool "SC9830 guarded suspend-to-RAM"
-	depends on ARCH_SC9830 && PM_SLEEP && !SMP
+	depends on ARCH_SC9830 && PM_SLEEP
 	depends on ARM_CPU_SUSPEND && !CPU_THUMBONLY
 	help
 	  Native CPU0 suspend with SRAM reset recovery on SM-J320FN.

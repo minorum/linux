@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/clocksource.h>
+#include <linux/cpuhotplug.h>
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
 #include <linux/sched_clock.h>
@@ -83,7 +84,7 @@ static int sc9830_next_event(unsigned long cycles,
 	int ret;
 
 	ret = readl_poll_timeout_atomic(base + TIMER_INT, status,
-				       !(status & TIMER_IRQ_BUSY), 0, 1000);
+					!(status & TIMER_IRQ_BUSY), 0, 1000);
 	if (ret)
 		return -ETIME;
 
@@ -97,13 +98,16 @@ static irqreturn_t sc9830_interrupt(int irq, void *data)
 {
 	struct clock_event_device *event = data;
 	void __iomem *base = timer_of_base(to_timer_of(event));
+
 	writel_relaxed(TIMER_IRQ_ENABLE | TIMER_IRQ_CLEAR, base + TIMER_INT);
 	sc9830_shutdown(event);
 	event->event_handler(event);
 	return IRQ_HANDLED;
 }
 
-static struct timer_of sc9830_timer = {
+static struct timer_of sc9830_timer[4];
+
+static const struct timer_of sc9830_template = {
 	.flags = TIMER_OF_BASE | TIMER_OF_CLOCK | TIMER_OF_IRQ,
 	.clkevt = {
 		.name = "sc9830-event",
@@ -113,44 +117,94 @@ static struct timer_of sc9830_timer = {
 		.set_state_oneshot = sc9830_shutdown,
 		.set_next_event = sc9830_next_event,
 		.resume = sc9830_event_resume,
-		.cpumask = cpu_possible_mask,
 	},
 	.of_irq = {
 		.handler = sc9830_interrupt,
-		.flags = IRQF_TIMER,
+		.flags = IRQF_TIMER | IRQF_NOBALANCING | IRQF_NO_AUTOEN,
 	},
 };
+
+static int sc9830_timer_starting(unsigned int cpu)
+{
+	struct timer_of *timer;
+	int ret;
+
+	if (cpu >= ARRAY_SIZE(sc9830_timer))
+		panic("SC9830 timer CPU index out of range: %u", cpu);
+	timer = &sc9830_timer[cpu];
+	if (!timer_of_base(timer))
+		panic("SC9830 timer missing for CPU%u", cpu);
+	ret = irq_force_affinity(timer->clkevt.irq, cpumask_of(cpu));
+	if (ret)
+		panic("SC9830 timer affinity failed for CPU%u: %d", cpu, ret);
+	sc9830_event_resume(&timer->clkevt);
+	enable_irq(timer->clkevt.irq);
+	clockevents_config_and_register(&timer->clkevt, timer_of_rate(timer),
+					4, U32_MAX);
+	return 0;
+}
+
+static int sc9830_timer_dying(unsigned int cpu)
+{
+	struct timer_of *timer = &sc9830_timer[cpu];
+	void __iomem *base = timer_of_base(timer);
+
+	sc9830_shutdown(&timer->clkevt);
+	writel_relaxed(TIMER_IRQ_CLEAR, base + TIMER_INT);
+	readl(base + TIMER_INT);
+	disable_irq_nosync(timer->clkevt.irq);
+	return 0;
+}
 
 static int __init sc9830_timer_init(struct device_node *node)
 {
 	void __iomem *base;
+	unsigned int cpu;
 	int ret, channel;
 
-	ret = timer_of_init(node, &sc9830_timer);
-	if (ret)
-		return ret;
-	base = timer_of_base(&sc9830_timer);
-	for (channel = 0; channel < 3; channel++) {
-		writel_relaxed(0, base + channel * TIMER_STRIDE + TIMER_CTL);
-		writel_relaxed(TIMER_IRQ_CLEAR,
-			       base + channel * TIMER_STRIDE + TIMER_INT);
+	if (nr_cpu_ids > ARRAY_SIZE(sc9830_timer))
+		return -EINVAL;
+	for_each_possible_cpu(cpu) {
+		struct timer_of *timer = &sc9830_timer[cpu];
+
+		*timer = sc9830_template;
+		timer->of_base.index = cpu;
+		timer->of_clk.index = cpu;
+		timer->of_irq.index = cpu;
+		timer->clkevt.cpumask = cpumask_of(cpu);
+		ret = timer_of_init(node, timer);
+		if (ret)
+			goto cleanup;
+		base = timer_of_base(timer);
+		for (channel = 0; channel < 3; channel++) {
+			writel_relaxed(0, base + channel * TIMER_STRIDE + TIMER_CTL);
+			writel_relaxed(TIMER_IRQ_CLEAR,
+				       base + channel * TIMER_STRIDE + TIMER_INT);
+		}
 	}
+	base = timer_of_base(&sc9830_timer[0]);
 	sc9830_source = base + TIMER_STRIDE + TIMER_SHADOW;
 	sc9830_clocksource_resume(&sc9830_clocksource);
 	ret = clocksource_register_hz(&sc9830_clocksource,
-				      timer_of_rate(&sc9830_timer));
+				      timer_of_rate(&sc9830_timer[0]));
 	if (ret) {
 		writel_relaxed(0, base + TIMER_STRIDE + TIMER_CTL);
 		sc9830_source = NULL;
-		timer_of_cleanup(&sc9830_timer);
-		return ret;
+		goto cleanup;
 	}
 	sched_clock_register(sc9830_read_sched_clock, 32,
-			     timer_of_rate(&sc9830_timer));
-	writel_relaxed(TIMER_IRQ_ENABLE, base + TIMER_INT);
-	clockevents_config_and_register(&sc9830_timer.clkevt,
-					timer_of_rate(&sc9830_timer), 4, U32_MAX);
+			     timer_of_rate(&sc9830_timer[0]));
+	ret = cpuhp_setup_state(CPUHP_AP_SC9830_TIMER_STARTING,
+				"clockevents/sc9830:starting",
+				sc9830_timer_starting, sc9830_timer_dying);
+	if (ret)
+		panic("SC9830 timer hotplug setup failed: %d", ret);
 	return 0;
+
+cleanup:
+	while (cpu--)
+		timer_of_cleanup(&sc9830_timer[cpu]);
+	return ret;
 }
 
 TIMER_OF_DECLARE(sc9830_timer, "sprd,sc9830-timer", sc9830_timer_init);

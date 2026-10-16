@@ -278,6 +278,7 @@ properties:
           - qcom,msm8916-smp
           - renesas,apmu
           - renesas,r9a06g032-smp
+          - sprd,sc9830-smp
           - rockchip,rk3036-smp
           - rockchip,rk3066-smp
           - socionext,milbeaut-m10v-smp
