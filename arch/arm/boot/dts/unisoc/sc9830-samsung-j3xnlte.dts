@@ -544,3 +544,44 @@
 		sprd,pmic = <&pmic>;
 	};
 };
+
+&gpu_domain {
+	status = "okay";
+};
+
+&gpu_clk {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+	assigned-clocks = <&gpu_clk>;
+	assigned-clock-rates = <256000000>;
+	operating-points-v2 = <&gpu_opp_table>;
+};
+
+&{/} {
+	gpu_opp_table: opp-table-gpu {
+		compatible = "operating-points-v2";
+
+		opp-153600000 {
+			opp-hz = /bits/ 64 <153600000>;
+		};
+
+		opp-256000000 {
+			opp-hz = /bits/ 64 <256000000>;
+		};
+
+		opp-384000000 {
+			opp-hz = /bits/ 64 <384000000>;
+		};
+
+		opp-512000000 {
+			opp-hz = /bits/ 64 <512000000>;
+		};
+
+		opp-614400000 {
+			opp-hz = /bits/ 64 <614400000>;
+		};
+	};
+};

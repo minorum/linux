@@ -23,6 +23,16 @@
 		status = "disabled";
 	};
 
+	gpu_domain: power-controller-gpu {
+		compatible = "sprd,sc9830-gpu-pwrc";
+		#power-domain-cells = <0>;
+		sprd,pmu = <&pmu>;
+		sprd,gpu-clk = <&gpu_clk>;
+		clocks = <&aon_gate CLK_GPU_EB>;
+		clock-names = "bus";
+		status = "disabled";
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -151,6 +161,37 @@
 		mm_clk: syscon@60e00000 {
 			compatible = "sprd,sc9830-mm-clk", "syscon";
 			reg = <0x60e00000 0x1000>;
+			status = "disabled";
+		};
+
+		gpu_clk: clock-controller@60100000 {
+			compatible = "sprd,sc9830-gpu-clk", "syscon";
+			reg = <0x60100000 0x1000>;
+			#clock-cells = <0>;
+			clocks = <&aon_gate CLK_TWPLL_153M6>,
+				 <&aon_gate CLK_TWPLL_614M4>,
+				 <&aon_gate CLK_TWPLL_256M>,
+				 <&aon_gate CLK_TWPLL_307M2>,
+				 <&aon_gate CLK_TWPLL_384M>,
+				 <&aon_gate CLK_TWPLL_512M>;
+			power-domains = <&gpu_domain>;
+			status = "disabled";
+		};
+
+		gpu: gpu@60000000 {
+			compatible = "sprd,sc9830-mali", "arm,mali-400";
+			reg = <0x60000000 0x10000>;
+			interrupts = <39 IRQ_TYPE_LEVEL_HIGH>,
+				     <39 IRQ_TYPE_LEVEL_HIGH>,
+				     <39 IRQ_TYPE_LEVEL_HIGH>,
+				     <39 IRQ_TYPE_LEVEL_HIGH>,
+				     <39 IRQ_TYPE_LEVEL_HIGH>,
+				     <39 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "gp", "gpmmu", "pp0", "ppmmu0",
+					  "pp1", "ppmmu1";
+			clocks = <&aon_gate CLK_GPU_EB>, <&gpu_clk>;
+			clock-names = "bus", "core";
+			power-domains = <&gpu_domain>;
 			status = "disabled";
 		};
 
