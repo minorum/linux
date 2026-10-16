@@ -279,6 +279,15 @@ config KEYBOARD_TCA8418
 	  To compile this driver as a module, choose M here: the
 	  module will be called tca8418_keypad.
 
+config KEYBOARD_SC9830
+	tristate "Spreadtrum SC9830 keypad"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select INPUT_MATRIXKMAP
+	help
+	  Enable the matrix keypad controller on Spreadtrum SC9830.
+	  The module is called sc9830-keypad.
+
 config KEYBOARD_MATRIX
 	tristate "GPIO driven matrix keypad support"
 	depends on GPIOLIB || COMPILE_TEST
