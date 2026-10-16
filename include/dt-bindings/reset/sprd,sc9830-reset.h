@@ -3,5 +3,6 @@
 #define _DT_BINDINGS_RESET_SC9830_H_
 
 #define RST_EMMC 14
+#define RST_KPD 8
 
 #endif

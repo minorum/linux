@@ -33,7 +33,9 @@
 #define CLK_MPLL_DIV32	27
 #define CLK_LTEPLL	28
 #define CLK_GPU_EB	29
-#define CLK_AON_CLK_NUM	30
+#define CLK_KPD_EB	30
+#define CLK_KPD_RTC_EB	31
+#define CLK_AON_CLK_NUM	32
 
 #define CLK_PMU_LTEPLL_GATE	0
 #define CLK_PMU_LTEPLL_614M4	1

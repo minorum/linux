@@ -30,7 +30,7 @@ properties:
     const: 1
 
   '#reset-cells':
-    description: AP AHB reset bit index; bit 14 resets the eMMC host.
+    description: Reset bit index in the AP AHB or AON APB controller.
     const: 1
 
   clocks:
@@ -47,7 +47,9 @@ allOf:
         compatible:
           not:
             contains:
-              const: sprd,sc9830-apahb-gate
+              enum:
+                - sprd,sc9830-apahb-gate
+                - sprd,sc9830-aon-clk
     then:
       properties:
         '#reset-cells': false
