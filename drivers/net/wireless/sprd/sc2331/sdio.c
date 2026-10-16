@@ -885,7 +885,12 @@ static int sc2331_net_open(struct net_device *netdev)
 
 static int sc2331_net_stop(struct net_device *netdev)
 {
+	struct sc2331_wifi *wifi = *(struct sc2331_wifi **)netdev_priv(netdev);
+
 	netif_stop_queue(netdev);
+	mutex_lock(&wifi->lock);
+	sc2331_scan_finish(wifi, true);
+	mutex_unlock(&wifi->lock);
 	return 0;
 }
 
