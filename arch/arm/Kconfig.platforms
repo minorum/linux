@@ -171,6 +171,7 @@ config ARCH_SC9830
 	select SPRD_SC9830_CLK
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
+	select SOC_BUS
 	help
 	  Support for SC9830, including the interrupt controller,
 	  timer and peripheral clock providers. DDR initialization, PLL
