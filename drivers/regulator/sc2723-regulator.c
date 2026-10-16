@@ -1,14 +1,212 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/nvmem-consumer.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
+#include <linux/regulator/machine.h>
 
 struct sc2723_regulator {
 	struct regulator_desc desc;
 	unsigned int selector;
 };
+
+struct sc2723_cpu_regulator {
+	struct regulator_desc desc;
+	bool linear;
+	bool fault;
+};
+
+static int sc2723_cpu_voltage(bool linear, unsigned int selector)
+{
+	static const int bases[] = {
+		1100000, 700000, 800000, 900000,
+		1000000, 650000, 1200000, 1300000,
+	};
+
+	if (selector >= (linear ? 1024 : 256))
+		return -EINVAL;
+	if (linear)
+		return 600000 + selector * 3125;
+	return bases[selector >> 5] + (selector & 31) * 3125;
+}
+
+static int sc2723_cpu_select(bool linear, int minimum, int maximum)
+{
+	int selector, voltage, best = -EINVAL, best_voltage = 0;
+
+	for (selector = 0; selector < (linear ? 1024 : 256); selector++) {
+		voltage = sc2723_cpu_voltage(linear, selector);
+		if (voltage >= minimum && voltage <= maximum &&
+		    (best < 0 || voltage < best_voltage)) {
+			best = selector;
+			best_voltage = voltage;
+		}
+	}
+	return best;
+}
+
+static int sc2723_cpu_get_selector(struct regulator_dev *rdev)
+{
+	struct sc2723_cpu_regulator *cpu = rdev_get_drvdata(rdev);
+	unsigned int mode, power, selector;
+	int ret;
+
+	if (cpu->fault)
+		return -EIO;
+	ret = regmap_read(rdev->regmap, 0x918, &mode);
+	if (ret)
+		return ret;
+	if (!!(mode & BIT(14)) != cpu->linear)
+		return -EIO;
+	ret = regmap_read(rdev->regmap, 0x810, &power);
+	if (ret)
+		return ret;
+	if (power & BIT(10))
+		return -EIO;
+	ret = regmap_read(rdev->regmap, 0xa04, &selector);
+	if (ret)
+		return ret;
+	return selector & rdev->desc->vsel_mask;
+}
+
+static int sc2723_cpu_set_selector(struct regulator_dev *rdev, unsigned int selector)
+{
+	struct sc2723_cpu_regulator *cpu = rdev_get_drvdata(rdev);
+	int voltage_now, target, voltage, next, ret;
+	unsigned int readback;
+
+	if (cpu->fault)
+		return -EIO;
+	target = sc2723_cpu_voltage(cpu->linear, selector);
+	if (target < 0)
+		return target;
+	ret = sc2723_cpu_get_selector(rdev);
+	if (ret < 0)
+		goto fault;
+	voltage_now = sc2723_cpu_voltage(cpu->linear, ret);
+	while (voltage_now != target) {
+		voltage = voltage_now < target ? min(target, voltage_now + 25000) :
+			max(target, voltage_now - 25000);
+		next = sc2723_cpu_select(cpu->linear, voltage,
+					 voltage_now < target ? voltage : voltage_now - 1);
+		if (next < 0) {
+			ret = next;
+			goto fault;
+		}
+		voltage = sc2723_cpu_voltage(cpu->linear, next);
+		ret = regmap_update_bits(rdev->regmap, 0xa04,
+					 rdev->desc->vsel_mask, next);
+		if (ret)
+			goto fault;
+		if (voltage > voltage_now)
+			udelay(DIV_ROUND_UP(voltage - voltage_now, 5000));
+		ret = regmap_read(rdev->regmap, 0xa04, &readback);
+		if (ret)
+			goto fault;
+		if ((readback & rdev->desc->vsel_mask) != next) {
+			ret = -EIO;
+			goto fault;
+		}
+		voltage_now = voltage;
+	}
+	return 0;
+
+fault:
+	cpu->fault = true;
+	return ret;
+}
+
+static int sc2723_cpu_list_voltage(struct regulator_dev *rdev, unsigned int selector)
+{
+	struct sc2723_cpu_regulator *cpu = rdev_get_drvdata(rdev);
+
+	return sc2723_cpu_voltage(cpu->linear, selector);
+}
+
+static int sc2723_cpu_init(struct regulator_dev *rdev, struct regulator_config *config)
+{
+	struct sc2723_cpu_regulator *cpu = rdev_get_drvdata(rdev);
+	struct regulation_constraints *constraints = rdev->constraints;
+	int selector, voltage;
+
+	if (!constraints->always_on || !constraints->boot_on || constraints->uV_offset ||
+	    constraints->min_uV <= 0 || constraints->max_uV < constraints->min_uV)
+		return -EINVAL;
+	selector = sc2723_cpu_get_selector(rdev);
+	if (selector < 0)
+		return selector;
+	voltage = sc2723_cpu_voltage(cpu->linear, selector);
+	if (voltage < constraints->min_uV || voltage > constraints->max_uV)
+		return -EINVAL;
+	constraints->apply_uV = false;
+	return 0;
+}
+
+static int sc2723_cpu_enable(struct regulator_dev *rdev)
+{
+	int ret = regulator_is_enabled_regmap(rdev);
+
+	return ret > 0 ? 0 : ret ?: -EPERM;
+}
+
+static const struct regulator_ops sc2723_cpu_ops = {
+	.enable = sc2723_cpu_enable,
+	.is_enabled = regulator_is_enabled_regmap,
+	.list_voltage = sc2723_cpu_list_voltage,
+	.map_voltage = regulator_map_voltage_iterate,
+	.get_voltage_sel = sc2723_cpu_get_selector,
+	.set_voltage_sel = sc2723_cpu_set_selector,
+};
+
+static int sc2723_cpu_register(struct device *dev, struct regulator_config *config)
+{
+	struct sc2723_cpu_regulator *cpu;
+	struct regulator_dev *rdev;
+	struct device_node *node;
+	unsigned int mode, power;
+	int ret;
+
+	node = of_get_child_by_name(dev->of_node, "vddarm");
+	if (!node)
+		return 0;
+	ret = of_device_is_available(node);
+	of_node_put(node);
+	if (!ret)
+		return 0;
+	ret = regmap_read(config->regmap, 0x918, &mode);
+	if (ret)
+		return ret;
+	ret = regmap_read(config->regmap, 0x810, &power);
+	if (ret)
+		return ret;
+	if (power & BIT(10))
+		return -EPERM;
+	cpu = devm_kzalloc(dev, sizeof(*cpu), GFP_KERNEL);
+	if (!cpu)
+		return -ENOMEM;
+	cpu->linear = !!(mode & BIT(14));
+	cpu->desc = (struct regulator_desc) {
+		.name = "vddarm",
+		.of_match = "vddarm",
+		.init_cb = sc2723_cpu_init,
+		.id = 2,
+		.ops = &sc2723_cpu_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = cpu->linear ? 1024 : 256,
+		.enable_reg = 0x810,
+		.enable_mask = BIT(10),
+		.enable_is_inverted = true,
+		.vsel_reg = 0xa04,
+		.vsel_mask = cpu->linear ? GENMASK(9, 0) : GENMASK(7, 0),
+	};
+	config->driver_data = cpu;
+	rdev = devm_regulator_register(dev, &cpu->desc, config);
+	return PTR_ERR_OR_ZERO(rdev);
+}
 
 static int sc2723_rf_selector(unsigned int code, unsigned int bits,
 			      int target, int minimum, int step)
@@ -150,7 +348,7 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 		if (IS_ERR(rdev))
 			return dev_err_probe(dev, PTR_ERR(rdev), "RF registration failed\n");
 	}
-	return 0;
+	return sc2723_cpu_register(dev, &config);
 }
 
 static const struct of_device_id sc2723_regulator_match[] = {
@@ -168,5 +366,5 @@ static struct platform_driver sc2723_regulator_driver = {
 };
 module_platform_driver(sc2723_regulator_driver);
 
-MODULE_DESCRIPTION("SC2723 calibrated connectivity regulators");
+MODULE_DESCRIPTION("SC2723 CPU and calibrated connectivity regulators");
 MODULE_LICENSE("GPL");
