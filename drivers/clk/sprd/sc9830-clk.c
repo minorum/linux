@@ -410,6 +410,11 @@ static struct sprd_gate gpu_eb = {
 					       &sprd_sc_gate_ops, 0),
 };
 
+static SPRD_SC_GATE_CLK_FW_NAME(kpd_eb, "sc9830-kpd-eb", "ext-26m",
+			       0x0, 0x1000, BIT(8), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(kpd_rtc_eb, "sc9830-kpd-rtc-eb", "ext-32k",
+			       0x10, 0x1000, BIT(1), 0, 0);
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&adi_eb.common,
 	&splk_eb.common,
@@ -427,6 +432,8 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&aon_intc_eb.common,
 	&mbox_eb.common,
 	&gpu_eb.common,
+	&kpd_eb.common,
+	&kpd_rtc_eb.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
@@ -461,6 +468,8 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_TWPLL_768M] = &twpll_768m.hw,
 		[CLK_MBOX_EB] = &mbox_eb.common.hw,
 		[CLK_GPU_EB] = &gpu_eb.common.hw,
+		[CLK_KPD_EB] = &kpd_eb.common.hw,
+		[CLK_KPD_RTC_EB] = &kpd_rtc_eb.common.hw,
 	},
 	.num = CLK_AON_CLK_NUM,
 };
@@ -953,6 +962,15 @@ static struct reset_simple_data sc9830_apahb_reset = {
 	.reset_us = 10,
 };
 
+static struct reset_simple_data sc9830_aon_reset = {
+	.rcdev = {
+		.owner = THIS_MODULE,
+		.nr_resets = 32,
+		.ops = &reset_simple_ops,
+	},
+	.reset_us = 2000,
+};
+
 static int __init sc9830_clk_register(struct device_node *node,
 				      const struct sprd_clk_desc *desc)
 {
@@ -964,16 +982,24 @@ static int __init sc9830_clk_register(struct device_node *node,
 	};
 	struct resource res;
 	struct regmap *regmap;
+	struct reset_simple_data *reset = NULL;
 	void __iomem *base;
-	unsigned int i;
-	bool reset = desc == &sc9830_apahb_desc &&
-		of_property_present(node, "#reset-cells");
+	unsigned int i, reset_offset = 4;
 	int ret;
+
+	if (of_property_present(node, "#reset-cells")) {
+		if (desc == &sc9830_apahb_desc)
+			reset = &sc9830_apahb_reset;
+		else if (desc == &sc9830_aon_full_desc) {
+			reset = &sc9830_aon_reset;
+			reset_offset = 8;
+		}
+	}
 
 	ret = of_address_to_resource(node, 0, &res);
 	if (ret)
 		return ret;
-	if (resource_size(&res) < (reset ? 8 : 4) ||
+	if (resource_size(&res) < (reset ? reset_offset + 4 : 4) ||
 	    resource_size(&res) > U32_MAX)
 		return -EINVAL;
 	config.max_register = resource_size(&res) - 4;
@@ -996,10 +1022,10 @@ static int __init sc9830_clk_register(struct device_node *node,
 			goto unregister;
 	}
 	if (reset) {
-		sc9830_apahb_reset.membase = base + 4;
-		sc9830_apahb_reset.rcdev.of_node = node;
-		spin_lock_init(&sc9830_apahb_reset.lock);
-		ret = reset_controller_register(&sc9830_apahb_reset.rcdev);
+		reset->membase = base + reset_offset;
+		reset->rcdev.of_node = node;
+		spin_lock_init(&reset->lock);
+		ret = reset_controller_register(&reset->rcdev);
 		if (ret)
 			goto unregister;
 	}
@@ -1007,7 +1033,7 @@ static int __init sc9830_clk_register(struct device_node *node,
 	if (!ret)
 		return 0;
 	if (reset)
-		reset_controller_unregister(&sc9830_apahb_reset.rcdev);
+		reset_controller_unregister(&reset->rcdev);
 unregister:
 	while (i--)
 		if (desc->hw_clks->hws[i])
