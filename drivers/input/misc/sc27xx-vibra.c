@@ -22,6 +22,10 @@ struct sc27xx_vibra_data {
 	u32 cur_drv_cal_sel;
 	u32 slp_pd_en;
 	u32 ldo_pd;
+	u32 rtc_clk_reg;
+	u32 rtc_clk_mask;
+	u32 drive_mask;
+	u32 drive_value;
 };
 
 struct vibra_info {
@@ -32,6 +36,7 @@ struct vibra_info {
 	u32			base;
 	u32			strength;
 	bool			enabled;
+	bool			suspended;
 };
 
 static const struct sc27xx_vibra_data sc2731_data = {
@@ -52,26 +57,41 @@ static const struct sc27xx_vibra_data sc2721_data = {
 	.ldo_pd = LDO_VIBR_PD,
 };
 
-static void sc27xx_vibra_set(struct vibra_info *info, bool on)
+static const struct sc27xx_vibra_data sc2723_data = {
+	.slp_pd_en = SLP_LDOVIBR_PD_EN,
+	.ldo_pd = LDO_VIBR_PD,
+	.rtc_clk_reg = 0x808,
+	.rtc_clk_mask = BIT(5),
+	.drive_mask = GENMASK(7, 0),
+	.drive_value = 0xd2,
+};
+
+static int sc27xx_vibra_set(struct vibra_info *info, bool on)
 {
 	const struct sc27xx_vibra_data *data = info->data;
-	if (on) {
-		regmap_update_bits(info->regmap, info->base, data->ldo_pd, 0);
-		regmap_update_bits(info->regmap, info->base,
-				   data->slp_pd_en, 0);
-		info->enabled = true;
-	} else {
-		regmap_update_bits(info->regmap, info->base, data->ldo_pd,
-				   data->ldo_pd);
-		regmap_update_bits(info->regmap, info->base,
-				   data->slp_pd_en, data->slp_pd_en);
-		info->enabled = false;
-	}
+	u32 mask = data->ldo_pd | data->slp_pd_en;
+	int ret;
+
+	ret = regmap_update_bits(info->regmap, info->base, mask, on ? 0 : mask);
+	if (!ret)
+		info->enabled = on;
+	return ret;
 }
 
 static int sc27xx_vibra_hw_init(struct vibra_info *info)
 {
 	const struct sc27xx_vibra_data *data = info->data;
+	int ret;
+
+	if (data->rtc_clk_mask) {
+		ret = regmap_update_bits(info->regmap, data->rtc_clk_reg,
+					 data->rtc_clk_mask, data->rtc_clk_mask);
+		if (ret)
+			return ret;
+		return regmap_update_bits(info->regmap, info->base,
+					  data->drive_mask | data->ldo_pd | data->slp_pd_en,
+					  data->drive_value | data->ldo_pd | data->slp_pd_en);
+	}
 
 	if (!data->cur_drv_cal_sel)
 		return 0;
@@ -84,11 +104,10 @@ static void sc27xx_vibra_play_work(struct work_struct *work)
 {
 	struct vibra_info *info = container_of(work, struct vibra_info,
 					       play_work);
+	bool on = READ_ONCE(info->strength) != 0;
 
-	if (info->strength && !info->enabled)
-		sc27xx_vibra_set(info, true);
-	else if (info->strength == 0 && info->enabled)
-		sc27xx_vibra_set(info, false);
+	if (on != info->enabled && sc27xx_vibra_set(info, on))
+		dev_err(&info->input_dev->dev, "Failed to set vibrator\n");
 }
 
 static int sc27xx_vibra_play(struct input_dev *input, void *data,
@@ -96,7 +115,9 @@ static int sc27xx_vibra_play(struct input_dev *input, void *data,
 {
 	struct vibra_info *info = input_get_drvdata(input);
 
-	info->strength = effect->u.rumble.weak_magnitude;
+	if (info->suspended)
+		return -EBUSY;
+	WRITE_ONCE(info->strength, effect->u.rumble.weak_magnitude);
 	schedule_work(&info->play_work);
 
 	return 0;
@@ -107,8 +128,55 @@ static void sc27xx_vibra_close(struct input_dev *input)
 	struct vibra_info *info = input_get_drvdata(input);
 
 	cancel_work_sync(&info->play_work);
-	if (info->enabled)
-		sc27xx_vibra_set(info, false);
+	if (sc27xx_vibra_set(info, false))
+		dev_err(&input->dev, "Failed to stop vibrator\n");
+}
+
+static int sc27xx_vibra_quiesce(struct vibra_info *info)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->input_dev->event_lock, flags);
+	info->suspended = true;
+	WRITE_ONCE(info->strength, 0);
+	spin_unlock_irqrestore(&info->input_dev->event_lock, flags);
+	cancel_work_sync(&info->play_work);
+	return sc27xx_vibra_set(info, false);
+}
+
+static int sc27xx_vibra_suspend(struct device *dev)
+{
+	struct vibra_info *info = dev_get_drvdata(dev);
+	unsigned long flags;
+	int ret;
+
+	ret = sc27xx_vibra_quiesce(info);
+	if (ret) {
+		spin_lock_irqsave(&info->input_dev->event_lock, flags);
+		info->suspended = false;
+		spin_unlock_irqrestore(&info->input_dev->event_lock, flags);
+	}
+	return ret;
+}
+
+static int sc27xx_vibra_resume(struct device *dev)
+{
+	struct vibra_info *info = dev_get_drvdata(dev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->input_dev->event_lock, flags);
+	info->suspended = false;
+	spin_unlock_irqrestore(&info->input_dev->event_lock, flags);
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sc27xx_vibra_pm_ops, sc27xx_vibra_suspend,
+			      sc27xx_vibra_resume);
+
+static void sc27xx_vibra_shutdown(struct platform_device *pdev)
+{
+	if (sc27xx_vibra_quiesce(platform_get_drvdata(pdev)))
+		dev_err(&pdev->dev, "Failed to stop vibrator\n");
 }
 
 static int sc27xx_vibra_probe(struct platform_device *pdev)
@@ -173,12 +241,14 @@ static int sc27xx_vibra_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to register input device.\n");
 		return error;
 	}
+	platform_set_drvdata(pdev, info);
 
 	return 0;
 }
 
 static const struct of_device_id sc27xx_vibra_of_match[] = {
 	{ .compatible = "sprd,sc2721-vibrator", .data = &sc2721_data },
+	{ .compatible = "sprd,sc2723-vibrator", .data = &sc2723_data },
 	{ .compatible = "sprd,sc2730-vibrator", .data = &sc2730_data },
 	{ .compatible = "sprd,sc2731-vibrator", .data = &sc2731_data },
 	{}
@@ -189,8 +259,10 @@ static struct platform_driver sc27xx_vibra_driver = {
 	.driver = {
 		.name = "sc27xx-vibrator",
 		.of_match_table = sc27xx_vibra_of_match,
+		.pm = pm_sleep_ptr(&sc27xx_vibra_pm_ops),
 	},
 	.probe = sc27xx_vibra_probe,
+	.shutdown = sc27xx_vibra_shutdown,
 };
 
 module_platform_driver(sc27xx_vibra_driver);
