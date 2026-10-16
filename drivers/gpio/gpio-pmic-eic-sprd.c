@@ -32,6 +32,9 @@
 #define SPRD_PMIC_EIC_DATA_MASK		GENMASK(15, 0)
 #define SPRD_PMIC_EIC_BIT(x)		((x) & (SPRD_PMIC_EIC_PER_BANK_NR - 1))
 #define SPRD_PMIC_EIC_DBNC_MASK		GENMASK(11, 0)
+#define SPRD_SC2723_MODULE_EN		0x800
+#define SPRD_SC2723_RTC_CLK_EN		0x808
+#define SPRD_SC2723_EIC_EN		BIT(3)
 
 /*
  * These registers are modified under the irq bus lock and cached to avoid
@@ -57,7 +60,7 @@ struct sprd_pmic_eic {
 	struct gpio_chip chip;
 	struct regmap *map;
 	u32 offset;
-	u8 reg[CACHE_NR_REGS];
+	u16 reg[CACHE_NR_REGS];
 	struct mutex buslock;
 	int irq;
 };
@@ -328,6 +331,17 @@ static int sprd_pmic_eic_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	if (of_device_is_compatible(pdev->dev.of_node, "sprd,sc2723-eic")) {
+		ret = regmap_update_bits(pmic_eic->map, SPRD_SC2723_MODULE_EN,
+					 SPRD_SC2723_EIC_EN, SPRD_SC2723_EIC_EN);
+		if (ret)
+			return ret;
+		ret = regmap_update_bits(pmic_eic->map, SPRD_SC2723_RTC_CLK_EN,
+					 SPRD_SC2723_EIC_EN, SPRD_SC2723_EIC_EN);
+		if (ret)
+			return ret;
+	}
+
 	ret = devm_request_threaded_irq(&pdev->dev, pmic_eic->irq, NULL,
 					sprd_pmic_eic_irq_handler,
 					IRQF_ONESHOT | IRQF_NO_SUSPEND,
@@ -362,6 +376,7 @@ static int sprd_pmic_eic_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sprd_pmic_eic_of_match[] = {
+	{ .compatible = "sprd,sc2723-eic", },
 	{ .compatible = "sprd,sc2731-eic", },
 	{ /* end of list */ }
 };
