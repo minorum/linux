@@ -352,6 +352,16 @@
 	};
 };
 
+&keypad {
+	status = "okay";
+	keypad,num-rows = <2>;
+	keypad,num-columns = <3>;
+	linux,keymap = <MATRIX_KEY(0, 0, KEY_VOLUMEUP)
+			MATRIX_KEY(0, 1, KEY_VOLUMEUP)
+			MATRIX_KEY(0, 2, KEY_HOMEPAGE)>;
+	wakeup-source;
+};
+
 &adi {
 	status = "okay";
 

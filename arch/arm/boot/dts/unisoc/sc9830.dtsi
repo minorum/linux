@@ -122,6 +122,16 @@
 			status = "disabled";
 		};
 
+		keypad: keypad@40250000 {
+			compatible = "sprd,sc9830-keypad";
+			reg = <0x40250000 0x1000>;
+			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&aon_gate CLK_KPD_EB>, <&aon_gate CLK_KPD_RTC_EB>;
+			clock-names = "apb", "rtc";
+			resets = <&aon_gate RST_KPD>;
+			status = "disabled";
+		};
+
 		gpio: gpio@40280000 {
 			compatible = "sprd,sc9830-gpio", "sprd,sc9860-gpio";
 			reg = <0x40280000 0x1000>;
@@ -136,6 +146,7 @@
 			compatible = "sprd,sc9830-aon-clk", "syscon";
 			reg = <0x402e0000 0x3000>;
 			#clock-cells = <1>;
+			#reset-cells = <1>;
 			clocks = <&ext_26m>, <&ext_32k>;
 			clock-names = "ext-26m", "ext-32k";
 		};
