@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "sc9830.dtsi"
+#include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/power/sprd,sc9830-reboot-mode.h>
 
@@ -69,6 +70,25 @@
 	};
 
 	chosen {
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		key-power {
+			label = "Power";
+			linux,code = <KEY_POWER>;
+			gpios = <&pmic_eic 2 GPIO_ACTIVE_LOW>;
+			debounce-interval = <5>;
+			wakeup-source;
+		};
+
+		key-volume-down {
+			label = "Volume Down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&pmic_eic 10 GPIO_ACTIVE_LOW>;
+			debounce-interval = <5>;
+		};
 	};
 
 	soc {
@@ -348,6 +368,16 @@
 		watchdog@40 {
 			compatible = "sprd,sc2723-wdt";
 			reg = <0x40>;
+		};
+
+		pmic_eic: gpio@100 {
+			compatible = "sprd,sc2723-eic";
+			reg = <0x100>;
+			interrupts = <5>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 		};
 
 		vibrator@8f8 {
