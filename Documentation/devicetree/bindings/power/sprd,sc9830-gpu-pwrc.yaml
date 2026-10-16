@@ -32,10 +32,14 @@ properties:
     description: GPU clock syscon.
 
   clocks:
-    maxItems: 1
+    items:
+      - description: GPU AON bus gate
+      - description: GPU LTEPLL source request gate
 
   clock-names:
-    const: bus
+    items:
+      - const: bus
+      - const: source
 
 required:
   - compatible
