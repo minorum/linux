@@ -293,6 +293,21 @@ static const struct regulator_desc sc2723_rf_descs[] = {
 		.vsel_reg = 0x818,
 		.vsel_mask = GENMASK(7, 0),
 	},
+	{
+		.name = "vddsim2",
+		.of_match = "vddsim2",
+		.id = 2,
+		.ops = &sc2723_rf_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = 1,
+		.fixed_uV = 3000000,
+		.enable_reg = 0x814,
+		.enable_mask = BIT(3),
+		.enable_is_inverted = true,
+		.vsel_reg = 0x82c,
+		.vsel_mask = GENMASK(15, 8),
+	},
 };
 
 static int sc2723_regulator_probe(struct platform_device *pdev)
@@ -301,9 +316,10 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 	struct regulator_config config = { .dev = dev };
 	struct sc2723_regulator *regulators;
 	struct regulator_dev *rdev;
+	struct device_node *sim2;
 	u32 code, power, selector;
 	u8 state;
-	int i, ret;
+	int i, ret, count = ARRAY_SIZE(sc2723_rf_descs) - 1;
 
 	config.regmap = dev_get_regmap(dev->parent, NULL);
 	if (!config.regmap)
@@ -313,19 +329,28 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, ret, "Calibration state unavailable\n");
 	if (state)
 		return dev_err_probe(dev, -EINVAL, "Factory calibration invalid\n");
-	regulators = devm_kcalloc(dev, ARRAY_SIZE(sc2723_rf_descs),
-				  sizeof(*regulators), GFP_KERNEL);
+	sim2 = of_get_child_by_name(dev->of_node, "vddsim2");
+	if (of_device_is_available(sim2))
+		count++;
+	of_node_put(sim2);
+	regulators = devm_kcalloc(dev, count, sizeof(*regulators), GFP_KERNEL);
 	if (!regulators)
 		return -ENOMEM;
-	for (i = 0; i < ARRAY_SIZE(sc2723_rf_descs); i++) {
+	for (i = 0; i < count; i++) {
 		regulators[i].desc = sc2723_rf_descs[i];
 		ret = nvmem_cell_read_variable_le_u32(dev, sc2723_rf_descs[i].name,
 						      &code);
 		if (ret)
 			return dev_err_probe(dev, ret, "RF calibration unavailable\n");
-		ret = sc2723_rf_selector(code, i ? 6 : 7,
-					 sc2723_rf_descs[i].fixed_uV,
-					 i ? 1200000 : 600000, i ? 10000 : 3125);
+		if (i == 2) {
+			if (code >= 64)
+				return -EINVAL;
+			ret = (180 + ((int)code - 32) * 3000 / 1800) << 8;
+		} else {
+			ret = sc2723_rf_selector(code, i ? 6 : 7,
+						 sc2723_rf_descs[i].fixed_uV,
+						 i ? 1200000 : 600000, i ? 10000 : 3125);
+		}
 		if (ret < 0 || ret > sc2723_rf_descs[i].vsel_mask)
 			return dev_err_probe(dev, -EINVAL, "RF calibration out of range\n");
 		regulators[i].selector = ret;
@@ -333,7 +358,7 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 	ret = regmap_read(config.regmap, 0x814, &power);
 	if (ret)
 		return ret;
-	for (i = 0; i < ARRAY_SIZE(sc2723_rf_descs); i++) {
+	for (i = 0; i < count; i++) {
 		if (power & sc2723_rf_descs[i].enable_mask)
 			continue;
 		ret = regmap_read(config.regmap, sc2723_rf_descs[i].vsel_reg, &selector);
@@ -342,7 +367,7 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 		if ((selector & sc2723_rf_descs[i].vsel_mask) != regulators[i].selector)
 			return dev_err_probe(dev, -EINVAL, "RF voltage already differs\n");
 	}
-	for (i = 0; i < ARRAY_SIZE(sc2723_rf_descs); i++) {
+	for (i = 0; i < count; i++) {
 		config.driver_data = &regulators[i];
 		rdev = devm_regulator_register(dev, &regulators[i].desc, &config);
 		if (IS_ERR(rdev))
