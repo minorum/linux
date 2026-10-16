@@ -31,7 +31,8 @@
 #define CLK_AP_TMR2_EB	25
 #define CLK_MPLL		26
 #define CLK_MPLL_DIV32	27
-#define CLK_AON_CLK_NUM	28
+#define CLK_LTEPLL	28
+#define CLK_AON_CLK_NUM	29
 
 #define CLK_EMC		0
 #define CLK_AON_MUX_NUM	1
@@ -55,6 +56,8 @@
 #define CLK_USB_EB		1
 #define CLK_SDIO1_EB		2
 #define CLK_EMMC_EB		3
-#define CLK_AP_AHB_GATE_NUM	4
+#define CLK_CA7_MCU		4
+#define CLK_CA7_AXI		5
+#define CLK_AP_AHB_GATE_NUM	6
 
 #endif

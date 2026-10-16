@@ -143,13 +143,14 @@ allOf:
       properties:
         clocks:
           minItems: 1
-          maxItems: 3
+          maxItems: 4
         clock-names:
           minItems: 1
           items:
             - const: sdio0
             - const: sdio1
             - const: emmc
+            - const: ext-26m
       required:
         - clocks
         - clock-names
