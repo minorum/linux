@@ -48,6 +48,7 @@ properties:
           - sprd,sc9860-eic-latch
           - sprd,sc9860-eic-async
           - sprd,sc9860-eic-sync
+          - sprd,sc2723-eic
           - sprd,sc2731-eic
       - items:
           - enum:
