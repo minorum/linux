@@ -9,6 +9,16 @@ if SPRD_COMMON_CLK
 
 # SoC Drivers
 
+config SPRD_SC9830_GPU_CLK
+	tristate "Spreadtrum SC9830 GPU clock"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on PM_GENERIC_DOMAINS
+	help
+	  Support the GPU clock mux and divider on Spreadtrum SC9830.
+	  The provider acquires the GPU power domain before register access
+	  and supports the stock GPU clock sources through the common clock
+	  framework. Say Y to enable it for a built-in GPU power provider.
+
 config SPRD_SC9830_CLK
 	bool "Support for the Spreadtrum SC9830 clocks"
 	depends on SPRD_COMMON_CLK=y

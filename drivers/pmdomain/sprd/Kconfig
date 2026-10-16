@@ -1,4 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0-only
+config SC9830_GPU_PD
+	bool "Spreadtrum SC9830 GPU power domain"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && PM && COMMON_CLK
+	select MFD_SYSCON
+	select PM_GENERIC_DOMAINS
+	help
+	  Support GPU power sequencing on Spreadtrum SC9830.
+	  The provider retains clock configuration across power cycles and
+	  waits for stable power status before allowing GPU register access.
+	  Power-on failures prevent further consumer activation.
+
 config SC9830_MM_PD
 	bool "Spreadtrum SC9830 multimedia power domain"
 	depends on ARCH_SC9830 || COMPILE_TEST
