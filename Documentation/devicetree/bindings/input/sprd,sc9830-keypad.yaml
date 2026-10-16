@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/sprd,sc9830-keypad.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 matrix keypad
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+allOf:
+  - $ref: matrix-keymap.yaml#
+  - $ref: input.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-keypad
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: APB interface gate
+      - description: RTC scan gate
+
+  clock-names:
+    items:
+      - const: apb
+      - const: rtc
+
+  resets:
+    maxItems: 1
+
+  keypad,num-rows:
+    minimum: 1
+    maximum: 8
+
+  keypad,num-columns:
+    minimum: 1
+    maximum: 8
+
+  linux,keymap: true
+  autorepeat: true
+  wakeup-source: true
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - resets
+  - keypad,num-rows
+  - keypad,num-columns
+  - linux,keymap
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/input/input.h>
+    keypad@40250000 {
+        compatible = "sprd,sc9830-keypad";
+        reg = <0x40250000 0x1000>;
+        interrupts = <0 36 4>;
+        clocks = <&aon_gate 30>, <&aon_gate 31>;
+        clock-names = "apb", "rtc";
+        resets = <&aon_gate 8>;
+        keypad,num-rows = <2>;
+        keypad,num-columns = <3>;
+        linux,keymap = <MATRIX_KEY(0, 0, KEY_VOLUMEUP)
+                        MATRIX_KEY(0, 1, KEY_VOLUMEUP)
+                        MATRIX_KEY(0, 2, KEY_HOMEPAGE)>;
+        wakeup-source;
+    };
