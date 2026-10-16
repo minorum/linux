@@ -42,7 +42,6 @@ static int sc9830_gpu_clk_probe(struct platform_device *pdev)
 	gpu->div.shift = 4;
 	gpu->div.width = 2;
 	gpu->div.lock = &gpu->lock;
-	gpu->div.flags = CLK_DIVIDER_ROUND_CLOSEST;
 	hw = devm_clk_hw_register_composite_pdata(dev, "sc9830-gpu-core", parents,
 					       ARRAY_SIZE(parents), &gpu->mux.hw,
 					       &clk_mux_ops, &gpu->div.hw,

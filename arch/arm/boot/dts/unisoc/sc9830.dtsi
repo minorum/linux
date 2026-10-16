@@ -181,12 +181,12 @@
 		gpu: gpu@60000000 {
 			compatible = "sprd,sc9830-mali", "arm,mali-400";
 			reg = <0x60000000 0x10000>;
-			interrupts = <39 IRQ_TYPE_LEVEL_HIGH>,
-				     <39 IRQ_TYPE_LEVEL_HIGH>,
-				     <39 IRQ_TYPE_LEVEL_HIGH>,
-				     <39 IRQ_TYPE_LEVEL_HIGH>,
-				     <39 IRQ_TYPE_LEVEL_HIGH>,
-				     <39 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "gp", "gpmmu", "pp0", "ppmmu0",
 					  "pp1", "ppmmu1";
 			clocks = <&aon_gate CLK_GPU_EB>, <&gpu_clk>;
