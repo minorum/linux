@@ -79,6 +79,22 @@
 	status = "disabled";
 };
 
+&adi {
+	status = "okay";
+
+	pmic@0 {
+		compatible = "sprd,sc2723";
+		reg = <0>;
+		spi-max-frequency = <26000000>;
+		interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+};
+
 &pinctrl {
 	emmc_data_default: emmc-data-pins {
 		function = "emmc";
