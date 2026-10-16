@@ -29,7 +29,9 @@
 #define CLK_AP_TMR0_EB	23
 #define CLK_AP_TMR1_EB	24
 #define CLK_AP_TMR2_EB	25
-#define CLK_AON_CLK_NUM	26
+#define CLK_MPLL		26
+#define CLK_MPLL_DIV32	27
+#define CLK_AON_CLK_NUM	28
 
 #define CLK_EMC		0
 #define CLK_AON_MUX_NUM	1

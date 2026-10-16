@@ -110,7 +110,7 @@ static unsigned long sc9830_twpll_recalc(struct clk_hw *hw,
 	if (!ret)
 		ret = sc9830_twpll_decode(cfg[0], cfg[1], parent_rate, &rate);
 	if (ret) {
-		pr_debug_ratelimited("SC9830 TWPLL rate unavailable: %d\n", ret);
+		pr_debug_ratelimited("SC9830 PLL rate unavailable: %d\n", ret);
 		return 0;
 	}
 	return rate;
@@ -125,6 +125,15 @@ static struct sprd_clk_common twpll = {
 	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-twpll", "ext-26m",
 				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
 };
+
+static struct sprd_clk_common mpll = {
+	.reg = 0x44,
+	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-mpll", "ext-26m",
+				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
+};
+
+static CLK_FIXED_FACTOR_HW(mpll_32, "sc9830-mpll-div32", &mpll.hw,
+			   32, 1, CLK_GET_RATE_NOCACHE);
 
 static int sc9830_dpll_decode(u32 cfg1, u32 cfg2, unsigned long parent_rate,
 			      unsigned long *rate)
@@ -213,7 +222,7 @@ static const struct clk_parent_data aux0_parents[] = {
 	{ .fw_name = "ext-4m" },
 	{ .fw_name = "dpll-42m" },
 	{ .hw = &twpll_48m.hw },
-	{ .fw_name = "mpll-56m" },
+	{ .hw = &mpll_32.hw },
 };
 
 static SPRD_MUX_CLK_DATA(aux0_mux, "sc9830-aux0-mux", aux0_parents,
@@ -286,6 +295,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 	&splk_eb.common,
 	&sindrv.common,
 	&twpll,
+	&mpll,
 	&dpll,
 	&aux0_mux.common,
 	&aux0_eb.common,
@@ -303,6 +313,8 @@ static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 		[CLK_SPLK_EB] = &splk_eb.common.hw,
 		[CLK_SINDRV] = &sindrv.common.hw,
 		[CLK_TWPLL] = &twpll.hw,
+		[CLK_MPLL] = &mpll.hw,
+		[CLK_MPLL_DIV32] = &mpll_32.hw,
 		[CLK_TWPLL_48M] = &twpll_48m.hw,
 		[CLK_TWPLL_51M2] = &twpll_51m2.hw,
 		[CLK_TWPLL_153M6] = &twpll_153m6.hw,
