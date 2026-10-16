@@ -32,7 +32,8 @@
 #define CLK_MPLL		26
 #define CLK_MPLL_DIV32	27
 #define CLK_LTEPLL	28
-#define CLK_AON_CLK_NUM	29
+#define CLK_GPU_EB	29
+#define CLK_AON_CLK_NUM	30
 
 #define CLK_EMC		0
 #define CLK_AON_MUX_NUM	1
