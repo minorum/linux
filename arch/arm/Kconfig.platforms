@@ -163,6 +163,7 @@ config ARCH_SC9830
 	bool "Spreadtrum SC9830"
 	depends on ARCH_MULTI_V7
 	select ARM_GIC
+	select HAVE_SMP
 	select COMMON_CLK
 	select SC9830_TIMER
 	select SC9830_INTC
@@ -171,7 +172,7 @@ config ARCH_SC9830
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
 	help
-	  Single-CPU support for SC9830, including the interrupt controller,
+	  Support for SC9830, including the interrupt controller,
 	  timer and peripheral clock providers. DDR initialization, PLL
 	  programming and PHY power remain provided by firmware.
 
