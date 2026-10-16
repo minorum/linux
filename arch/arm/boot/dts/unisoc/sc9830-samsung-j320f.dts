@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+
+#include "sc9830.dtsi"
+
+/ {
+	model = "Samsung Galaxy J3 SM-J320F";
+	compatible = "samsung,j320f", "sprd,sc9830";
+
+	chosen {
+		bootargs = "console=ttyGS0 loglevel=7 maxcpus=1 clk_ignore_unused";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x60000000>;
+	};
+
+	ext_32k: clock-32k {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+	};
+
+	ext_26m: clock-26m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ddr-training@80000000 {
+			reg = <0x80000000 0x1000>;
+			no-map;
+		};
+
+		debug@86a00000 {
+			reg = <0x86a00000 0x200000>;
+			no-map;
+		};
+
+		modem-shmem@87800000 {
+			reg = <0x87800000 0x500000>;
+			no-map;
+		};
+
+		modem@89600000 {
+			reg = <0x89600000 0x4280000>;
+			no-map;
+		};
+
+		multimedia@9b23b000 {
+			reg = <0x9b23b000 0x3939000>;
+			no-map;
+		};
+
+		framebuffer@9eb74000 {
+			reg = <0x9eb74000 0xa8c000>;
+			no-map;
+		};
+
+		bootloader@9f600000 {
+			reg = <0x9f600000 0x708000>;
+			no-map;
+		};
+
+		ddr-training@b0000000 {
+			reg = <0xb0000000 0x1000>;
+			no-map;
+		};
+	};
+};
+
+&ddr_pmu {
+	status = "disabled";
+};
+
+&usb {
+	status = "okay";
+	dr_mode = "peripheral";
+	maximum-speed = "full-speed";
+	phy_type = "utmi";
+};
