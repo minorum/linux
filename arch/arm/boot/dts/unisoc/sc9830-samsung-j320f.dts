@@ -79,6 +79,35 @@
 	status = "disabled";
 };
 
+&pinctrl {
+	emmc_data_default: emmc-data-pins {
+		function = "emmc";
+		groups = "emmc-data";
+		sprd,drive-level = <1>;
+		bias-pull-up;
+	};
+
+	emmc_clock_default: emmc-clock-pins {
+		function = "emmc";
+		groups = "emmc-clock";
+		sprd,drive-level = <2>;
+		bias-disable;
+	};
+};
+
+&emmc {
+	status = "okay";
+	assigned-clocks = <&ap_clk CLK_EMMC>;
+	assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&emmc_clock_default>, <&emmc_data_default>;
+	bus-width = <1>;
+	max-frequency = <12000000>;
+	non-removable;
+	no-sd;
+	no-sdio;
+};
+
 &usb {
 	status = "okay";
 	dr_mode = "peripheral";
