@@ -471,8 +471,8 @@ static const struct sprd_clk_desc sc9830_aon_full_desc = {
 	.hw_clks = &sc9830_aon_full_hws,
 };
 
-static SPRD_PLL_SC_GATE_CLK_FW_NAME(ltepll_request, "sc9830-ltepll-request",
-				   "ltepll", 0x9c, 0x1000, BIT(0), 0, 0, 1000);
+static SPRD_SC_GATE_CLK_FW_NAME(ltepll_request, "sc9830-ltepll-request",
+			       "ltepll", 0x9c, 0x1000, BIT(0), 0, 0);
 
 static CLK_FIXED_FACTOR_HW(ltepll_614m4, "sc9830-ltepll-614m4",
 			   &ltepll_request.common.hw, 2, 1,

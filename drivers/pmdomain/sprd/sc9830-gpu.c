@@ -24,9 +24,11 @@ struct sc9830_gpu {
 	struct regmap *pmu;
 	struct regmap *clock;
 	struct clk *bus;
+	struct clk *source;
 	u32 saved;
 	bool saved_valid;
 	bool bus_enabled;
+	bool source_enabled;
 	bool faulted;
 };
 
@@ -62,6 +64,13 @@ static int sc9830_gpu_start(struct sc9830_gpu *gpu)
 {
 	int ret;
 
+	if (!gpu->source_enabled) {
+		ret = clk_enable(gpu->source);
+		if (ret)
+			return ret;
+		gpu->source_enabled = true;
+		usleep_range(1000, 1100);
+	}
 	ret = regmap_write(gpu->pmu, GPU_CFG + GPU_CLEAR, GPU_FORCE_OFF);
 	if (ret)
 		return ret;
@@ -111,8 +120,11 @@ static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
 	ret = regmap_write(gpu->pmu, GPU_CFG + GPU_SET, GPU_FORCE_OFF);
 	if (!ret)
 		ret = sc9830_gpu_wait(gpu, GPU_OFF);
-	if (!ret)
+	if (!ret) {
+		clk_disable(gpu->source);
+		gpu->source_enabled = false;
 		return 0;
+	}
 	rollback = sc9830_gpu_start(gpu);
 	if (rollback) {
 		WRITE_ONCE(gpu->faulted, true);
@@ -163,6 +175,9 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 	gpu->bus = devm_clk_get_prepared(dev, "bus");
 	if (IS_ERR(gpu->bus))
 		return dev_err_probe(dev, PTR_ERR(gpu->bus), "GPU bus clock\n");
+	gpu->source = devm_clk_get_prepared(dev, "source");
+	if (IS_ERR(gpu->source))
+		return dev_err_probe(dev, PTR_ERR(gpu->source), "GPU source clock\n");
 	poll = read_poll_timeout(sc9830_gpu_state, ret, ret != -EAGAIN,
 				 50, 3000000, false, gpu, &state);
 	if (poll || ret)

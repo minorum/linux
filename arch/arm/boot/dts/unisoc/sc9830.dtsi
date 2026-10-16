@@ -28,8 +28,8 @@
 		#power-domain-cells = <0>;
 		sprd,pmu = <&pmu>;
 		sprd,gpu-clk = <&gpu_clk>;
-		clocks = <&aon_gate CLK_GPU_EB>;
-		clock-names = "bus";
+		clocks = <&aon_gate CLK_GPU_EB>, <&pmu CLK_PMU_LTEPLL_GATE>;
+		clock-names = "bus", "source";
 		status = "disabled";
 	};
 
