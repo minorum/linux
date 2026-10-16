@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/bitfield.h>
+#include <linux/delay.h>
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
@@ -127,10 +128,115 @@ static struct sprd_clk_common twpll = {
 				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
 };
 
+static bool mpll_fault, mcu_fault;
+
+static int sc9830_mpll_admit(struct clk_hw *hw);
+static int sc9830_cpu_set_parent(struct clk_hw *hw, u8 index);
+
+static int sc9830_cpu_determine_rate(struct clk_hw *hw, struct clk_rate_request *req)
+{
+	static const unsigned long rates[] = {
+		768000000, 900000000, 1200000000, 1350000000, 1500000000,
+	};
+	unsigned long chosen = 0;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(rates); i++) {
+		if (rates[i] < req->min_rate || rates[i] > req->max_rate)
+			continue;
+		chosen = rates[i];
+		if (chosen >= req->rate)
+			break;
+	}
+	if (!chosen)
+		return -EINVAL;
+	req->rate = chosen;
+	return 0;
+}
+
+static unsigned long sc9830_mpll_recalc(struct clk_hw *hw, unsigned long parent_rate)
+{
+	if (mpll_fault)
+		return 0;
+	return sc9830_twpll_recalc(hw, parent_rate);
+}
+
+static int sc9830_mpll_encode(unsigned long rate, u32 *cfg)
+{
+	u64 fraction;
+	u32 integer = rate / 26000000;
+	unsigned long decoded;
+	int ret;
+
+	if (rate < 768000000 || rate > 1500000000 || rate % 10000)
+		return -EINVAL;
+	fraction = DIV_ROUND_CLOSEST_ULL((u64)(rate / 10000 - integer * 2600) << 20,
+				       2600);
+	if (fraction > GENMASK(19, 0))
+		return -ERANGE;
+	cfg[0] = (cfg[0] & ~BIT(24)) | (fraction ? BIT(24) : 0);
+	cfg[1] = (cfg[1] & ~GENMASK(29, 24) & ~GENMASK(19, 0)) |
+		 FIELD_PREP(GENMASK(29, 24), integer) | (u32)fraction;
+	ret = sc9830_twpll_decode(cfg[0], cfg[1], 26000000, &decoded);
+	if (ret)
+		return ret;
+	return decoded == rate ? 0 : -ERANGE;
+}
+
+static int sc9830_mpll_set_rate(struct clk_hw *hw, unsigned long rate,
+			       unsigned long parent_rate)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	unsigned long old_rate;
+	u32 cfg[2], readback[2];
+	int ret;
+
+	if (mpll_fault || parent_rate != 26000000)
+		return -EIO;
+	ret = sc9830_mpll_admit(hw);
+	if (ret)
+		return ret;
+	ret = sc9830_twpll_read(clock, cfg);
+	if (ret)
+		return ret;
+	ret = sc9830_twpll_decode(cfg[0], cfg[1], parent_rate, &old_rate);
+	if (ret)
+		return ret;
+	ret = sc9830_mpll_encode(rate, cfg);
+	if (ret)
+		return ret;
+	ret = regmap_update_bits(clock->regmap, clock->reg + 4,
+				 GENMASK(29, 24) | GENMASK(19, 0), cfg[1]);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(clock->regmap, clock->reg, BIT(24), cfg[0]);
+	if (ret)
+		goto fault;
+	udelay(abs((long)(rate / 1000000) - (long)(old_rate / 1000000)) / 2);
+	ret = sc9830_twpll_read(clock, readback);
+	if (ret)
+		goto fault;
+	if (readback[0] != cfg[0] || readback[1] != cfg[1]) {
+		ret = -EIO;
+		goto fault;
+	}
+	return 0;
+
+fault:
+	mpll_fault = true;
+	return ret;
+}
+
+static const struct clk_ops sc9830_mpll_ops = {
+	.recalc_rate = sc9830_mpll_recalc,
+	.determine_rate = sc9830_cpu_determine_rate,
+	.set_rate = sc9830_mpll_set_rate,
+};
+
 static struct sprd_clk_common mpll = {
 	.reg = 0x44,
 	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-mpll", "ext-26m",
-				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
+				      &sc9830_mpll_ops, CLK_GET_RATE_NOCACHE),
 };
 
 static CLK_FIXED_FACTOR_HW(mpll_32, "sc9830-mpll-div32", &mpll.hw,
@@ -628,6 +734,8 @@ static unsigned long sc9830_cpu_recalc(struct clk_hw *hw, unsigned long parent_r
 	u32 first[2], second[2], selector, divisor;
 	int attempt;
 
+	if (mcu_fault)
+		return 0;
 	for (attempt = 0; attempt < 3; attempt++) {
 		if (sc9830_cpu_read(clock, first))
 			return 0;
@@ -655,7 +763,8 @@ static unsigned long sc9830_cpu_recalc(struct clk_hw *hw, unsigned long parent_r
 			pll = selector == 4 ? &ltepll : &mpll;
 			if (!pll->regmap)
 				return 0;
-			rate = sc9830_twpll_recalc(&pll->hw, 26000000);
+			rate = selector == 6 ? sc9830_mpll_recalc(&pll->hw, 26000000) :
+				sc9830_twpll_recalc(&pll->hw, 26000000);
 			break;
 		default:
 			return 0;
@@ -670,7 +779,9 @@ static unsigned long sc9830_cpu_recalc(struct clk_hw *hw, unsigned long parent_r
 
 static const struct clk_ops sc9830_cpu_ops = {
 	.get_parent = sc9830_emc_get_parent,
+	.set_parent = sc9830_cpu_set_parent,
 	.recalc_rate = sc9830_cpu_recalc,
+	.determine_rate = sc9830_cpu_determine_rate,
 };
 
 static struct sprd_clk_common mcu_clk = {
@@ -679,6 +790,95 @@ static struct sprd_clk_common mcu_clk = {
 					  &sc9830_cpu_ops,
 					  CLK_IS_CRITICAL | CLK_GET_RATE_NOCACHE),
 };
+
+static int sc9830_mpll_admit(struct clk_hw *hw)
+{
+	u32 cfg[2], gates, aux0, aux12, chip;
+	int ret;
+
+	if (mcu_fault || !mcu_clk.regmap || !emc_clk.regmap ||
+	    !twpll.regmap || !mpll.regmap)
+		return -ENODEV;
+	if (clk_hw_is_prepared(hw))
+		return -EBUSY;
+	ret = sc9830_cpu_read(&mcu_clk, cfg);
+	if (ret)
+		return ret;
+	if (FIELD_GET(GENMASK(2, 0), cfg[0]) != 2 || (cfg[1] & GENMASK(6, 4)))
+		return -EBUSY;
+	if (sc9830_twpll_recalc(&twpll.hw, 26000000) != 1536000000)
+		return -EIO;
+	ret = regmap_read(mpll.regmap, 0xfc, &chip);
+	if (ret)
+		return ret;
+	if (chip != 0x6b4c5300)
+		return -EOPNOTSUPP;
+	ret = regmap_read(mpll.regmap, 0x4, &gates);
+	if (ret)
+		return ret;
+	ret = regmap_read(mpll.regmap, 0x88, &aux0);
+	if (ret)
+		return ret;
+	ret = regmap_read(emc_clk.regmap, 0x88, &aux12);
+	if (ret)
+		return ret;
+	if (((gates & BIT(2)) && FIELD_GET(GENMASK(3, 0), aux0) == 6) ||
+	    ((gates & BIT(3)) && FIELD_GET(GENMASK(7, 4), aux12) == 6) ||
+	    ((gates & BIT(4)) && FIELD_GET(GENMASK(11, 8), aux12) == 6))
+		return -EBUSY;
+	return 0;
+}
+
+static int sc9830_cpu_set_parent(struct clk_hw *hw, u8 index)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	struct clk_rate_request request;
+	unsigned long target;
+	u32 cfg[2], readback[2], chip;
+	int ret;
+
+	if (mcu_fault || (index != 2 && index != 6) || !twpll.regmap || !mpll.regmap)
+		return -EINVAL;
+	ret = regmap_read(mpll.regmap, 0xfc, &chip);
+	if (ret)
+		return ret;
+	if (chip != 0x6b4c5300)
+		return -EOPNOTSUPP;
+	ret = sc9830_cpu_read(clock, cfg);
+	if (ret)
+		return ret;
+	if ((cfg[1] & GENMASK(6, 4)) ||
+	    (FIELD_GET(GENMASK(2, 0), cfg[0]) != 2 &&
+	     FIELD_GET(GENMASK(2, 0), cfg[0]) != 6))
+		return -EOPNOTSUPP;
+	if (sc9830_twpll_recalc(&twpll.hw, 26000000) != 1536000000)
+		return -EIO;
+	target = index == 2 ? 768000000 : sc9830_mpll_recalc(&mpll.hw, 26000000);
+	request = (struct clk_rate_request) {
+		.rate = target, .min_rate = target, .max_rate = target,
+	};
+	if (sc9830_cpu_determine_rate(hw, &request))
+		return -EOPNOTSUPP;
+	if (!target || (u64)target >
+	    675000000ULL * (FIELD_GET(GENMASK(10, 8), cfg[1]) + 1))
+		return -ERANGE;
+	ret = regmap_update_bits(clock->regmap, clock->reg, GENMASK(2, 0), index);
+	if (ret)
+		goto fault;
+	ret = sc9830_cpu_read(clock, readback);
+	if (ret)
+		goto fault;
+	if (readback[0] != ((cfg[0] & ~GENMASK(2, 0)) | index) ||
+	    readback[1] != cfg[1]) {
+		ret = -EIO;
+		goto fault;
+	}
+	return 0;
+
+fault:
+	mcu_fault = true;
+	return ret;
+}
 
 static SPRD_DIV_CLK_HW(ca7_axi, "sc9830-ca7-axi", &mcu_clk.hw,
 		       0x38, 8, 3, CLK_GET_RATE_NOCACHE);
