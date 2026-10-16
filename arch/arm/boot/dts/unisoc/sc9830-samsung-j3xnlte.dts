@@ -65,6 +65,7 @@
 
 	aliases {
 		serial0 = &uart0;
+		i2c1 = &i2c1;
 		i2c2 = &i2c2;
 		spi0 = &adi;
 	};
@@ -329,6 +330,24 @@
 	};
 };
 
+&i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+	assigned-clocks = <&ap_clk CLK_I2C1>;
+	assigned-clock-rates = <26000000>;
+
+	touchscreen@50 {
+		compatible = "imagis,ist3038c";
+		reg = <0x50>;
+		interrupt-parent = <&gpio>;
+		interrupts = <142 IRQ_TYPE_EDGE_FALLING>;
+		vdd-supply = <&vddsim2>;
+		touchscreen-size-x = <720>;
+		touchscreen-size-y = <1280>;
+		linux,keycodes = <KEY_APPSELECT KEY_BACK>;
+	};
+};
+
 &i2c2 {
 	status = "okay";
 	assigned-clocks = <&ap_clk CLK_I2C2>;
@@ -433,9 +452,9 @@
 		regulators {
 			compatible = "sprd,sc2723-regulator";
 			nvmem-cells = <&calibration_state>, <&vddcon_calibration>,
-				      <&wifipa_calibration>;
+				      <&wifipa_calibration>, <&sim2_calibration>;
 			nvmem-cell-names = "calibration_state", "vddcon",
-					   "vddwifipa";
+					   "vddwifipa", "vddsim2";
 
 			vddarm: vddarm {
 				regulator-name = "vddarm";
@@ -455,6 +474,12 @@
 				regulator-name = "vddwifipa";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
+			};
+
+			vddsim2: vddsim2 {
+				regulator-name = "vddsim2";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
 			};
 		};
 
@@ -495,6 +520,11 @@
 			wifipa_calibration: wifipa-calibration@14,4 {
 				reg = <20 2>;
 				bits = <4 6>;
+			};
+
+			sim2_calibration: sim2-calibration@19,6 {
+				reg = <25 2>;
+				bits = <6 6>;
 			};
 
 			fgu_voltage_calibration: fgu-voltage@c {

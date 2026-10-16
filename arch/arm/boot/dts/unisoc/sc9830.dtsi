@@ -240,8 +240,9 @@
 			compatible = "sprd,sc9830-apapb-gate";
 			reg = <0x71300000 0x3000>;
 			#clock-cells = <1>;
-			clocks = <&ap_clk CLK_I2C2>, <&ap_clk CLK_UART0>;
-			clock-names = "i2c2", "uart0";
+			clocks = <&ap_clk CLK_I2C2>, <&ap_clk CLK_UART0>,
+				 <&ap_clk CLK_I2C1>;
+			clock-names = "i2c2", "uart0", "i2c1";
 			status = "okay";
 		};
 
@@ -258,6 +259,17 @@
 			clocks = <&apapb CLK_UART0_EB>, <&ap_clk CLK_UART0>,
 				 <&aon_gate CLK_TWPLL_48M>;
 			clock-names = "enable", "uart", "source";
+			status = "disabled";
+		};
+
+		i2c1: i2c@70600000 {
+			compatible = "sprd,sc9830-i2c";
+			reg = <0x70600000 0x1000>;
+			interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ap_clk CLK_I2C1>, <&apapb CLK_I2C1_EB>;
+			clock-names = "i2c", "enable";
+			#address-cells = <1>;
+			#size-cells = <0>;
 			status = "disabled";
 		};
 
