@@ -79,7 +79,7 @@
 		key-power {
 			label = "Power";
 			linux,code = <KEY_POWER>;
-			gpios = <&pmic_eic 2 GPIO_ACTIVE_LOW>;
+			gpios = <&pmic_eic 2 GPIO_ACTIVE_HIGH>;
 			debounce-interval = <5>;
 			wakeup-source;
 		};
@@ -87,7 +87,7 @@
 		key-volume-down {
 			label = "Volume Down";
 			linux,code = <KEY_VOLUMEDOWN>;
-			gpios = <&pmic_eic 10 GPIO_ACTIVE_LOW>;
+			gpios = <&pmic_eic 10 GPIO_ACTIVE_HIGH>;
 			debounce-interval = <5>;
 		};
 	};
