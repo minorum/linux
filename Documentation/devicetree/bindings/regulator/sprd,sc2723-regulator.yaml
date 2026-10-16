@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/regulator/sprd,sc2723-regulator.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Spreadtrum SC2723 connectivity regulators
+title: Spreadtrum SC2723 CPU and connectivity regulators
 
 maintainers:
   - Orson Zhai <orsonzhai@gmail.com>
@@ -17,6 +17,9 @@ description: |
   Calibration state bit 7 at eFuse byte 0 must be clear. The connectivity
   trim occupies bits 105 through 111; the Wi-Fi PA trim occupies bits
   164 through 169. The trims are centered at 64 and 32 respectively.
+  The always-on CPU supply supports linear or coarse/trim selector encoding,
+  selected by the PMIC mode register. CPU voltages describe raw selector values;
+  request-dependent factory compensation is applied by the CPU OPP policy.
 
 properties:
   compatible:
@@ -33,6 +36,25 @@ properties:
       - const: calibration_state
       - const: vddcon
       - const: vddwifipa
+
+  vddarm:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        minimum: 600000
+        maximum: 3125000
+      regulator-max-microvolt:
+        minimum: 600000
+        maximum: 3125000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
 
   vddcon:
     type: object
