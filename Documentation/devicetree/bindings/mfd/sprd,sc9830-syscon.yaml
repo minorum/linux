@@ -21,6 +21,33 @@ properties:
   reg:
     maxItems: 1
 
+  '#clock-cells':
+    const: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    items:
+      - const: ltepll
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: sprd,sc9830-pmu
+    then:
+      dependentRequired:
+        '#clock-cells': [clocks, clock-names]
+        clocks: ['#clock-cells', clock-names]
+        clock-names: ['#clock-cells', clocks]
+    else:
+      properties:
+        '#clock-cells': false
+        clocks: false
+        clock-names: false
+
 required:
   - compatible
   - reg

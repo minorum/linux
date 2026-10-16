@@ -24,7 +24,7 @@ properties:
   clocks:
     items:
       - description: TWPLL 153.6 MHz
-      - description: TWPLL 614.4 MHz
+      - description: Requested LTEPLL divided by two, 614.4 MHz
       - description: TWPLL 256 MHz
       - description: TWPLL 307.2 MHz
       - description: TWPLL 384 MHz
