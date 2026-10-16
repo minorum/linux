@@ -617,7 +617,7 @@ static ssize_t cpumask_show(struct device *dev,
 {
 	struct sc9830_ddr_pmu *ddr = to_ddr(dev_get_drvdata(dev));
 
-	return cpumap_print_to_pagebuf(true, buf, cpumask_of(ddr->cpu));
+	return sysfs_emit(buf, "%*pbl\n", cpumask_pr_args(cpumask_of(ddr->cpu)));
 }
 static DEVICE_ATTR_RO(cpumask);
 
