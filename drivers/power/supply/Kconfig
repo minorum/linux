@@ -1189,11 +1189,12 @@ config MACSMC_POWER
 config CHARGER_SM5701
 	tristate "Silicon Mitus SM5701 input supply monitor"
 	depends on I2C
+	depends on LEDS_CLASS
 	select REGMAP_I2C
 	help
 	  Say Y here to monitor charger input presence on the SM5701.
-	  This driver provides read-only input status. It does not configure
-	  charging, boost or flash LED operation.
+	  This driver also supports the torch LED and restores the previous
+	  charger mode when the torch is turned off.
 
 	  To compile this driver as a module, choose M here: the module will
 	  be called sm5701.

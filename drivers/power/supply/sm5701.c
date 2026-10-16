@@ -2,7 +2,9 @@
 #include <linux/i2c.h>
 #include <linux/devm-helpers.h>
 #include <linux/interrupt.h>
+#include <linux/leds.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/pm.h>
 #include <linux/power_supply.h>
@@ -31,12 +33,21 @@ struct sm5701 {
 	int status;
 	int health;
 	int irq;
+	struct led_classdev torch;
+	/* Torch transitions. */
+	struct mutex torch_lock;
+	unsigned int saved_mode;
+	unsigned int saved_boost;
+	unsigned int saved_current;
+	unsigned int saved_timer;
+	bool torch_active;
+	bool torch_fault;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
 {
 	return reg <= SM5701_INT3 ||
-	       reg == SM5701_STATUS1 || reg == SM5701_STATUS2;
+	       (reg >= SM5701_STATUS1 && reg <= 0x15);
 }
 
 static bool sm5701_precious_reg(struct device *dev, unsigned int reg)
@@ -46,18 +57,160 @@ static bool sm5701_precious_reg(struct device *dev, unsigned int reg)
 
 static bool sm5701_writeable_reg(struct device *dev, unsigned int reg)
 {
-	return false;
+	return reg == 0x09 || reg == 0x0f || reg == 0x12 || reg == 0x14;
 }
 
 static const struct regmap_config sm5701_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
-	.max_register = SM5701_STATUS2,
+	.max_register = 0x15,
 	.cache_type = REGCACHE_NONE,
 	.readable_reg = sm5701_readable_reg,
 	.writeable_reg = sm5701_writeable_reg,
 	.precious_reg = sm5701_precious_reg,
 };
+
+static int sm5701_torch_off(struct sm5701 *data)
+{
+	int ret;
+
+	if (!data->torch_active)
+		return 0;
+	ret = regmap_update_bits(data->regmap, 0x0f, 3, 0);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x09, 7, data->saved_mode);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x14, 0x0f, data->saved_boost);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x12, 0x1f, data->saved_current);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x0f, BIT(4), data->saved_timer);
+	if (ret)
+		goto fault;
+	data->torch_active = false;
+	return 0;
+fault:
+	data->torch_fault = true;
+	return ret;
+}
+
+static int sm5701_torch_set(struct sm5701 *data, unsigned int brightness)
+{
+	unsigned int mode, boost, current_code, fled, revision, status;
+	int ret;
+
+	if (!brightness)
+		return sm5701_torch_off(data);
+	if (data->torch_fault)
+		return -EIO;
+	if (data->torch_active) {
+		ret = regmap_update_bits(data->regmap, 0x12, 0x1f, brightness - 1);
+		if (ret)
+			goto fault;
+		return 0;
+	}
+	ret = regmap_read(data->regmap, 0x09, &mode);
+	if (ret)
+		return ret;
+	if ((mode & 7) != 0 && (mode & 7) != 4)
+		return -EBUSY;
+	ret = regmap_read(data->regmap, 0x14, &boost);
+	if (ret)
+		return ret;
+	ret = regmap_read(data->regmap, 0x12, &current_code);
+	if (ret)
+		return ret;
+	ret = regmap_read(data->regmap, 0x0f, &fled);
+	if (ret)
+		return ret;
+	if ((fled & 3) == 1 || (fled & 3) == 2)
+		return -EBUSY;
+	ret = regmap_read(data->regmap, 0x15, &revision);
+	if (ret)
+		return ret;
+	ret = regmap_read(data->regmap, SM5701_STATUS1, &status);
+	if (ret)
+		return ret;
+	data->saved_mode = mode & 7;
+	data->saved_boost = boost & 0x0f;
+	data->saved_current = current_code & 0x1f;
+	data->saved_timer = fled & BIT(4);
+	data->torch_active = true;
+	ret = regmap_update_bits(data->regmap, 0x0f, BIT(4) | 3, 0);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x12, 0x1f, brightness - 1);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x14, 0x0f, 5);
+	if (ret)
+		goto fault;
+	mode = (mode & 4) && (status & SM5701_VBUSOK) && revision != 4 ? 5 : 1;
+	ret = regmap_update_bits(data->regmap, 0x09, 7, mode);
+	if (ret)
+		goto fault;
+	ret = regmap_update_bits(data->regmap, 0x0f, 3, 1);
+	if (!ret)
+		return 0;
+fault:
+	data->torch_fault = true;
+	sm5701_torch_off(data);
+	return ret;
+}
+
+static int sm5701_torch_brightness(struct led_classdev *led, enum led_brightness brightness)
+{
+	struct sm5701 *data = container_of(led, struct sm5701, torch);
+	int ret;
+
+	mutex_lock(&data->torch_lock);
+	ret = sm5701_torch_set(data, brightness);
+	mutex_unlock(&data->torch_lock);
+	return ret;
+}
+
+static void sm5701_torch_stop(void *arg)
+{
+	struct sm5701 *data = arg;
+	int ret;
+
+	mutex_lock(&data->torch_lock);
+	data->torch_fault = true;
+	ret = sm5701_torch_off(data);
+	mutex_unlock(&data->torch_lock);
+	if (ret)
+		dev_err(data->dev, "Failed to stop torch\n");
+}
+
+static int sm5701_register_torch(struct sm5701 *data)
+{
+	struct led_init_data init = {};
+	struct device_node *node;
+	u32 current_limit;
+	int ret;
+
+	node = of_get_child_by_name(data->dev->of_node, "led");
+	if (!node)
+		return 0;
+	ret = of_property_read_u32(node, "led-max-microamp", &current_limit);
+	if (ret || current_limit < 10000 || current_limit > 320000 || current_limit % 10000) {
+		of_node_put(node);
+		return -EINVAL;
+	}
+	data->torch.max_brightness = current_limit / 10000;
+	data->torch.brightness_set_blocking = sm5701_torch_brightness;
+	data->torch.flags = LED_CORE_SUSPENDRESUME;
+	init.fwnode = of_fwnode_handle(node);
+	ret = devm_add_action_or_reset(data->dev, sm5701_torch_stop, data);
+	if (!ret)
+		ret = devm_led_classdev_register_ext(data->dev, &data->torch, &init);
+	of_node_put(node);
+	return ret;
+}
 
 static int sm5701_input_health(unsigned int status)
 {
@@ -239,6 +392,7 @@ static int sm5701_probe(struct i2c_client *client)
 
 	data->dev = dev;
 	data->regmap = regmap;
+	mutex_init(&data->torch_lock);
 	ret = sm5701_read_state(data, &data->online, &data->present,
 				&data->status, &data->health);
 	if (ret)
@@ -264,6 +418,9 @@ static int sm5701_probe(struct i2c_client *client)
 			return dev_err_probe(dev, ret, "Failed to request interrupt\n");
 		data->irq = client->irq;
 	}
+	ret = sm5701_register_torch(data);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to register torch\n");
 	schedule_delayed_work(&data->poll, msecs_to_jiffies(2000));
 
 	return 0;
@@ -275,6 +432,11 @@ static const struct of_device_id sm5701_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sm5701_of_match);
 
+static void sm5701_shutdown(struct i2c_client *client)
+{
+	sm5701_torch_stop(i2c_get_clientdata(client));
+}
+
 static struct i2c_driver sm5701_driver = {
 	.driver = {
 		.name = "sm5701",
@@ -282,6 +444,7 @@ static struct i2c_driver sm5701_driver = {
 		.pm = pm_sleep_ptr(&sm5701_pm_ops),
 	},
 	.probe = sm5701_probe,
+	.shutdown = sm5701_shutdown,
 };
 module_i2c_driver(sm5701_driver);
 
