@@ -23,8 +23,18 @@ description: |
   request-dependent factory compensation is applied by the CPU OPP policy.
   The SIM2 trim occupies bits 206 through 211, centered at 32. Its trim is
   scaled from the factory 1.8 V reference to the requested 3 V supply.
+  The eMMC I/O and core supplies retain their boot-programmed 1.8 V and 3 V
+  selectors with OTP compensation enabled. Voltage changes are unsupported.
 
 allOf:
+  - if:
+      anyOf:
+        - required: [vddarm]
+        - required: [vddcon]
+        - required: [vddwifipa]
+        - required: [vddsim2]
+    then:
+      required: [nvmem-cells, nvmem-cell-names]
   - if:
       required: [vddsim2]
     then:
@@ -37,6 +47,40 @@ allOf:
 properties:
   compatible:
     const: sprd,sc2723-regulator
+
+  vddgen0:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 1800000
+      regulator-max-microvolt:
+        const: 1800000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
+
+  vddemmccore:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 3000000
+      regulator-max-microvolt:
+        const: 3000000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
 
   nvmem-cells:
     minItems: 3
@@ -105,8 +149,10 @@ properties:
 
 required:
   - compatible
-  - nvmem-cells
-  - nvmem-cell-names
+
+anyOf:
+  - required: [nvmem-cells, nvmem-cell-names]
+  - required: [vddgen0, vddemmccore]
 
 additionalProperties: false
 ...
