@@ -957,7 +957,7 @@ static const struct sdhci_ops sc9830_ops = {
 static const struct sdhci_pltfm_data sc9830_data = {
 	.ops = &sc9830_ops,
 	.quirks = SDHCI_QUIRK_BROKEN_ADMA |
-		  SDHCI_QUIRK_FORCE_1_BIT_DATA |
+		  SDHCI_QUIRK_NO_HISPD_BIT |
 		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
 		  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
@@ -1053,11 +1053,11 @@ static int sc9830_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "reading capabilities\n");
 	sdhci_read_caps(host);
 	dev_info(&pdev->dev, "version %x caps %x\n", host->version, host->caps);
-	host->caps &= ~(SDHCI_CAN_DO_8BIT | SDHCI_CAN_64BIT);
-	if (!sdio) {
-		host->caps &= ~SDHCI_CAN_DO_HISPD;
+	host->caps &= ~SDHCI_CAN_64BIT;
+	if (sdio)
+		host->caps &= ~SDHCI_CAN_DO_8BIT;
+	else
 		host->mmc->ocr_avail = MMC_VDD_30_31;
-	}
 	host->caps1 = 0;
 	ret = sdhci_setup_host(host);
 	if (ret)
