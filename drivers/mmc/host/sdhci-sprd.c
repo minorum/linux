@@ -938,6 +938,17 @@ static void sc9830_set_power(struct sdhci_host *host, unsigned char mode,
 {
 }
 
+static int sc9830_voltage_switch(struct mmc_host *mmc, struct mmc_ios *ios)
+{
+	int ret;
+
+	if (IS_ERR(mmc->supply.vqmmc))
+		return ios->signal_voltage == MMC_SIGNAL_VOLTAGE_330 ? 0 : -EINVAL;
+
+	ret = mmc_regulator_set_vqmmc(mmc, ios);
+	return ret < 0 ? ret : 0;
+}
+
 static unsigned int sc9830_get_min_clock(struct sdhci_host *host)
 {
 	return DIV_ROUND_UP(sdhci_pltfm_clk_get_max_clock(host), 2048);
@@ -1039,6 +1050,8 @@ static int sc9830_probe(struct platform_device *pdev)
 		return PTR_ERR(host);
 	pltfm = sdhci_priv(host);
 	pltfm->clk = clk;
+	if (!sdio)
+		host->mmc_host_ops.start_signal_voltage_switch = sc9830_voltage_switch;
 	if (sdio) {
 		ret = device_property_read_u32_array(&pdev->dev, "sprd,phy-delay",
 						     sdhci_pltfm_priv(pltfm), 3);
