@@ -120,7 +120,8 @@
 		rtc@80 {
 			compatible = "sprd,sc2723-rtc";
 			reg = <0x80>;
-			status = "disabled";
+			interrupts = <2>;
+			start-year = <2015>;
 		};
 
 		gpio@100 {
