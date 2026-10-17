@@ -91,7 +91,67 @@
 		#interrupt-cells = <1>;
 		#address-cells = <1>;
 		#size-cells = <0>;
-		status = "disabled";
+		regulators {
+			compatible = "sprd,sc2723-regulator";
+
+			emmc_vqmmc: vddgen0 {
+				regulator-name = "vdd-emmc-1p8";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-always-on;
+				regulator-boot-on;
+			};
+
+			emmc_vmmc: vddemmccore {
+				regulator-name = "vdd-emmc-3p0";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-always-on;
+				regulator-boot-on;
+			};
+		};
+
+		watchdog@40 {
+			compatible = "sprd,sc2723-wdt";
+			reg = <0x40>;
+			status = "disabled";
+		};
+
+		rtc@80 {
+			compatible = "sprd,sc2723-rtc";
+			reg = <0x80>;
+			status = "disabled";
+		};
+
+		gpio@100 {
+			compatible = "sprd,sc2723-eic";
+			reg = <0x100>;
+			status = "disabled";
+		};
+
+		adc@300 {
+			compatible = "sprd,sc2723-adc";
+			reg = <0x300>;
+			status = "disabled";
+		};
+
+		efuse@200 {
+			compatible = "sprd,sc2723-efuse";
+			reg = <0x200>;
+			status = "disabled";
+		};
+
+		fuel-gauge@500 {
+			compatible = "sprd,sc2723-fgu";
+			reg = <0x500>;
+			status = "disabled";
+		};
+
+		vibrator@8f8 {
+			compatible = "sprd,sc2723-vibrator";
+			reg = <0x8f8>;
+			status = "disabled";
+		};
 	};
 };
 
@@ -113,6 +173,8 @@
 
 &emmc {
 	status = "okay";
+	vmmc-supply = <&emmc_vmmc>;
+	vqmmc-supply = <&emmc_vqmmc>;
 	assigned-clocks = <&ap_clk CLK_EMMC>;
 	assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
 	pinctrl-names = "default";

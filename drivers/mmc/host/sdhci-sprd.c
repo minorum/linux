@@ -938,6 +938,20 @@ static void sc9830_set_power(struct sdhci_host *host, unsigned char mode,
 {
 }
 
+static void sc9830_emmc_set_power(struct sdhci_host *host, unsigned char mode,
+				  unsigned short vdd)
+{
+	struct mmc_host *mmc = host->mmc;
+	int ret;
+
+	if (IS_ERR(mmc->supply.vmmc))
+		return;
+	ret = mmc_regulator_set_ocr(mmc, mmc->supply.vmmc,
+				    mode == MMC_POWER_OFF ? 0 : vdd);
+	if (ret)
+		dev_err(mmc_dev(mmc), "Card supply request failed: %d\n", ret);
+}
+
 static int sc9830_voltage_switch(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	int ret;
@@ -957,7 +971,7 @@ static unsigned int sc9830_get_min_clock(struct sdhci_host *host)
 static const struct sdhci_ops sc9830_ops = {
 	.write_b = sc9830_writeb,
 	.set_clock = sc9830_set_clock,
-	.set_power = sc9830_set_power,
+	.set_power = sc9830_emmc_set_power,
 	.set_bus_width = sdhci_set_bus_width,
 	.get_max_clock = sdhci_pltfm_clk_get_max_clock,
 	.get_min_clock = sc9830_get_min_clock,
