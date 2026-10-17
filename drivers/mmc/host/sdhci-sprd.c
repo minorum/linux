@@ -1020,6 +1020,71 @@ static bool sc9830_host(struct device *dev)
 	return data == &sc9830_data || data == &sc9830_sdio_data;
 }
 
+struct sc9830_host {
+	bool clock_owned;
+};
+
+static void sc9830_cleanup(void *data)
+{
+	struct sdhci_host *host = data;
+	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
+	struct sc9830_host *sc = sdhci_pltfm_priv(pltfm);
+	struct device *dev = mmc_dev(host->mmc);
+
+	if (pm_runtime_enabled(dev)) {
+		pm_runtime_disable(dev);
+		pm_runtime_dont_use_autosuspend(dev);
+	}
+	if (sc->clock_owned) {
+		clk_disable_unprepare(pltfm->clk);
+		sc->clock_owned = false;
+	}
+	pm_runtime_set_suspended(dev);
+}
+
+static int sc9830_runtime_suspend(struct device *dev)
+{
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
+	struct sc9830_host *sc = sdhci_pltfm_priv(pltfm);
+
+	sdhci_runtime_suspend_host(host);
+	sc9830_set_clock(host, 0);
+	clk_disable_unprepare(pltfm->clk);
+	sc->clock_owned = false;
+
+	return 0;
+}
+
+static int sc9830_runtime_resume(struct device *dev)
+{
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
+	struct sc9830_host *sc = sdhci_pltfm_priv(pltfm);
+	int ret;
+
+	ret = clk_prepare_enable(pltfm->clk);
+	if (ret)
+		return ret;
+	sc->clock_owned = true;
+	sdhci_runtime_resume_host(host, 1);
+
+	return 0;
+}
+
+static void sc9830_remove(struct platform_device *pdev)
+{
+	struct sdhci_host *host = platform_get_drvdata(pdev);
+	int ret;
+
+	ret = pm_runtime_get_sync(&pdev->dev);
+	if (ret < 0)
+		sdhci_remove_host(host, 1);
+	else
+		sdhci_pltfm_remove(pdev);
+	pm_runtime_put_noidle(&pdev->dev);
+}
+
 static int sc9830_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
@@ -1035,23 +1100,41 @@ static int sc9830_probe(struct platform_device *pdev)
 		if (IS_ERR(reset))
 			return PTR_ERR(reset);
 	}
-	clk = devm_clk_get_enabled(&pdev->dev, NULL);
+	clk = sdio ? devm_clk_get_enabled(&pdev->dev, NULL) :
+		     devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
-	if (!clk_get_rate(clk))
-		return -EINVAL;
 	if (!sdio) {
-		ret = reset_control_reset(reset);
+		ret = clk_prepare_enable(clk);
 		if (ret)
 			return ret;
 	}
-	host = sdhci_pltfm_init(pdev, data, sdio ? 3 * sizeof(u32) : 0);
-	if (IS_ERR(host))
-		return PTR_ERR(host);
+	if (!clk_get_rate(clk)) {
+		ret = -EINVAL;
+		goto disable_clk;
+	}
+	if (!sdio) {
+		ret = reset_control_reset(reset);
+		if (ret)
+			goto disable_clk;
+	}
+	host = sdhci_pltfm_init(pdev, data, sdio ? 3 * sizeof(u32) :
+						       sizeof(struct sc9830_host));
+	if (IS_ERR(host)) {
+		ret = PTR_ERR(host);
+		goto disable_clk;
+	}
 	pltfm = sdhci_priv(host);
 	pltfm->clk = clk;
-	if (!sdio)
+	if (!sdio) {
+		struct sc9830_host *sc = sdhci_pltfm_priv(pltfm);
+
+		sc->clock_owned = true;
+		ret = devm_add_action_or_reset(&pdev->dev, sc9830_cleanup, host);
+		if (ret)
+			return ret;
 		host->mmc_host_ops.start_signal_voltage_switch = sc9830_voltage_switch;
+	}
 	if (sdio) {
 		ret = device_property_read_u32_array(&pdev->dev, "sprd,phy-delay",
 						     sdhci_pltfm_priv(pltfm), 3);
@@ -1080,7 +1163,23 @@ static int sc9830_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto cleanup;
 	}
+	if (!sdio) {
+		ret = pm_runtime_set_active(&pdev->dev);
+		if (ret)
+			goto cleanup;
+		pm_runtime_get_noresume(&pdev->dev);
+		pm_runtime_set_autosuspend_delay(&pdev->dev, 50);
+		pm_runtime_use_autosuspend(&pdev->dev);
+		pm_suspend_ignore_children(&pdev->dev, true);
+		pm_runtime_enable(&pdev->dev);
+	}
 	ret = __sdhci_add_host(host);
+	if (!sdio) {
+		if (ret)
+			pm_runtime_put_noidle(&pdev->dev);
+		else
+			pm_runtime_put_autosuspend(&pdev->dev);
+	}
 	dev_info(&pdev->dev, "add host returned %d\n", ret);
 	if (!ret)
 		dev_info(&pdev->dev, "base clock %u minimum %u maximum %u\n",
@@ -1091,6 +1190,11 @@ static int sc9830_probe(struct platform_device *pdev)
 
 cleanup:
 	sdhci_cleanup_host(host);
+	return ret;
+
+disable_clk:
+	if (!sdio)
+		clk_disable_unprepare(clk);
 	return ret;
 }
 
@@ -1104,7 +1208,9 @@ static int sdhci_sprd_probe(struct platform_device *pdev)
 
 static void sdhci_sprd_remove(struct platform_device *pdev)
 {
-	if (sc9830_host(&pdev->dev))
+	if (of_device_get_match_data(&pdev->dev) == &sc9830_data)
+		sc9830_remove(pdev);
+	else if (sc9830_host(&pdev->dev))
 		sdhci_pltfm_remove(pdev);
 	else
 		sdhci_sprd_r11_remove(pdev);
@@ -1123,6 +1229,8 @@ static int sdhci_sprd_runtime_suspend(struct device *dev)
 	struct sdhci_host *host = dev_get_drvdata(dev);
 	struct sdhci_sprd_host *sprd_host = TO_SPRD_HOST(host);
 
+	if (of_device_get_match_data(dev) == &sc9830_data)
+		return sc9830_runtime_suspend(dev);
 	if (sc9830_host(dev))
 		return -EOPNOTSUPP;
 
@@ -1142,6 +1250,8 @@ static int sdhci_sprd_runtime_resume(struct device *dev)
 	struct sdhci_sprd_host *sprd_host = TO_SPRD_HOST(host);
 	int ret;
 
+	if (of_device_get_match_data(dev) == &sc9830_data)
+		return sc9830_runtime_resume(dev);
 	if (sc9830_host(dev))
 		return -EOPNOTSUPP;
 
@@ -1173,7 +1283,7 @@ clk_2x_disable:
 
 static int sdhci_sprd_suspend(struct device *dev)
 {
-	if (sc9830_host(dev))
+	if (of_device_get_match_data(dev) == &sc9830_sdio_data)
 		return sdhci_suspend_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_suspend(dev);
@@ -1181,7 +1291,7 @@ static int sdhci_sprd_suspend(struct device *dev)
 
 static int sdhci_sprd_resume(struct device *dev)
 {
-	if (sc9830_host(dev))
+	if (of_device_get_match_data(dev) == &sc9830_sdio_data)
 		return sdhci_resume_host(dev_get_drvdata(dev));
 
 	return pm_runtime_force_resume(dev);
