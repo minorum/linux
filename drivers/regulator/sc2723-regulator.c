@@ -257,6 +257,82 @@ static int sc2723_rf_enable(struct regulator_dev *rdev)
 	return ret;
 }
 
+static const struct regulator_ops sc2723_emmc_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+};
+
+static const struct regulator_desc sc2723_emmc_descs[] = {
+	{
+		.name = "vddgen0",
+		.of_match = "vddgen0",
+		.id = 3,
+		.ops = &sc2723_emmc_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = 1,
+		.fixed_uV = 1800000,
+		.enable_reg = 0x810,
+		.enable_mask = BIT(4),
+		.enable_is_inverted = true,
+		.vsel_reg = 0x820,
+		.vsel_mask = GENMASK(6, 0),
+	},
+	{
+		.name = "vddemmccore",
+		.of_match = "vddemmccore",
+		.id = 4,
+		.ops = &sc2723_emmc_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = 1,
+		.fixed_uV = 3000000,
+		.enable_reg = 0x810,
+		.enable_mask = BIT(7),
+		.enable_is_inverted = true,
+		.vsel_reg = 0x834,
+		.vsel_mask = GENMASK(15, 8),
+	},
+};
+
+static int sc2723_emmc_register(struct device *dev, struct regulator_config *config)
+{
+	static const unsigned int selectors[] = { 104, 180 << 8 };
+	static const unsigned int software_select[] = { BIT(13), BIT(7) };
+	struct regulator_dev *rdev;
+	struct device_node *node;
+	unsigned int power, source, selector;
+	int i, ret, count = 0;
+
+	for (i = 0; i < ARRAY_SIZE(sc2723_emmc_descs); i++) {
+		const struct regulator_desc *desc = &sc2723_emmc_descs[i];
+
+		node = of_get_child_by_name(dev->of_node, desc->of_match);
+		ret = of_device_is_available(node);
+		of_node_put(node);
+		if (!ret)
+			continue;
+		ret = regmap_read(config->regmap, 0x810, &power);
+		if (ret)
+			return ret;
+		ret = regmap_read(config->regmap, 0x8c0, &source);
+		if (ret)
+			return ret;
+		ret = regmap_read(config->regmap, desc->vsel_reg, &selector);
+		if (ret)
+			return ret;
+		if ((power & desc->enable_mask) || (source & software_select[i]) ||
+		    (selector & desc->vsel_mask) != selectors[i])
+			return dev_err_probe(dev, -EINVAL, "eMMC boot calibration differs\n");
+		rdev = devm_regulator_register(dev, desc, config);
+		if (IS_ERR(rdev))
+			return dev_err_probe(dev, PTR_ERR(rdev), "eMMC registration failed\n");
+		count++;
+	}
+	return count;
+}
+
 static const struct regulator_ops sc2723_rf_ops = {
 	.enable = sc2723_rf_enable,
 	.disable = regulator_disable_regmap,
@@ -324,6 +400,14 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 	config.regmap = dev_get_regmap(dev->parent, NULL);
 	if (!config.regmap)
 		return -ENODEV;
+	ret = sc2723_emmc_register(dev, &config);
+	if (ret < 0)
+		return ret;
+	if (ret && !of_property_present(dev->of_node, "nvmem-cells")) {
+		if (of_get_available_child_count(dev->of_node) != ret)
+			return -EINVAL;
+		return 0;
+	}
 	ret = nvmem_cell_read_u8(dev, "calibration_state", &state);
 	if (ret)
 		return dev_err_probe(dev, ret, "Calibration state unavailable\n");
