@@ -59,6 +59,12 @@
 	mmc-ddr-1_8v;
 };
 
+&usb {
+	maximum-speed = "high-speed";
+	g-tx-fifo-size = <64 64 256 256 64 64 64 64
+			  64 64 64 64 64 64 64>;
+};
+
 &panel_vci {
 	status = "okay";
 };
