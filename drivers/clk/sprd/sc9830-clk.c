@@ -630,6 +630,36 @@ static SPRD_COMP_CLK_DATA(uart0_clk, "sc9830-uart0", uart0_parents,
 static SPRD_MUX_CLK_DATA(emmc_clk, "sc9830-emmc", sdio0_parents,
 			 0x48, 0, 2, 0);
 
+static const struct clk_parent_data dispc_parents[] = {
+	{ .hw = &twpll_153m6.hw },
+	{ .hw = &twpll_192m.hw },
+	{ .hw = &twpll_256m.hw },
+	{ .hw = &twpll_307m2.hw },
+};
+
+static SPRD_COMP_CLK_DATA(dispc_clk, "sc9830-dispc", dispc_parents,
+			  0x2c, 0, 2, 8, 3, 0);
+
+static const struct clk_parent_data dispc_dbi_parents[] = {
+	{ .hw = &twpll_128m.hw },
+	{ .hw = &twpll_153m6.hw },
+	{ .hw = &twpll_192m.hw },
+	{ .hw = &twpll_256m.hw },
+};
+
+static SPRD_COMP_CLK_DATA(dispc_dbi_clk, "sc9830-dispc-dbi", dispc_dbi_parents,
+			  0x30, 0, 2, 8, 3, 0);
+
+static const struct clk_parent_data dispc_dpi_parents[] = {
+	{ .hw = &twpll_128m.hw },
+	{ .hw = &twpll_153m6.hw },
+	{ .hw = &twpll_192m.hw },
+	{ .hw = &twpll_384m.hw },
+};
+
+static SPRD_COMP_CLK_DATA(dispc_dpi_clk, "sc9830-dispc-dpi", dispc_dpi_parents,
+			  0x34, 0, 2, 8, 8, 0);
+
 static struct sprd_clk_common *sc9830_ap_clks[] = {
 	&i2c1_clk.common,
 	&i2c2_clk.common,
@@ -637,6 +667,9 @@ static struct sprd_clk_common *sc9830_ap_clks[] = {
 	&uart0_clk.common,
 	&sdio1_clk.common,
 	&emmc_clk.common,
+	&dispc_clk.common,
+	&dispc_dbi_clk.common,
+	&dispc_dpi_clk.common,
 };
 
 static struct clk_hw_onecell_data sc9830_ap_hws = {
@@ -647,6 +680,9 @@ static struct clk_hw_onecell_data sc9830_ap_hws = {
 		[CLK_UART0] = &uart0_clk.common.hw,
 		[CLK_SDIO1] = &sdio1_clk.common.hw,
 		[CLK_EMMC] = &emmc_clk.common.hw,
+		[CLK_DISPC] = &dispc_clk.common.hw,
+		[CLK_DISPC_DBI] = &dispc_dbi_clk.common.hw,
+		[CLK_DISPC_DPI] = &dispc_dpi_clk.common.hw,
 	},
 	.num = CLK_AP_CLK_NUM,
 };
