@@ -23,6 +23,10 @@ properties:
   reg:
     const: 1
 
+  interrupts:
+    maxItems: 1
+    description: Receive data ready interrupt
+
   nvmem-cells:
     maxItems: 1
 
