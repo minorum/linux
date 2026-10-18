@@ -793,6 +793,7 @@ static int s6e8aa5x01_j3_calibrate(struct s6e8aa5x01_ams561ra01_ctx *ctx)
 		}
 	}
 	if (id[0] != 0x40 || id[1] || (id[2] != 2 && id[2] != 3)) {
+		dev_err(&ctx->dsi->dev, "Unexpected panel ID %3ph\n", id);
 		ret = -ENODEV;
 		goto out;
 	}
@@ -826,6 +827,8 @@ static int s6e8aa5x01_j3_brightness(struct s6e8aa5x01_ams561ra01_ctx *ctx,
 		0xa2, 0x12, 0x03, 0x33, 0x21, 0x10, 0x07,
 	};
 
+	if (!ctx->panel.prepared)
+		return -EPIPE;
 	if (level >= ARRAY_SIZE(j3_candela))
 		return -EINVAL;
 	memcpy(gamma + 1, ctx->gamma[level], 33);
@@ -937,6 +940,8 @@ static int s6e8aa5x01_ams561ra01_enable(struct drm_panel *panel)
 	int ret;
 
 	if (ctx->desc->j3) {
+		if (!panel->prepared)
+			return -EPIPE;
 		mipi_dsi_dcs_exit_sleep_mode_multi(&dsi);
 		mipi_dsi_msleep(&dsi, 22);
 		if (dsi.accum_err)
