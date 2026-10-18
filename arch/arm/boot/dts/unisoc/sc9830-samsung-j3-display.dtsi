@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+&pinctrl {
+	panel_reset_default: panel-reset-pins {
+		function = "gpio";
+		groups = "panel-reset";
+	};
+};
+
 &dsi {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -7,6 +14,8 @@
 	panel@0 {
 		compatible = "samsung,s6e8aa5x01-j3-2016";
 		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_reset_default>;
 		vci-supply = <&panel_vci>;
 		reset-gpios = <&gpio 50 GPIO_ACTIVE_LOW>;
 
