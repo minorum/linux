@@ -13,7 +13,6 @@
 #include <linux/serdev.h>
 #include <linux/spinlock.h>
 #include <linux/unaligned.h>
-#include <linux/workqueue.h>
 
 #include "boot.h"
 #include "protocol.h"
@@ -34,7 +33,6 @@ struct sc2331_boot {
 	unsigned long wake_levels;
 	struct completion received;
 	struct completion ready;
-	struct delayed_work *rx_work;
 	bool ready_armed;
 	spinlock_t lock; /* RX */
 	struct sc2331_uart_stream rx;
@@ -62,19 +60,8 @@ static irqreturn_t sc2331_boot_wake(int irq, void *data)
 		boot->ready_armed = false;
 		complete(&boot->ready);
 	}
-	if (boot->rx_work)
-		mod_delayed_work(system_wq, boot->rx_work, 0);
 	spin_unlock_irqrestore(&boot->lock, flags);
 	return IRQ_HANDLED;
-}
-
-void sc2331_boot_set_rx_work(struct sc2331_boot *boot, struct delayed_work *work)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&boot->lock, flags);
-	boot->rx_work = work;
-	spin_unlock_irqrestore(&boot->lock, flags);
 }
 
 void sc2331_boot_arm(struct sc2331_boot *boot)

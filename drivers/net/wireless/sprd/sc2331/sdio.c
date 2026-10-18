@@ -3,12 +3,14 @@
 #include <linux/firmware.h>
 #include <linux/etherdevice.h>
 #include <linux/jiffies.h>
+#include <linux/interrupt.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of_net.h>
+#include <linux/of_irq.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 #include <linux/vmalloc.h>
@@ -39,6 +41,7 @@ struct sc2331_wifi {
 	struct ieee80211_channel channels[14];
 	struct mutex lock;
 	struct delayed_work rx_work;
+	int irq;
 	struct work_struct tx_work;
 	struct sk_buff_head tx_queue;
 	struct cfg80211_scan_request *scan;
@@ -561,7 +564,7 @@ static void sc2331_rx_work(struct work_struct *work)
 					   sc2331_runtime_event, wifi);
 	if (wifi->scan && wifi->scan_done)
 		sc2331_scan_finish(wifi, false);
-	else if (wifi->scan && ((ret && ret != -ETIMEDOUT) ||
+	else if (wifi->scan && ((ret && ret != -ETIMEDOUT && ret != -EAGAIN) ||
 				time_after_eq(jiffies, wifi->scan_deadline)))
 		sc2331_scan_finish(wifi, true);
 	if (wifi->connecting && time_after_eq(jiffies, wifi->connect_deadline)) {
@@ -913,6 +916,14 @@ static struct ieee80211_rate sc2331_rates[] = {
 static const u32 sc2331_ciphers[] = { WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_TKIP };
 static const u32 sc2331_akm_suites[] = { WLAN_AKM_SUITE_PSK };
 
+static irqreturn_t sc2331_rx_irq(int irq, void *data)
+{
+	struct sc2331_wifi *wifi = data;
+
+	mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
+	return IRQ_HANDLED;
+}
+
 static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot,
 				const u8 *mac)
 {
@@ -977,13 +988,29 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	ret = wiphy_register(wiphy);
 	if (ret)
 		goto free_netdev;
+	if (of_property_present(func->dev.of_node, "interrupts") ||
+	    of_property_present(func->dev.of_node, "interrupts-extended")) {
+		ret = of_irq_get(func->dev.of_node, 0);
+		if (ret <= 0) {
+			ret = ret ?: -EINVAL;
+			goto unregister_wiphy;
+		}
+		wifi->irq = ret;
+		ret = request_irq(wifi->irq, sc2331_rx_irq, 0,
+				  dev_name(&func->dev), wifi);
+		if (ret)
+			goto unregister_wiphy;
+	}
 	ret = register_netdev(netdev);
 	if (ret)
-		goto unregister_wiphy;
+		goto free_irq;
 	sdio_set_drvdata(func, wifi);
-	sc2331_boot_set_rx_work(boot, &wifi->rx_work);
 	dev_info(&func->dev, "SC2331 station interface registered\n");
 	return 0;
+free_irq:
+	if (wifi->irq)
+		free_irq(wifi->irq, wifi);
+	cancel_delayed_work_sync(&wifi->rx_work);
 unregister_wiphy:
 	wiphy_unregister(wiphy);
 free_netdev:
@@ -1139,7 +1166,8 @@ static void sc2331_sdio_remove(struct sdio_func *func)
 	sc2331_scan_finish(wifi, true);
 	sc2331_connection_down(wifi, WLAN_REASON_DEAUTH_LEAVING, true);
 	mutex_unlock(&wifi->lock);
-	sc2331_boot_set_rx_work(wifi->boot, NULL);
+	if (wifi->irq)
+		free_irq(wifi->irq, wifi);
 	cancel_delayed_work_sync(&wifi->rx_work);
 	cancel_work_sync(&wifi->tx_work);
 	unregister_netdev(wifi->wdev.netdev);
