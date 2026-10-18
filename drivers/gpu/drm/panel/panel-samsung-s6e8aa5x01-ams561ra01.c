@@ -782,7 +782,7 @@ static int s6e8aa5x01_j3_calibrate(struct s6e8aa5x01_ams561ra01_ctx *ctx)
 	if (ret)
 		goto out;
 	msleep(20);
-	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, sizeof(mtp));
+	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, 1);
 	if (ret < 0)
 		goto out;
 	for (i = 0; i < ARRAY_SIZE(id); i++) {
@@ -797,11 +797,17 @@ static int s6e8aa5x01_j3_calibrate(struct s6e8aa5x01_ams561ra01_ctx *ctx)
 		ret = -ENODEV;
 		goto out;
 	}
+	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, sizeof(mtp));
+	if (ret < 0)
+		goto out;
 	ret = mipi_dsi_dcs_read(ctx->dsi, 0xc8, mtp, sizeof(mtp));
 	if (ret != sizeof(mtp)) {
 		ret = ret < 0 ? ret : -EPROTO;
 		goto out;
 	}
+	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, sizeof(elvss));
+	if (ret < 0)
+		goto out;
 	ret = mipi_dsi_dcs_read(ctx->dsi, MCS_ELVSS, elvss, sizeof(elvss));
 	if (ret != sizeof(elvss)) {
 		ret = ret < 0 ? ret : -EPROTO;
