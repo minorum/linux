@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/dts-v1/;
 
-#include "sc9830.dtsi"
-#include "sc9830-samsung-j3-display.dtsi"
+#include "sc9830-samsung-j3xnlte.dts"
 
 / {
 	model = "Samsung Galaxy J3 SM-J320F";
@@ -12,202 +10,53 @@
 		bootargs = "console=ttyGS0 loglevel=7 maxcpus=1 clk_ignore_unused";
 	};
 
-	memory@80000000 {
-		device_type = "memory";
-		reg = <0x80000000 0x60000000>;
-	};
-
-	ext_32k: clock-32k {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <32768>;
-	};
-
-	ext_26m: clock-26m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <26000000>;
-	};
-
 	reserved-memory {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
-
-		ddr-training@80000000 {
-			reg = <0x80000000 0x1000>;
-			no-map;
-		};
-
-		debug@86a00000 {
-			reg = <0x86a00000 0x200000>;
-			no-map;
-		};
-
-		modem-shmem@87800000 {
-			reg = <0x87800000 0x500000>;
-			no-map;
-		};
-
 		modem@89600000 {
 			reg = <0x89600000 0x4280000>;
-			no-map;
-		};
-
-		multimedia@9b23b000 {
-			reg = <0x9b23b000 0x3939000>;
-			no-map;
-		};
-
-		framebuffer@9eb74000 {
-			reg = <0x9eb74000 0xa8c000>;
-			no-map;
-		};
-
-		bootloader@9f600000 {
-			reg = <0x9f600000 0x708000>;
-			no-map;
-		};
-
-		ddr-training@b0000000 {
-			reg = <0xb0000000 0x1000>;
-			no-map;
 		};
 	};
 };
 
-&ddr_pmu {
+&pm {
 	status = "disabled";
 };
 
-&adi {
-	status = "okay";
-
-	pmic@0 {
-		compatible = "sprd,sc2723";
-		reg = <0>;
-		spi-max-frequency = <26000000>;
-		interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-controller;
-		#interrupt-cells = <1>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		regulators {
-			compatible = "sprd,sc2723-regulator";
-
-			panel_vci: vddkpled {
-				regulator-name = "vddkpled";
-				regulator-min-microvolt = <1200000>;
-				regulator-max-microvolt = <3760000>;
-				nvmem-cells = <&calibration_state>, <&kpled_calibration>;
-				nvmem-cell-names = "calibration_state", "vddkpled";
-				status = "okay";
-			};
-
-			emmc_vqmmc: vddgen0 {
-				regulator-name = "vdd-emmc-1p8";
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
-				regulator-always-on;
-				regulator-boot-on;
-			};
-
-			emmc_vmmc: vddemmccore {
-				regulator-name = "vdd-emmc-3p0";
-				regulator-min-microvolt = <3000000>;
-				regulator-max-microvolt = <3000000>;
-				regulator-always-on;
-				regulator-boot-on;
-			};
-		};
-
-		watchdog@40 {
-			compatible = "sprd,sc2723-wdt";
-			reg = <0x40>;
-			status = "disabled";
-		};
-
-		rtc@80 {
-			compatible = "sprd,sc2723-rtc";
-			reg = <0x80>;
-			interrupts = <2>;
-			start-year = <2015>;
-		};
-
-		gpio@100 {
-			compatible = "sprd,sc2723-eic";
-			reg = <0x100>;
-			status = "disabled";
-		};
-
-		adc@300 {
-			compatible = "sprd,sc2723-adc";
-			reg = <0x300>;
-			status = "disabled";
-		};
-
-		efuse@200 {
-			compatible = "sprd,sc2723-efuse";
-			reg = <0x200>;
-			#address-cells = <1>;
-			#size-cells = <1>;
-
-			calibration_state: calibration-state@0 {
-				reg = <0 1>;
-				bits = <7 1>;
-			};
-
-			kpled_calibration: kpled-calibration@13 {
-				reg = <19 1>;
-				bits = <0 6>;
-			};
-		};
-
-		fuel-gauge@500 {
-			compatible = "sprd,sc2723-fgu";
-			reg = <0x500>;
-			status = "disabled";
-		};
-
-		vibrator@8f8 {
-			compatible = "sprd,sc2723-vibrator";
-			reg = <0x8f8>;
-			status = "disabled";
-		};
-	};
+&mailbox {
+	status = "disabled";
 };
 
-&pinctrl {
-	emmc_data_default: emmc-data-pins {
-		function = "emmc";
-		groups = "emmc-data";
-		sprd,drive-level = <1>;
-		bias-pull-up;
-	};
+&{/retention} {
+	status = "disabled";
+};
 
-	emmc_clock_default: emmc-clock-pins {
-		function = "emmc";
-		groups = "emmc-clock";
-		sprd,drive-level = <2>;
-		bias-disable;
+&pmic {
+	regulators {
+		emmc_vqmmc: vddgen0 {
+			regulator-name = "vdd-emmc-1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
+		emmc_vmmc: vddemmccore {
+			regulator-name = "vdd-emmc-3p0";
+			regulator-min-microvolt = <3000000>;
+			regulator-max-microvolt = <3000000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
 	};
 };
 
 &emmc {
-	status = "okay";
 	vmmc-supply = <&emmc_vmmc>;
 	vqmmc-supply = <&emmc_vqmmc>;
-	assigned-clocks = <&ap_clk CLK_EMMC>;
-	assigned-clock-parents = <&aon_gate CLK_TWPLL_384M>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&emmc_clock_default>, <&emmc_data_default>;
-	bus-width = <8>;
-	max-frequency = <48000000>;
-	cap-mmc-highspeed;
 	mmc-ddr-1_8v;
-	non-removable;
-	no-sd;
-	no-sdio;
+};
+
+&panel_vci {
+	status = "okay";
 };
 
 &dispc {
@@ -216,11 +65,4 @@
 
 &dsi {
 	status = "okay";
-};
-
-&usb {
-	status = "okay";
-	dr_mode = "peripheral";
-	maximum-speed = "full-speed";
-	phy_type = "utmi";
 };
