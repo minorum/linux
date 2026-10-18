@@ -70,6 +70,9 @@
 #define CLK_EMMC_EB		3
 #define CLK_CA7_MCU		4
 #define CLK_CA7_AXI		5
-#define CLK_AP_AHB_GATE_NUM	6
+#define CLK_DSI_EB		6
+#define CLK_DPHY_REF_EB		7
+#define CLK_DPHY_CFG_EB		8
+#define CLK_AP_AHB_GATE_NUM	9
 
 #endif
