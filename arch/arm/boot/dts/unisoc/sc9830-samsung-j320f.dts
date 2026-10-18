@@ -29,6 +29,10 @@
 	status = "disabled";
 };
 
+&{/reboot-mode@f90} {
+	status = "disabled";
+};
+
 &pmic {
 	regulators {
 		emmc_vqmmc: vddgen0 {
