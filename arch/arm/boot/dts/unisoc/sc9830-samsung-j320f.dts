@@ -65,6 +65,11 @@
 			  64 64 64 64 64 64 64>;
 };
 
+&{/soc/mmc@20400000/wifi@1} {
+	interrupt-parent = <&gpio>;
+	interrupts = <132 IRQ_TYPE_EDGE_RISING>;
+};
+
 &panel_vci {
 	status = "okay";
 };
