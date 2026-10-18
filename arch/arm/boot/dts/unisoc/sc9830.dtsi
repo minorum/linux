@@ -78,6 +78,55 @@
 		#size-cells = <1>;
 		ranges;
 
+		dispc: display-controller@20800000 {
+			compatible = "sprd,sc9830-dispc";
+			reg = <0x20800000 0x1000>;
+			interrupts = <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&apahb CLK_DISPC_EB>, <&ap_clk CLK_DISPC_DBI>,
+				 <&ap_clk CLK_DISPC_DPI>, <&aon_gate CLK_DISP_EMC_EB>;
+			clock-names = "core", "dbi", "dpi", "emc";
+			resets = <&apahb 1>;
+			status = "disabled";
+
+			port {
+				dispc_out: endpoint {
+					remote-endpoint = <&dsi_in>;
+				};
+			};
+		};
+
+		dsi: dsi@21800000 {
+			compatible = "sprd,sc9830-dsi";
+			reg = <0x21800000 0x1000>;
+			clocks = <&apahb CLK_DSI_EB>, <&apahb CLK_DPHY_REF_EB>,
+				 <&apahb CLK_DPHY_CFG_EB>;
+			clock-names = "pclk", "ref", "cfg";
+			resets = <&apahb 0>;
+			reset-names = "apb";
+			sprd,aon = <&aon_gate>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					dsi_in: endpoint {
+						remote-endpoint = <&dispc_out>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					dsi_out: endpoint {
+					};
+				};
+			};
+		};
+
 		ddr_pmu: pmu@30040000 {
 			compatible = "sprd,sc9830-ddr-pmu";
 			reg = <0x30040000 0xa0000>, <0x30020000 0x1c>;
