@@ -1015,7 +1015,7 @@ static const struct drm_display_mode s6e8aa5x01_ams561ra01_mode = {
 };
 
 static const struct drm_display_mode s6e8aa5x01_j3_mode = {
-	.clock = (720 + 130 + 40 + 90) * (1280 + 14 + 4 + 6) * 60 / 1000,
+	.clock = 76800,
 	.hdisplay = 720,
 	.hsync_start = 720 + 130,
 	.hsync_end = 720 + 130 + 40,
