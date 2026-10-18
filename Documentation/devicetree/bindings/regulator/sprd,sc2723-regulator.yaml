@@ -25,8 +25,10 @@ description: |
   scaled from the factory 1.8 V reference to the requested 3 V supply.
   The eMMC I/O and core supplies retain their boot-programmed 1.8 V and 3 V
   selectors with OTP compensation enabled. Voltage changes are unsupported.
-  The panel supply vddkpled operates at 3.3 V with a six-bit trim from
-  eFuse bits 152 through 157, centered at 32. Its calibration cells are
+  The panel supply vddkpled retains its firmware voltage selector. Its
+  reported voltage uses the six-bit trim from eFuse bits 152 through 157,
+  centered at 32 with a 3.3 V factory reference. Voltage changes are
+  unsupported. Its calibration cells are
   supplied on the regulator child independently of connectivity calibration.
 
 allOf:
@@ -90,9 +92,11 @@ properties:
     $ref: regulator.yaml#
     properties:
       regulator-min-microvolt:
-        const: 3300000
+        minimum: 1200000
+        maximum: 3760000
       regulator-max-microvolt:
-        const: 3300000
+        minimum: 1200000
+        maximum: 3760000
       nvmem-cells:
         items:
           - description: Factory calibration validity bit
