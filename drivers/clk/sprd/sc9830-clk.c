@@ -415,7 +415,15 @@ static SPRD_SC_GATE_CLK_FW_NAME(kpd_eb, "sc9830-kpd-eb", "ext-26m",
 static SPRD_SC_GATE_CLK_FW_NAME(kpd_rtc_eb, "sc9830-kpd-rtc-eb", "ext-32k",
 			       0x10, 0x1000, BIT(1), 0, 0);
 
+static struct sprd_gate disp_emc_eb = {
+	.enable_mask = BIT(11),
+	.common.reg = 0x4,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-disp-emc-eb",
+					       &sprd_gate_ops, CLK_IGNORE_UNUSED),
+};
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
+	&disp_emc_eb.common,
 	&adi_eb.common,
 	&splk_eb.common,
 	&sindrv.common,
@@ -438,6 +446,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 	.hws = {
+		[CLK_DISP_EMC_EB] = &disp_emc_eb.common.hw,
 		[CLK_ADI_EB] = &adi_eb.common.hw,
 		[CLK_SPLK_EB] = &splk_eb.common.hw,
 		[CLK_SINDRV] = &sindrv.common.hw,
@@ -693,6 +702,12 @@ static const struct sprd_clk_desc sc9830_ap_desc = {
 	.hw_clks = &sc9830_ap_hws,
 };
 
+static struct sprd_gate ap_ckg_eb = {
+	.enable_mask = BIT(18),
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-ap-ckg-eb",
+					       &sprd_gate_ops, CLK_IS_CRITICAL),
+};
+
 static struct sprd_gate i2c2_eb = {
 	.enable_mask = BIT(10),
 	.sc_offset = 0x1000,
@@ -739,6 +754,7 @@ static struct sprd_gate intc3_eb = {
 };
 
 static struct sprd_clk_common *sc9830_apapb_clks[] = {
+	&ap_ckg_eb.common,
 	&i2c1_eb.common,
 	&i2c2_eb.common,
 	&uart0_eb.common,
@@ -750,6 +766,7 @@ static struct sprd_clk_common *sc9830_apapb_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_apapb_hws = {
 	.hws = {
+		[CLK_AP_CKG_EB] = &ap_ckg_eb.common.hw,
 		[CLK_I2C2_EB] = &i2c2_eb.common.hw,
 		[CLK_I2C1_EB] = &i2c1_eb.common.hw,
 		[CLK_UART0_EB] = &uart0_eb.common.hw,
@@ -765,6 +782,13 @@ static const struct sprd_clk_desc sc9830_apapb_desc = {
 	.clk_clks = sc9830_apapb_clks,
 	.num_clk_clks = ARRAY_SIZE(sc9830_apapb_clks),
 	.hw_clks = &sc9830_apapb_hws,
+};
+
+static struct sprd_gate dispc_eb = {
+	.enable_mask = BIT(1),
+	.common.hw.init = CLK_HW_INIT_HW("sc9830-dispc-eb", &dispc_clk.common.hw,
+				       &sprd_gate_ops,
+				       CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED),
 };
 
 static struct sprd_gate dsi_eb = {
@@ -993,6 +1017,7 @@ static SPRD_DIV_CLK_HW(ca7_axi, "sc9830-ca7-axi", &mcu_clk.hw,
 		       0x38, 8, 3, CLK_GET_RATE_NOCACHE);
 
 static struct sprd_clk_common *sc9830_apahb_clks[] = {
+	&dispc_eb.common,
 	&dsi_eb.common,
 	&dphy_ref_eb.common,
 	&dphy_cfg_eb.common,
@@ -1006,6 +1031,7 @@ static struct sprd_clk_common *sc9830_apahb_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_apahb_hws = {
 	.hws = {
+		[CLK_DISPC_EB] = &dispc_eb.common.hw,
 		[CLK_DSI_EB] = &dsi_eb.common.hw,
 		[CLK_DPHY_REF_EB] = &dphy_ref_eb.common.hw,
 		[CLK_DPHY_CFG_EB] = &dphy_cfg_eb.common.hw,
