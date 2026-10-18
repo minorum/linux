@@ -1,3 +1,15 @@
+config DRM_SC9830_DSI
+	tristate "SC9830 MIPI DSI host"
+	depends on ARCH_SPRD || COMPILE_TEST
+	depends on DRM && OF && PM
+	select DRM_DW_MIPI_DSI
+	select MFD_SYSCON
+	help
+	  Enable the SC9830 DesignWare DSI host and its integrated PHY.
+	  This supports RGB888 burst video at a fixed 500Mbit/s lane rate
+	  using a 26MHz reference clock. A display controller and panel
+	  driver are also required. The module is called sc9830-dsi.
+
 config DRM_SPRD
 	tristate "DRM Support for Unisoc SoCs Platform"
 	depends on ARCH_SPRD || COMPILE_TEST
