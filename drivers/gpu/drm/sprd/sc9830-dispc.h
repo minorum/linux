@@ -6,6 +6,27 @@
 #include <linux/errno.h>
 #include <linux/io.h>
 
+#define SC9830_DISPC_IRQ_ERROR	BIT(2)
+#define SC9830_DISPC_IRQ_UPDATE	BIT(4)
+#define SC9830_DISPC_IRQ_VSYNC	BIT(5)
+
+static u32 sc9830_dispc_interrupt(void __iomem *base)
+{
+	u32 status = readl(base + 0x78) & (SC9830_DISPC_IRQ_ERROR |
+					 SC9830_DISPC_IRQ_UPDATE |
+					 SC9830_DISPC_IRQ_VSYNC);
+
+	if (status & SC9830_DISPC_IRQ_ERROR) {
+		writel(SC9830_DISPC_IRQ_ERROR, base + 0x74);
+		writel(readl(base + 0x70) & ~SC9830_DISPC_IRQ_ERROR, base + 0x70);
+	}
+	if (status & SC9830_DISPC_IRQ_UPDATE)
+		writel(SC9830_DISPC_IRQ_UPDATE, base + 0x74);
+	if (status & SC9830_DISPC_IRQ_VSYNC)
+		writel(SC9830_DISPC_IRQ_VSYNC, base + 0x74);
+	return status;
+}
+
 static int sc9830_dispc_timing(unsigned int sync, unsigned int back,
 			       unsigned int front, u32 *value)
 {
