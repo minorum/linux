@@ -101,7 +101,7 @@
 				regulator-max-microvolt = <3760000>;
 				nvmem-cells = <&calibration_state>, <&kpled_calibration>;
 				nvmem-cell-names = "calibration_state", "vddkpled";
-				status = "disabled";
+				status = "okay";
 			};
 
 			emmc_vqmmc: vddgen0 {
@@ -208,6 +208,14 @@
 	non-removable;
 	no-sd;
 	no-sdio;
+};
+
+&dispc {
+	status = "okay";
+};
+
+&dsi {
+	status = "okay";
 };
 
 &usb {
