@@ -252,7 +252,7 @@ static int sc2723_rf_enable(struct regulator_dev *rdev)
 	if (ret) {
 		cleanup = regulator_disable_regmap(rdev);
 		if (cleanup)
-			dev_err(&rdev->dev, "RF disable failed: %d\n", cleanup);
+			dev_err(&rdev->dev, "Supply disable failed: %d\n", cleanup);
 	}
 	return ret;
 }
@@ -386,6 +386,80 @@ static const struct regulator_desc sc2723_rf_descs[] = {
 	},
 };
 
+static const struct regulator_desc sc2723_kpled_desc = {
+	.name = "vddkpled",
+	.of_match = "vddkpled",
+	.id = 6,
+	.ops = &sc2723_rf_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+	.n_voltages = 1,
+	.fixed_uV = 3300000,
+	.enable_reg = 0x8f4,
+	.enable_mask = BIT(8),
+	.enable_is_inverted = true,
+	.vsel_reg = 0x8f4,
+	.vsel_mask = GENMASK(7, 0),
+};
+
+static int sc2723_kpled_register(struct device *dev, struct regulator_config *config)
+{
+	static const char * const names[] = { "calibration_state", "vddkpled" };
+	struct device_node *node;
+	struct sc2723_regulator *regulator;
+	struct regulator_dev *rdev;
+	struct nvmem_cell *cell;
+	unsigned int power;
+	size_t length;
+	u8 trim[2], *data;
+	int i, ret = 0;
+
+	node = of_get_child_by_name(dev->of_node, "vddkpled");
+	if (!of_device_is_available(node))
+		goto put_node;
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		cell = of_nvmem_cell_get(node, names[i]);
+		if (IS_ERR(cell)) {
+			ret = PTR_ERR(cell);
+			goto put_node;
+		}
+		data = nvmem_cell_read(cell, &length);
+		nvmem_cell_put(cell);
+		if (IS_ERR(data)) {
+			ret = PTR_ERR(data);
+			goto put_node;
+		}
+		if (length != 1 || data[0] >= (i ? 64 : 1))
+			ret = -EINVAL;
+		else
+			trim[i] = data[0];
+		kfree(data);
+		if (ret)
+			goto put_node;
+	}
+	regulator = devm_kzalloc(dev, sizeof(*regulator), GFP_KERNEL);
+	if (!regulator) {
+		ret = -ENOMEM;
+		goto put_node;
+	}
+	regulator->desc = sc2723_kpled_desc;
+	regulator->selector = sc2723_rf_selector(trim[1], 6, 3300000, 1200000, 10000);
+	ret = regmap_read(config->regmap, 0x8f4, &power);
+	if (ret)
+		goto put_node;
+	if (!(power & BIT(8)) && (power & 0xff) != regulator->selector) {
+		ret = -EINVAL;
+		goto put_node;
+	}
+	config->driver_data = regulator;
+	rdev = devm_regulator_register(dev, &regulator->desc, config);
+	config->driver_data = NULL;
+	ret = IS_ERR(rdev) ? PTR_ERR(rdev) : 1;
+put_node:
+	of_node_put(node);
+	return ret;
+}
+
 static int sc2723_regulator_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -395,14 +469,18 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 	struct device_node *sim2;
 	u32 code, power, selector;
 	u8 state;
-	int i, ret, count = ARRAY_SIZE(sc2723_rf_descs) - 1;
+	int i, ret, registered, count = ARRAY_SIZE(sc2723_rf_descs) - 1;
 
 	config.regmap = dev_get_regmap(dev->parent, NULL);
 	if (!config.regmap)
 		return -ENODEV;
+	registered = sc2723_kpled_register(dev, &config);
+	if (registered < 0)
+		return dev_err_probe(dev, registered, "Panel supply registration failed\n");
 	ret = sc2723_emmc_register(dev, &config);
 	if (ret < 0)
 		return ret;
+	ret += registered;
 	if (ret && !of_property_present(dev->of_node, "nvmem-cells")) {
 		if (of_get_available_child_count(dev->of_node) != ret)
 			return -EINVAL;
@@ -475,5 +553,5 @@ static struct platform_driver sc2723_regulator_driver = {
 };
 module_platform_driver(sc2723_regulator_driver);
 
-MODULE_DESCRIPTION("SC2723 CPU and calibrated connectivity regulators");
+MODULE_DESCRIPTION("SC2723 CPU and calibrated peripheral regulators");
 MODULE_LICENSE("GPL");
