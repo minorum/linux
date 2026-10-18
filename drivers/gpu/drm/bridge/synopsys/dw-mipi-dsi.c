@@ -249,6 +249,8 @@ struct dw_mipi_dsi {
 	void __iomem *base;
 
 	struct clk *pclk;
+	bool prepared;
+	int prepare_error;
 
 	unsigned int lane_mbps; /* per lane */
 	u32 channel;
@@ -509,6 +511,11 @@ static ssize_t dw_mipi_dsi_host_transfer(struct mipi_dsi_host *host,
 	struct mipi_dsi_packet packet;
 	int ret, nb_bytes;
 
+	if (dsi->prepare_error)
+		return dsi->prepare_error;
+	if (dsi->slave && dsi->slave->prepare_error)
+		return dsi->slave->prepare_error;
+
 	ret = mipi_dsi_create_packet(&packet, msg);
 	if (ret) {
 		dev_err(dsi->dev, "failed to create packet: %d\n", ret);
@@ -657,7 +664,7 @@ static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
 	dsi_write(dsi, DSI_PHY_RSTZ, PHY_RSTZ);
 }
 
-static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
+static int dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
 {
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
 	unsigned int esc_rate; /* in MHz */
@@ -672,9 +679,11 @@ static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
 		ret = phy_ops->get_esc_clk_rate(dsi->plat_data->priv_data,
 						&esc_rate);
 		if (ret)
-			DRM_DEBUG_DRIVER("Phy get_esc_clk_rate() failed\n");
+			return ret;
 	} else
 		esc_rate = 20; /* Default to 20MHz */
+	if (!esc_rate)
+		return -EINVAL;
 
 	/*
 	 * We want :
@@ -693,6 +702,7 @@ static void dw_mipi_dsi_init(struct dw_mipi_dsi *dsi)
 	 */
 	dsi_write(dsi, DSI_CLKMGR_CFG, TO_CLK_DIVISION(0) |
 		  TX_ESC_CLK_DIVISION(esc_clk_division));
+	return 0;
 }
 
 static void dw_mipi_dsi_dpi_config(struct dw_mipi_dsi *dsi,
@@ -850,7 +860,7 @@ static void dw_mipi_dsi_vertical_timing_config(struct dw_mipi_dsi *dsi,
 	dsi_write(dsi, DSI_VID_VBP_LINES, vbp);
 }
 
-static void dw_mipi_dsi_dphy_timing_config(struct dw_mipi_dsi *dsi)
+static int dw_mipi_dsi_dphy_timing_config(struct dw_mipi_dsi *dsi)
 {
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
 	struct dw_mipi_dsi_dphy_timing timing;
@@ -860,7 +870,7 @@ static void dw_mipi_dsi_dphy_timing_config(struct dw_mipi_dsi *dsi)
 	ret = phy_ops->get_timing(dsi->plat_data->priv_data,
 				  dsi->lane_mbps, &timing);
 	if (ret)
-		DRM_DEV_ERROR(dsi->dev, "Retrieving phy timings failed\n");
+		return ret;
 
 	/*
 	 * TODO dw drv improvements
@@ -887,6 +897,7 @@ static void dw_mipi_dsi_dphy_timing_config(struct dw_mipi_dsi *dsi)
 	dsi_write(dsi, DSI_PHY_TMR_LPCLK_CFG,
 		  PHY_CLKHS2LP_TIME(timing.clk_hs2lp) |
 		  PHY_CLKLP2HS_TIME(timing.clk_lp2hs));
+	return 0;
 }
 
 static void dw_mipi_dsi_dphy_interface_config(struct dw_mipi_dsi *dsi)
@@ -910,7 +921,7 @@ static void dw_mipi_dsi_dphy_init(struct dw_mipi_dsi *dsi)
 	dsi_write(dsi, DSI_PHY_TST_CTRL0, PHY_UNTESTCLR);
 }
 
-static void dw_mipi_dsi_dphy_enable(struct dw_mipi_dsi *dsi)
+static int dw_mipi_dsi_dphy_enable(struct dw_mipi_dsi *dsi)
 {
 	u32 val;
 	int ret;
@@ -921,13 +932,12 @@ static void dw_mipi_dsi_dphy_enable(struct dw_mipi_dsi *dsi)
 	ret = readl_poll_timeout(dsi->base + DSI_PHY_STATUS, val,
 				 val & PHY_LOCK, 1000, PHY_STATUS_TIMEOUT_US);
 	if (ret)
-		DRM_DEBUG_DRIVER("failed to wait phy lock state\n");
+		return ret;
 
 	ret = readl_poll_timeout(dsi->base + DSI_PHY_STATUS,
 				 val, val & PHY_STOP_STATE_CLK_LANE, 1000,
 				 PHY_STATUS_TIMEOUT_US);
-	if (ret)
-		DRM_DEBUG_DRIVER("failed to wait phy clk lane stop state\n");
+	return ret;
 }
 
 static void dw_mipi_dsi_clear_err(struct dw_mipi_dsi *dsi)
@@ -944,6 +954,9 @@ static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
 
+	if (!dsi->prepared)
+		return;
+
 	/*
 	 * Switch to command mode before panel-bridge post_disable &
 	 * panel unprepare.
@@ -955,15 +968,17 @@ static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
 	if (phy_ops->power_off)
 		phy_ops->power_off(dsi->plat_data->priv_data);
 
-	if (dsi->slave) {
+	if (dsi->slave && dsi->slave->prepared) {
 		dw_mipi_dsi_disable(dsi->slave);
 		clk_disable_unprepare(dsi->slave->pclk);
 		pm_runtime_put(dsi->slave->dev);
+		dsi->slave->prepared = false;
 	}
 	dw_mipi_dsi_disable(dsi);
 
 	clk_disable_unprepare(dsi->pclk);
 	pm_runtime_put(dsi->dev);
+	dsi->prepared = false;
 }
 
 static unsigned int dw_mipi_dsi_get_lanes(struct dw_mipi_dsi *dsi)
@@ -988,15 +1003,22 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
 	int ret;
 	u32 lanes = dw_mipi_dsi_get_lanes(dsi);
 
-	clk_prepare_enable(dsi->pclk);
+	dsi->prepare_error = 0;
+	ret = clk_prepare_enable(dsi->pclk);
+	if (ret)
+		goto fail;
 
 	ret = phy_ops->get_lane_mbps(priv_data, adjusted_mode, dsi->mode_flags,
 				     lanes, dsi->format, &dsi->lane_mbps);
 	if (ret)
-		DRM_DEBUG_DRIVER("Phy get_lane_mbps() failed\n");
+		goto disable_clock;
 
-	pm_runtime_get_sync(dsi->dev);
-	dw_mipi_dsi_init(dsi);
+	ret = pm_runtime_resume_and_get(dsi->dev);
+	if (ret < 0)
+		goto disable_clock;
+	ret = dw_mipi_dsi_init(dsi);
+	if (ret)
+		goto put_runtime;
 	dw_mipi_dsi_dpi_config(dsi, adjusted_mode);
 	dw_mipi_dsi_packet_handler_config(dsi);
 	dw_mipi_dsi_video_mode_config(dsi);
@@ -1006,16 +1028,20 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
 	dw_mipi_dsi_vertical_timing_config(dsi, adjusted_mode);
 
 	dw_mipi_dsi_dphy_init(dsi);
-	dw_mipi_dsi_dphy_timing_config(dsi);
+	ret = dw_mipi_dsi_dphy_timing_config(dsi);
+	if (ret)
+		goto disable_controller;
 	dw_mipi_dsi_dphy_interface_config(dsi);
 
 	dw_mipi_dsi_clear_err(dsi);
 
 	ret = phy_ops->init(priv_data);
 	if (ret)
-		DRM_DEBUG_DRIVER("Phy init() failed\n");
+		goto disable_phy;
 
-	dw_mipi_dsi_dphy_enable(dsi);
+	ret = dw_mipi_dsi_dphy_enable(dsi);
+	if (ret)
+		goto disable_phy;
 
 	dw_mipi_dsi_wait_for_two_frames(adjusted_mode);
 
@@ -1024,6 +1050,21 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
 
 	if (phy_ops->power_on)
 		phy_ops->power_on(dsi->plat_data->priv_data);
+	dsi->prepared = true;
+	return;
+
+disable_phy:
+	if (phy_ops->power_off)
+		phy_ops->power_off(priv_data);
+disable_controller:
+	dw_mipi_dsi_disable(dsi);
+put_runtime:
+	pm_runtime_put(dsi->dev);
+disable_clock:
+	clk_disable_unprepare(dsi->pclk);
+fail:
+	dsi->prepare_error = ret;
+	dev_err(dsi->dev, "DSI preparation failed: %d\n", ret);
 }
 
 static void dw_mipi_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
@@ -1033,7 +1074,7 @@ static void dw_mipi_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 
 	/* Power up the dsi ctl into a command mode */
 	dw_mipi_dsi_mode_set(dsi, &dsi->mode);
-	if (dsi->slave)
+	if (dsi->prepared && dsi->slave)
 		dw_mipi_dsi_mode_set(dsi->slave, &dsi->mode);
 }
 
@@ -1051,6 +1092,9 @@ static void dw_mipi_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
 					     struct drm_atomic_commit *state)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
+
+	if (!dsi->prepared || (dsi->slave && !dsi->slave->prepared))
+		return;
 
 	/* Switch to video mode for panel-bridge enable & panel enable */
 	dw_mipi_dsi_set_mode(dsi, MIPI_DSI_MODE_VIDEO);
