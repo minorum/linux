@@ -394,7 +394,6 @@ static const struct regulator_desc sc2723_kpled_desc = {
 	.type = REGULATOR_VOLTAGE,
 	.owner = THIS_MODULE,
 	.n_voltages = 1,
-	.fixed_uV = 3300000,
 	.enable_reg = 0x8f4,
 	.enable_mask = BIT(8),
 	.enable_is_inverted = true,
@@ -443,11 +442,14 @@ static int sc2723_kpled_register(struct device *dev, struct regulator_config *co
 		goto put_node;
 	}
 	regulator->desc = sc2723_kpled_desc;
-	regulator->selector = sc2723_rf_selector(trim[1], 6, 3300000, 1200000, 10000);
 	ret = regmap_read(config->regmap, 0x8f4, &power);
 	if (ret)
 		goto put_node;
-	if (!(power & BIT(8)) && (power & 0xff) != regulator->selector) {
+	regulator->selector = power & 0xff;
+	regulator->desc.fixed_uV = 1200000 +
+		((int)regulator->selector - trim[1] + 32) * 10000;
+	if (regulator->desc.fixed_uV < 1200000 ||
+	    regulator->desc.fixed_uV > 3760000) {
 		ret = -EINVAL;
 		goto put_node;
 	}
