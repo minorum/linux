@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "sc9830.dtsi"
+#include "sc9830-samsung-j3-display.dtsi"
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/power/sprd,sc9830-reboot-mode.h>
@@ -456,6 +457,15 @@
 			nvmem-cell-names = "calibration_state", "vddcon",
 					   "vddwifipa", "vddsim2";
 
+			panel_vci: vddkpled {
+				regulator-name = "vddkpled";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				nvmem-cells = <&calibration_state>, <&kpled_calibration>;
+				nvmem-cell-names = "calibration_state", "vddkpled";
+				status = "disabled";
+			};
+
 			vddarm: vddarm {
 				regulator-name = "vddarm";
 				regulator-min-microvolt = <600000>;
@@ -492,6 +502,11 @@
 			calibration_state: calibration-state@0 {
 				reg = <0 1>;
 				bits = <7 1>;
+			};
+
+			kpled_calibration: kpled-calibration@13 {
+				reg = <19 1>;
+				bits = <0 6>;
 			};
 
 			vddarm_calibration: vddarm-calibration@1,6 {

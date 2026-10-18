@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+&dsi {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	panel@0 {
+		compatible = "samsung,s6e8aa5x01-j3-2016";
+		reg = <0>;
+		vci-supply = <&panel_vci>;
+		reset-gpios = <&gpio 50 GPIO_ACTIVE_LOW>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
+			};
+		};
+	};
+};
+
+&dsi_out {
+	remote-endpoint = <&panel_in>;
+};

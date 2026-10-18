@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "sc9830.dtsi"
+#include "sc9830-samsung-j3-display.dtsi"
 
 / {
 	model = "Samsung Galaxy J3 SM-J320F";
@@ -94,6 +95,15 @@
 		regulators {
 			compatible = "sprd,sc2723-regulator";
 
+			panel_vci: vddkpled {
+				regulator-name = "vddkpled";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				nvmem-cells = <&calibration_state>, <&kpled_calibration>;
+				nvmem-cell-names = "calibration_state", "vddkpled";
+				status = "disabled";
+			};
+
 			emmc_vqmmc: vddgen0 {
 				regulator-name = "vdd-emmc-1p8";
 				regulator-min-microvolt = <1800000>;
@@ -139,7 +149,18 @@
 		efuse@200 {
 			compatible = "sprd,sc2723-efuse";
 			reg = <0x200>;
-			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			calibration_state: calibration-state@0 {
+				reg = <0 1>;
+				bits = <7 1>;
+			};
+
+			kpled_calibration: kpled-calibration@13 {
+				reg = <19 1>;
+				bits = <0 6>;
+			};
 		};
 
 		fuel-gauge@500 {

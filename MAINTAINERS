@@ -25893,6 +25893,7 @@ F:	Documentation/devicetree/bindings/power/sprd,sc9830-gpu-pwrc.yaml
 F:	Documentation/devicetree/bindings/power/sprd,sc9830-mm-pwrc.yaml
 F:	Documentation/devicetree/bindings/regulator/sprd,sc2723-regulator.yaml
 F:	Documentation/devicetree/bindings/timer/sprd,sc9830-timer.yaml
+F:	arch/arm/boot/dts/unisoc/sc9830-samsung-j3-display.dtsi
 F:	arch/arm/boot/dts/unisoc/sc9830-samsung-j3xnlte.dts
 F:	arch/arm/boot/dts/unisoc/sc9830.dtsi
 F:	arch/arm/mach-sc9830/
