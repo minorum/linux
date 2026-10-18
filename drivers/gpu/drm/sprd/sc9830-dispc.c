@@ -183,7 +183,7 @@ static void sc9830_dispc_frame(struct sc9830_dispc *dispc, bool first)
 	reinit_completion(&dispc->update);
 	spin_unlock_irqrestore(&dispc->lock, flags);
 	sc9830_dispc_run(dispc->base, first);
-	if (!wait_for_completion_timeout(&dispc->update, msecs_to_jiffies(100))) {
+	if (!first && !wait_for_completion_timeout(&dispc->update, msecs_to_jiffies(100))) {
 		drm_err(&dispc->drm, "DISPC update timed out\n");
 		WRITE_ONCE(dispc->fault, true);
 		if (!sc9830_dispc_stop(dispc)) {
