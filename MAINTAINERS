@@ -25879,6 +25879,7 @@ F:	Documentation/devicetree/bindings/clock/sprd,sc9830-clk.yaml
 F:	Documentation/devicetree/bindings/clock/sprd,sc9830-gpu-clk.yaml
 F:	Documentation/devicetree/bindings/clock/sprd,sc9830-mm-gate.yaml
 F:	Documentation/devicetree/bindings/display/bridge/sprd,sc9830-dsi.yaml
+F:	Documentation/devicetree/bindings/display/sprd,sc9830-dispc.yaml
 F:	Documentation/devicetree/bindings/i2c/sprd,sc9830-i2c.yaml
 F:	Documentation/devicetree/bindings/interconnect/sprd,sc9830-dcam-interconnect.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/sprd,sc9830-intc.yaml
