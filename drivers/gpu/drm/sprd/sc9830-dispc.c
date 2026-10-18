@@ -85,8 +85,10 @@ static int sc9830_plane_check(struct drm_plane *plane, struct drm_atomic_commit 
 	c = drm_atomic_get_new_crtc_state(state, p->crtc);
 	ret = drm_atomic_helper_check_plane_state(p, c, DRM_PLANE_NO_SCALING,
 						  DRM_PLANE_NO_SCALING, false, false);
-	if (ret || !p->visible)
+	if (ret)
 		return ret;
+	if (!p->visible)
+		return -EINVAL;
 	width = p->src_w >> 16;
 	height = p->src_h >> 16;
 	cpp = p->fb->format->cpp[0];
