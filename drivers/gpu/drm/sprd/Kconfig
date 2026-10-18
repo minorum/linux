@@ -1,9 +1,10 @@
 config DRM_SC9830_DISPC
 	tristate "SC9830 display controller"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SC9830 || COMPILE_TEST
 	depends on DRM && OF
 	select DRM_GEM_DMA_HELPER
 	select DRM_KMS_HELPER
+	select DRM_DISPLAY_HELPER
 	select DRM_BRIDGE_CONNECTOR
 	help
 	  Enable the SC9830 display controller with one primary plane.
@@ -13,7 +14,7 @@ config DRM_SC9830_DISPC
 
 config DRM_SC9830_DSI
 	tristate "SC9830 MIPI DSI host"
-	depends on ARCH_SPRD || COMPILE_TEST
+	depends on ARCH_SC9830 || COMPILE_TEST
 	depends on DRM && OF && PM
 	select DRM_DW_MIPI_DSI
 	select MFD_SYSCON
