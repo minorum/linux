@@ -1004,21 +1004,21 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
 	u32 lanes = dw_mipi_dsi_get_lanes(dsi);
 
 	dsi->prepare_error = 0;
+	ret = pm_runtime_resume_and_get(dsi->dev);
+	if (ret < 0)
+		goto fail;
 	ret = clk_prepare_enable(dsi->pclk);
 	if (ret)
-		goto fail;
+		goto put_runtime;
 
 	ret = phy_ops->get_lane_mbps(priv_data, adjusted_mode, dsi->mode_flags,
 				     lanes, dsi->format, &dsi->lane_mbps);
 	if (ret)
 		goto disable_clock;
 
-	ret = pm_runtime_resume_and_get(dsi->dev);
-	if (ret < 0)
-		goto disable_clock;
 	ret = dw_mipi_dsi_init(dsi);
 	if (ret)
-		goto put_runtime;
+		goto disable_clock;
 	dw_mipi_dsi_dpi_config(dsi, adjusted_mode);
 	dw_mipi_dsi_packet_handler_config(dsi);
 	dw_mipi_dsi_video_mode_config(dsi);
@@ -1058,10 +1058,10 @@ disable_phy:
 		phy_ops->power_off(priv_data);
 disable_controller:
 	dw_mipi_dsi_disable(dsi);
-put_runtime:
-	pm_runtime_put(dsi->dev);
 disable_clock:
 	clk_disable_unprepare(dsi->pclk);
+put_runtime:
+	pm_runtime_put(dsi->dev);
 fail:
 	dsi->prepare_error = ret;
 	dev_err(dsi->dev, "DSI preparation failed: %d\n", ret);
