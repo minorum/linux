@@ -212,6 +212,8 @@ static const unsigned int sc9830_sdio1_pins[] = {
 	0xf8 / 4, 0xfc / 4, 0x100 / 4, 0x104 / 4, 0x108 / 4, 0x10c / 4,
 };
 
+static const unsigned int sc9830_panel_reset_pins[] = { 0x170 / 4 };
+
 static const unsigned int sc9830_emmc_data_pins[] = {
 	0x1c4 / 4, 0x1a0 / 4, 0x1a4 / 4, 0x1a8 / 4, 0x1ac / 4,
 	0x1b4 / 4, 0x1b8 / 4, 0x1c0 / 4, 0x1c8 / 4, 0x1cc / 4,
@@ -220,7 +222,10 @@ static const unsigned int sc9830_emmc_data_pins[] = {
 static const unsigned int sc9830_emmc_clock_pins[] = { 0x1b0 / 4 };
 
 static const char * const sc9830_groups[] = {
-	"i2c2", "uart0", "sdio1", "emmc-data", "emmc-clock",
+	"i2c2", "uart0", "sdio1", "emmc-data", "emmc-clock", "panel-reset",
+};
+static const char * const sc9830_gpio_groups[] = {
+	"i2c2", "panel-reset",
 };
 static const char * const sc9830_functions[] = {
 	"i2c2", "gpio", "uart0", "sdio1", "emmc",
@@ -256,9 +261,12 @@ static int sc9830_get_group_pins(struct pinctrl_dev *pctldev,
 	} else if (selector == 3) {
 		*pins = sc9830_emmc_data_pins;
 		*num_pins = ARRAY_SIZE(sc9830_emmc_data_pins);
-	} else {
+	} else if (selector == 4) {
 		*pins = sc9830_emmc_clock_pins;
 		*num_pins = ARRAY_SIZE(sc9830_emmc_clock_pins);
+	} else {
+		*pins = sc9830_panel_reset_pins;
+		*num_pins = ARRAY_SIZE(sc9830_panel_reset_pins);
 	}
 	return 0;
 }
@@ -290,6 +298,12 @@ static int sc9830_get_function_groups(struct pinctrl_dev *pctldev,
 	if (selector >= ARRAY_SIZE(sc9830_functions))
 		return -EINVAL;
 
+	if (selector == 1) {
+		*groups = sc9830_gpio_groups;
+		*num_groups = ARRAY_SIZE(sc9830_gpio_groups);
+		return 0;
+	}
+
 	*groups = &sc9830_groups[selector < 2 ? 0 : selector - 1];
 	*num_groups = selector == 4 ? 2 : 1;
 	return 0;
@@ -306,7 +320,8 @@ static int sc9830_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 
 	if (!((group == 0 && function < 2) || (group == 1 && function == 2) ||
 	      (group == 2 && function == 3) ||
-	      ((group == 3 || group == 4) && function == 4)))
+	      ((group == 3 || group == 4) && function == 4) ||
+	      (group == 5 && function == 1)))
 		return -EINVAL;
 
 	sc9830_get_group_pins(pctldev, group, &pins, &num_pins);
