@@ -767,6 +767,26 @@ static const struct sprd_clk_desc sc9830_apapb_desc = {
 	.hw_clks = &sc9830_apapb_hws,
 };
 
+static struct sprd_gate dsi_eb = {
+	.enable_mask = BIT(0),
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-dsi-eb",
+					       &sprd_gate_ops, CLK_IGNORE_UNUSED),
+};
+
+static struct sprd_gate dphy_ref_eb = {
+	.enable_mask = BIT(1),
+	.common.reg = 0x40,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-dphy-ref-eb", "ext-26m",
+					    &sprd_gate_ops, CLK_IGNORE_UNUSED),
+};
+
+static struct sprd_gate dphy_cfg_eb = {
+	.enable_mask = BIT(0),
+	.common.reg = 0x40,
+	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-dphy-cfg-eb",
+					       &sprd_gate_ops, CLK_IGNORE_UNUSED),
+};
+
 static struct sprd_gate sdio0_eb = {
 	.enable_mask = BIT(8),
 	.sc_offset = 0x1000,
@@ -973,6 +993,9 @@ static SPRD_DIV_CLK_HW(ca7_axi, "sc9830-ca7-axi", &mcu_clk.hw,
 		       0x38, 8, 3, CLK_GET_RATE_NOCACHE);
 
 static struct sprd_clk_common *sc9830_apahb_clks[] = {
+	&dsi_eb.common,
+	&dphy_ref_eb.common,
+	&dphy_cfg_eb.common,
 	&sdio0_eb.common,
 	&usb_eb.common,
 	&sdio1_eb.common,
@@ -983,6 +1006,9 @@ static struct sprd_clk_common *sc9830_apahb_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_apahb_hws = {
 	.hws = {
+		[CLK_DSI_EB] = &dsi_eb.common.hw,
+		[CLK_DPHY_REF_EB] = &dphy_ref_eb.common.hw,
+		[CLK_DPHY_CFG_EB] = &dphy_cfg_eb.common.hw,
 		[CLK_SDIO0_EB] = &sdio0_eb.common.hw,
 		[CLK_USB_EB] = &usb_eb.common.hw,
 		[CLK_SDIO1_EB] = &sdio1_eb.common.hw,
