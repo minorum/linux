@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/bridge/sprd,sc9830-dsi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 MIPI DSI host
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+allOf:
+  - $ref: snps,dw-mipi-dsi.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-dsi
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: DSI AP-AHB bus gate
+      - description: D-PHY 26MHz reference gate
+      - description: D-PHY configuration gate
+
+  clock-names:
+    items:
+      - const: pclk
+      - const: ref
+      - const: cfg
+
+  resets:
+    maxItems: 1
+
+  reset-names:
+    const: apb
+
+  sprd,aon:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: AON APB syscon containing the D-PHY power-down controls.
+
+  ports: true
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - resets
+  - reset-names
+  - sprd,aon
+  - ports
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/sprd,sc9830-clk.h>
+
+    dsi@21800000 {
+        compatible = "sprd,sc9830-dsi";
+        reg = <0x21800000 0x1000>;
+        clocks = <&apahb CLK_DSI_EB>, <&apahb CLK_DPHY_REF_EB>,
+                 <&apahb CLK_DPHY_CFG_EB>;
+        clock-names = "pclk", "ref", "cfg";
+        resets = <&apahb 0>;
+        reset-names = "apb";
+        sprd,aon = <&aon_gate>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                endpoint {
+                    remote-endpoint = <&dispc_out>;
+                };
+            };
+
+            port@1 {
+                reg = <1>;
+                endpoint {
+                    remote-endpoint = <&panel_in>;
+                };
+            };
+        };
+    };
