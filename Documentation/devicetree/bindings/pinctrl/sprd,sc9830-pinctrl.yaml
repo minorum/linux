@@ -13,6 +13,7 @@ description:
   The controller has per-pad registers and separate global controls.
   The I2C2, UART0, SDIO1 and eMMC alternate functions are supported. GPIO
   mode selects the pad function and does not configure the GPIO controller.
+  The panel-reset group selects GPIO mode on LCM_RSTN.
 
 allOf:
   - $ref: pinctrl.yaml#
@@ -35,7 +36,7 @@ patternProperties:
         enum: [i2c2, gpio, uart0, sdio1, emmc]
       groups:
         items:
-          enum: [i2c2, uart0, sdio1, emmc-data, emmc-clock]
+          enum: [i2c2, uart0, sdio1, emmc-data, emmc-clock, panel-reset]
         maxItems: 1
       pins: false
       bias-disable:
