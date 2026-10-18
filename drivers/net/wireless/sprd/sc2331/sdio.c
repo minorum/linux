@@ -165,6 +165,7 @@ static int sc2331_sdio_runtime_response(struct sdio_func *func, u8 *data,
 	unsigned long deadline = jiffies + msecs_to_jiffies(timeout_ms);
 	unsigned int channel;
 	int ret, length;
+	bool received = false;
 	u8 ready;
 
 	do {
@@ -182,6 +183,7 @@ static int sc2331_sdio_runtime_response(struct sdio_func *func, u8 *data,
 				sdio_release_host(func);
 				if (ret)
 					return ret;
+				received = true;
 				ret = sc2331_sdio_runtime_records(data, length, command,
 								  event, context);
 				if (ret != -EAGAIN) {
@@ -196,6 +198,8 @@ static int sc2331_sdio_runtime_response(struct sdio_func *func, u8 *data,
 					return ret;
 			}
 		}
+		if (!timeout_ms)
+			return received ? 0 : -EAGAIN;
 		usleep_range(1000, 2000);
 	} while (time_before(jiffies, deadline));
 	return -ETIMEDOUT;
@@ -553,7 +557,7 @@ static void sc2331_rx_work(struct work_struct *work)
 	mutex_lock(&wifi->lock);
 	if (wifi->stopping || (!wifi->scan && !wifi->connecting && !wifi->connected))
 		goto unlock;
-	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 1,
+	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 0,
 					   sc2331_runtime_event, wifi);
 	if (wifi->scan && wifi->scan_done)
 		sc2331_scan_finish(wifi, false);
@@ -567,7 +571,7 @@ static void sc2331_rx_work(struct work_struct *work)
 		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
 	}
 	if (wifi->scan || wifi->connecting || wifi->connected)
-		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
+		schedule_delayed_work(&wifi->rx_work, ret ? msecs_to_jiffies(20) : 0);
 unlock:
 	mutex_unlock(&wifi->lock);
 }
@@ -977,6 +981,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	if (ret)
 		goto unregister_wiphy;
 	sdio_set_drvdata(func, wifi);
+	sc2331_boot_set_rx_work(boot, &wifi->rx_work);
 	dev_info(&func->dev, "SC2331 station interface registered\n");
 	return 0;
 unregister_wiphy:
@@ -1134,6 +1139,7 @@ static void sc2331_sdio_remove(struct sdio_func *func)
 	sc2331_scan_finish(wifi, true);
 	sc2331_connection_down(wifi, WLAN_REASON_DEAUTH_LEAVING, true);
 	mutex_unlock(&wifi->lock);
+	sc2331_boot_set_rx_work(wifi->boot, NULL);
 	cancel_delayed_work_sync(&wifi->rx_work);
 	cancel_work_sync(&wifi->tx_work);
 	unregister_netdev(wifi->wdev.netdev);

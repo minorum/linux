@@ -3,6 +3,7 @@
 #define SC2331_BOOT_H
 
 struct device;
+struct delayed_work;
 struct sc2331_boot;
 
 struct sc2331_boot *sc2331_boot_get(struct device *dev);
@@ -10,5 +11,6 @@ void sc2331_boot_arm(struct sc2331_boot *boot);
 int sc2331_boot_wait_ready(struct sc2331_boot *boot);
 int sc2331_boot_wake_device(struct sc2331_boot *boot);
 void sc2331_boot_sleep_device(struct sc2331_boot *boot);
+void sc2331_boot_set_rx_work(struct sc2331_boot *boot, struct delayed_work *work);
 
 #endif
