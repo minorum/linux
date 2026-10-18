@@ -224,9 +224,11 @@ static const unsigned int sc9830_emmc_clock_pins[] = { 0x1b0 / 4 };
 static const char * const sc9830_groups[] = {
 	"i2c2", "uart0", "sdio1", "emmc-data", "emmc-clock", "panel-reset",
 };
+
 static const char * const sc9830_gpio_groups[] = {
 	"i2c2", "panel-reset",
 };
+
 static const char * const sc9830_functions[] = {
 	"i2c2", "gpio", "uart0", "sdio1", "emmc",
 };
