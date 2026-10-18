@@ -2,6 +2,7 @@ config DRM_SC9830_DISPC
 	tristate "SC9830 display controller"
 	depends on ARCH_SC9830 || COMPILE_TEST
 	depends on DRM && OF
+	select DRM_CLIENT_SELECTION
 	select DRM_GEM_DMA_HELPER
 	select DRM_KMS_HELPER
 	select DRM_DISPLAY_HELPER
