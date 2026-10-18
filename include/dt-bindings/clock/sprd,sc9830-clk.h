@@ -35,7 +35,8 @@
 #define CLK_GPU_EB	29
 #define CLK_KPD_EB	30
 #define CLK_KPD_RTC_EB	31
-#define CLK_AON_CLK_NUM	32
+#define CLK_DISP_EMC_EB	32
+#define CLK_AON_CLK_NUM	33
 
 #define CLK_PMU_LTEPLL_GATE	0
 #define CLK_PMU_LTEPLL_614M4	1
@@ -62,7 +63,8 @@
 #define CLK_INTC2_EB	4
 #define CLK_INTC3_EB	5
 #define CLK_I2C1_EB		6
-#define CLK_AP_APB_GATE_NUM	7
+#define CLK_AP_CKG_EB		7
+#define CLK_AP_APB_GATE_NUM	8
 
 #define CLK_SDIO0_EB		0
 #define CLK_USB_EB		1
@@ -73,6 +75,7 @@
 #define CLK_DSI_EB		6
 #define CLK_DPHY_REF_EB		7
 #define CLK_DPHY_CFG_EB		8
-#define CLK_AP_AHB_GATE_NUM	9
+#define CLK_DISPC_EB		9
+#define CLK_AP_AHB_GATE_NUM	10
 
 #endif
