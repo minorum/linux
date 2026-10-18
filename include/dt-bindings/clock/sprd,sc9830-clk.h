@@ -50,7 +50,10 @@
 #define CLK_SDIO1		3
 #define CLK_EMMC		4
 #define CLK_I2C1		5
-#define CLK_AP_CLK_NUM	6
+#define CLK_DISPC		6
+#define CLK_DISPC_DBI		7
+#define CLK_DISPC_DPI		8
+#define CLK_AP_CLK_NUM	9
 
 #define CLK_I2C2_EB		0
 #define CLK_UART0_EB		1
