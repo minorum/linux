@@ -30,6 +30,8 @@ properties:
     description: Panel reset input, active-low on the Galaxy J3 panel.
     maxItems: 1
 
+  port: true
+
 required:
   - compatible
   - reg
