@@ -6,6 +6,7 @@
 #include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/reset.h>
 
 #include <drm/clients/drm_client_setup.h>
@@ -20,6 +21,7 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_of.h>
+#include <drm/drm_modeset_helper.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
@@ -474,6 +476,23 @@ static void sc9830_dispc_shutdown(struct platform_device *pdev)
 	drm_atomic_helper_shutdown(&dispc->drm);
 }
 
+static int sc9830_dispc_suspend(struct device *dev)
+{
+	struct sc9830_dispc *dispc = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_suspend(&dispc->drm);
+}
+
+static int sc9830_dispc_resume(struct device *dev)
+{
+	struct sc9830_dispc *dispc = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_resume(&dispc->drm);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sc9830_dispc_pm_ops, sc9830_dispc_suspend,
+			      sc9830_dispc_resume);
+
 static const struct of_device_id sc9830_dispc_match[] = {
 	{ .compatible = "sprd,sc9830-dispc" },
 	{ }
@@ -487,6 +506,7 @@ static struct platform_driver sc9830_dispc_driver = {
 	.driver = {
 		.name = "sc9830-dispc",
 		.of_match_table = sc9830_dispc_match,
+		.pm = pm_sleep_ptr(&sc9830_dispc_pm_ops),
 	},
 };
 module_platform_driver(sc9830_dispc_driver);
