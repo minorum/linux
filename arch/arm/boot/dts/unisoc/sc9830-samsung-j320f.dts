@@ -97,8 +97,8 @@
 
 			panel_vci: vddkpled {
 				regulator-name = "vddkpled";
-				regulator-min-microvolt = <3300000>;
-				regulator-max-microvolt = <3300000>;
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <3760000>;
 				nvmem-cells = <&calibration_state>, <&kpled_calibration>;
 				nvmem-cell-names = "calibration_state", "vddkpled";
 				status = "disabled";
