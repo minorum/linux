@@ -9,12 +9,15 @@
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/regulator/consumer.h>
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
+
+#include "panel-samsung-s6e8aa5x01-j3-gamma.h"
 
 /* Manufacturer Command Set */
 #define MCS_AIDCTL		0xb2
@@ -740,12 +743,20 @@ static const struct {
 	},
 };
 
+struct s6e8aa5x01_desc {
+	const struct drm_display_mode *mode;
+	bool j3;
+};
+
 struct s6e8aa5x01_ams561ra01_ctx {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
 	struct backlight_device *bl;
 	struct gpio_desc *reset_gpio;
 	struct regulator_bulk_data *supplies;
+	const struct s6e8aa5x01_desc *desc;
+	u8 (*gamma)[33];
+	u8 elvss_temp;
 	u32 nr_supplies;
 };
 
@@ -759,6 +770,84 @@ static inline struct s6e8aa5x01_ams561ra01_ctx *to_ctx(struct drm_panel *panel)
 	return container_of(panel, struct s6e8aa5x01_ams561ra01_ctx, panel);
 }
 
+static int s6e8aa5x01_j3_calibrate(struct s6e8aa5x01_ams561ra01_ctx *ctx)
+{
+	struct mipi_dsi_multi_context dsi = { .dsi = ctx->dsi };
+	struct mipi_dsi_multi_context lock = { .dsi = ctx->dsi };
+	u8 mtp[33], elvss[22], id[3];
+	int ret, i;
+
+	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_ACCESSPROT, 0x5a, 0x5a);
+	ret = dsi.accum_err;
+	if (ret)
+		goto out;
+	msleep(20);
+	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, sizeof(mtp));
+	if (ret < 0)
+		goto out;
+	for (i = 0; i < ARRAY_SIZE(id); i++) {
+		ret = mipi_dsi_dcs_read(ctx->dsi, 0xda + i, &id[i], 1);
+		if (ret != 1) {
+			ret = ret < 0 ? ret : -EPROTO;
+			goto out;
+		}
+	}
+	if (id[0] != 0x40 || id[1] || (id[2] != 2 && id[2] != 3)) {
+		ret = -ENODEV;
+		goto out;
+	}
+	ret = mipi_dsi_dcs_read(ctx->dsi, 0xc8, mtp, sizeof(mtp));
+	if (ret != sizeof(mtp)) {
+		ret = ret < 0 ? ret : -EPROTO;
+		goto out;
+	}
+	ret = mipi_dsi_dcs_read(ctx->dsi, MCS_ELVSS, elvss, sizeof(elvss));
+	if (ret != sizeof(elvss)) {
+		ret = ret < 0 ? ret : -EPROTO;
+		goto out;
+	}
+	ctx->elvss_temp = elvss[21];
+	ret = s6e8aa5x01_j3_gamma(mtp, ctx->gamma);
+out:
+	mipi_dsi_dcs_write_seq_multi(&lock, MCS_ACCESSPROT, 0xa5, 0xa5);
+	return ret < 0 ? ret : lock.accum_err;
+}
+
+static int s6e8aa5x01_j3_brightness(struct s6e8aa5x01_ams561ra01_ctx *ctx,
+				    unsigned int level)
+{
+	struct mipi_dsi_multi_context dsi = { .dsi = ctx->dsi };
+	struct mipi_dsi_multi_context lock = { .dsi = ctx->dsi };
+	u8 gamma[34] = { MCS_GAMMACTL };
+	u8 aid[] = { MCS_AIDCTL, 0x40, 0x00, 0x28, 0x00, 0x0a };
+	u8 elvss[] = {
+		MCS_ELVSS, 0xbc, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x0a, 0xaa,
+		0xa2, 0x12, 0x03, 0x33, 0x21, 0x10, 0x07,
+	};
+
+	if (level >= ARRAY_SIZE(j3_candela))
+		return -EINVAL;
+	memcpy(gamma + 1, ctx->gamma[level], 33);
+	aid[1] = j3_aid[level] >> 8;
+	aid[2] = j3_aid[level];
+	elvss[1] = j3_mps[level];
+	elvss[2] = j3_elvss[level];
+	elvss[22] = j3_elvss_warm[level] ?: ctx->elvss_temp;
+	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_ACCESSPROT, 0x5a, 0x5a);
+	mipi_dsi_dcs_write_buffer_multi(&dsi, gamma, sizeof(gamma));
+	mipi_dsi_dcs_write_buffer_multi(&dsi, aid, sizeof(aid));
+	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_TEMPERCTL,
+				     0x19, 0x00, 0x00, 0x60, 0x44, 0x00, 0xa8, 0x19);
+	mipi_dsi_dcs_write_buffer_multi(&dsi, elvss, sizeof(elvss));
+	mipi_dsi_dcs_write_seq_multi(&dsi, 0x55, 0x02);
+	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_ADAPTIVECTL, 0x50);
+	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_GAMMAUPD, 0x03);
+	mipi_dsi_msleep(&dsi, 5);
+	mipi_dsi_dcs_write_seq_multi(&lock, MCS_ACCESSPROT, 0xa5, 0xa5);
+	return dsi.accum_err ?: lock.accum_err;
+}
+
 static int s6e8aa5x01_ams561ra01_update_status(struct backlight_device *bl)
 {
 	struct s6e8aa5x01_ams561ra01_ctx *ctx = bl_get_data(bl);
@@ -767,6 +856,8 @@ static int s6e8aa5x01_ams561ra01_update_status(struct backlight_device *bl)
 
 	if (!ctx->panel.enabled)
 		return 0;
+	if (ctx->desc->j3)
+		return s6e8aa5x01_j3_brightness(ctx, lvl);
 
 	mipi_dsi_dcs_write_seq_multi(&dsi, MCS_ACCESSPROT, 0x5a, 0x5a);
 
@@ -789,9 +880,26 @@ static int s6e8aa5x01_ams561ra01_prepare(struct drm_panel *panel)
 	struct device *dev = &ctx->dsi->dev;
 	int ret;
 
+	if (ctx->desc->j3) {
+		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+		usleep_range(10, 20);
+	}
 	ret = regulator_bulk_enable(ctx->nr_supplies, ctx->supplies);
 	if (ret < 0) {
 		dev_err(dev, "failed to enable regulators: %d\n", ret);
+		return ret;
+	}
+	if (ctx->desc->j3) {
+		usleep_range(10, 20);
+		gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+		usleep_range(10000, 11000);
+		ret = s6e8aa5x01_j3_calibrate(ctx);
+		if (!ret)
+			return 0;
+		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+		usleep_range(10, 20);
+		if (regulator_bulk_disable(ctx->nr_supplies, ctx->supplies))
+			dev_err(dev, "failed to disable panel supply\n");
 		return ret;
 	}
 
@@ -810,6 +918,10 @@ static int s6e8aa5x01_ams561ra01_unprepare(struct drm_panel *panel)
 	struct s6e8aa5x01_ams561ra01_ctx *ctx = to_ctx(panel);
 
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+	if (ctx->desc->j3) {
+		usleep_range(10, 20);
+		return regulator_bulk_disable(ctx->nr_supplies, ctx->supplies);
+	}
 	usleep_range(5000, 6000);
 
 	regulator_bulk_disable(ctx->nr_supplies, ctx->supplies);
@@ -821,6 +933,29 @@ static int s6e8aa5x01_ams561ra01_enable(struct drm_panel *panel)
 {
 	struct s6e8aa5x01_ams561ra01_ctx *ctx = to_ctx(panel);
 	struct mipi_dsi_multi_context dsi = { .dsi = ctx->dsi };
+	struct mipi_dsi_multi_context lock = { .dsi = ctx->dsi };
+	int ret;
+
+	if (ctx->desc->j3) {
+		mipi_dsi_dcs_exit_sleep_mode_multi(&dsi);
+		mipi_dsi_msleep(&dsi, 22);
+		if (dsi.accum_err)
+			return dsi.accum_err;
+		ret = s6e8aa5x01_j3_brightness(ctx, ctx->bl->props.brightness);
+		if (ret)
+			return ret;
+		mipi_dsi_dcs_write_seq_multi(&dsi, MCS_ACCESSPROT, 0x5a, 0x5a);
+		mipi_dsi_dcs_write_seq_multi(&dsi, MCS_PENTILE, 0xd8, 0xd8, 0x40);
+		mipi_dsi_dcs_write_seq_multi(&dsi, MCS_TEMPERCTL,
+					     0x38, 0x00, 0x00, 0x60, 0x44, 0x00, 0xa8);
+		mipi_dsi_dcs_write_seq_multi(&lock, MCS_ACCESSPROT, 0xa5, 0xa5);
+		if (lock.accum_err)
+			return dsi.accum_err ?: lock.accum_err;
+		mipi_dsi_msleep(&dsi, 120);
+		mipi_dsi_dcs_set_display_on_multi(&dsi);
+		mipi_dsi_msleep(&dsi, 16);
+		return dsi.accum_err;
+	}
 
 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi);
 	mipi_dsi_msleep(&dsi, 100);
@@ -856,10 +991,10 @@ static int s6e8aa5x01_ams561ra01_disable(struct drm_panel *panel)
 	struct mipi_dsi_multi_context dsi = { .dsi = ctx->dsi };
 
 	mipi_dsi_dcs_set_display_off_multi(&dsi);
-	mipi_dsi_msleep(&dsi, 100);
+	mipi_dsi_msleep(&dsi, ctx->desc->j3 ? 20 : 100);
 
 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi);
-	mipi_dsi_msleep(&dsi, 150);
+	mipi_dsi_msleep(&dsi, ctx->desc->j3 ? 120 : 150);
 
 	return dsi.accum_err;
 }
@@ -879,11 +1014,38 @@ static const struct drm_display_mode s6e8aa5x01_ams561ra01_mode = {
 	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
 };
 
+static const struct drm_display_mode s6e8aa5x01_j3_mode = {
+	.clock = (720 + 130 + 40 + 90) * (1280 + 14 + 4 + 6) * 60 / 1000,
+	.hdisplay = 720,
+	.hsync_start = 720 + 130,
+	.hsync_end = 720 + 130 + 40,
+	.htotal = 720 + 130 + 40 + 90,
+	.vdisplay = 1280,
+	.vsync_start = 1280 + 14,
+	.vsync_end = 1280 + 14 + 4,
+	.vtotal = 1280 + 14 + 4 + 6,
+	.width_mm = 62,
+	.height_mm = 106,
+	.flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC,
+	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
+};
+
+static const struct s6e8aa5x01_desc s6e8aa5x01_ams561ra01_desc = {
+	.mode = &s6e8aa5x01_ams561ra01_mode,
+};
+
+static const struct s6e8aa5x01_desc s6e8aa5x01_j3_desc = {
+	.mode = &s6e8aa5x01_j3_mode,
+	.j3 = true,
+};
+
 static int s6e8aa5x01_ams561ra01_get_modes(struct drm_panel *panel,
 					   struct drm_connector *connector)
 {
+	struct s6e8aa5x01_ams561ra01_ctx *ctx = to_ctx(panel);
+
 	return drm_connector_helper_get_modes_fixed(connector,
-						    &s6e8aa5x01_ams561ra01_mode);
+						    ctx->desc->mode);
 }
 
 static const struct backlight_ops s6e8aa5x01_ams561ra01_bl_ops = {
@@ -911,19 +1073,30 @@ static int s6e8aa5x01_ams561ra01_probe(struct mipi_dsi_device *dsi)
 		return PTR_ERR(ctx);
 
 	ctx->dsi = dsi;
+	ctx->desc = of_device_get_match_data(dev);
+	if (!ctx->desc)
+		return -EINVAL;
 	mipi_dsi_set_drvdata(dsi, ctx);
 
-	ctx->nr_supplies = ARRAY_SIZE(s6e8aa5x01_ams561ra01_supplies);
+	ctx->nr_supplies = ctx->desc->j3 ? 1 : ARRAY_SIZE(s6e8aa5x01_ams561ra01_supplies);
 	ret = devm_regulator_bulk_get_const(dev, ctx->nr_supplies,
-					    s6e8aa5x01_ams561ra01_supplies,
+					    s6e8aa5x01_ams561ra01_supplies + ctx->desc->j3,
 					    &ctx->supplies);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to get regulators\n");
 
-	ctx->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_ASIS);
+	ctx->reset_gpio = devm_gpiod_get_optional(dev, "reset",
+						  ctx->desc->j3 ? GPIOD_OUT_HIGH : GPIOD_ASIS);
 	if (IS_ERR(ctx->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
 				     "failed to get reset-gpios\n");
+	if (ctx->desc->j3) {
+		if (!ctx->reset_gpio)
+			return dev_err_probe(dev, -EINVAL, "missing reset GPIO\n");
+		ctx->gamma = devm_kmalloc_array(dev, 62, 33, GFP_KERNEL);
+		if (!ctx->gamma)
+			return -ENOMEM;
+	}
 
 	ctx->bl = devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
 						 &s6e8aa5x01_ams561ra01_bl_ops,
@@ -934,12 +1107,16 @@ static int s6e8aa5x01_ams561ra01_probe(struct mipi_dsi_device *dsi)
 
 	ctx->bl->props.type = BACKLIGHT_PLATFORM;
 	ctx->bl->props.brightness = ARRAY_SIZE(s6e8aa5x01_ams561ra01_cmds) - 1;
+	if (ctx->desc->j3)
+		ctx->bl->props.brightness = ARRAY_SIZE(j3_candela) - 1;
 	ctx->bl->props.max_brightness = ctx->bl->props.brightness;
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
 			  MIPI_DSI_MODE_VIDEO_NO_HFP;
+	if (ctx->desc->j3)
+		dsi->mode_flags &= ~MIPI_DSI_MODE_VIDEO_NO_HFP;
 
 	ctx->panel.prepare_prev_first = true;
 	drm_panel_add(&ctx->panel);
@@ -961,7 +1138,9 @@ static void s6e8aa5x01_ams561ra01_remove(struct mipi_dsi_device *dsi)
 }
 
 static const struct of_device_id s6e8aa5x01_ams561ra01_of_device_id[] = {
-	{ .compatible = "samsung,s6e8aa5x01-ams561ra01" },
+	{ .compatible = "samsung,s6e8aa5x01-ams561ra01",
+	  .data = &s6e8aa5x01_ams561ra01_desc },
+	{ .compatible = "samsung,s6e8aa5x01-j3-2016", .data = &s6e8aa5x01_j3_desc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s6e8aa5x01_ams561ra01_of_device_id);
@@ -977,5 +1156,5 @@ static struct mipi_dsi_driver s6e8aa5x01_ams561ra01_dsi_driver = {
 module_mipi_dsi_driver(s6e8aa5x01_ams561ra01_dsi_driver);
 
 MODULE_AUTHOR("Kaustabh Chakraborty <kauschluss@disroot.org>");
-MODULE_DESCRIPTION("Samsung AMS561RA01 Panel with S6E8AA5X01 Controller");
+MODULE_DESCRIPTION("Samsung panels with S6E8AA5X01 controller");
 MODULE_LICENSE("GPL");

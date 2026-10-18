@@ -1072,7 +1072,7 @@ config DRM_PANEL_SAMSUNG_S6E8AA0
 	select VIDEOMODE_HELPERS
 
 config DRM_PANEL_SAMSUNG_S6E8AA5X01_AMS561RA01
-	tristate "Samsung AMS561RA01 panel with S6E8AA5X01 controller"
+	tristate "Samsung panels with S6E8AA5X01 controller"
 	depends on GPIOLIB && OF && REGULATOR
 	depends on DRM_MIPI_DSI
 	depends on BACKLIGHT_CLASS_DEVICE
@@ -1081,6 +1081,8 @@ config DRM_PANEL_SAMSUNG_S6E8AA5X01_AMS561RA01
 	  panel, which uses Samsung's S6E8AA5X01 controller. The panel has a
 	  ~5.6 inch AMOLED display, and the controller is driven by the MIPI
 	  DSI protocol with 4 lanes.
+	  This also supports the 720x1280 AMOLED panel used in the 2016
+	  Samsung Galaxy J3 SM-J320F and SM-J320FN.
 
 config DRM_PANEL_SAMSUNG_S6E8FC0
 	tristate "Samsung S6E8FC0 DSI controller"
