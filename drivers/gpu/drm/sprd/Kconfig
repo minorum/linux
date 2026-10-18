@@ -1,3 +1,16 @@
+config DRM_SC9830_DISPC
+	tristate "SC9830 display controller"
+	depends on ARCH_SPRD || COMPILE_TEST
+	depends on DRM && OF
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	select DRM_BRIDGE_CONNECTOR
+	help
+	  Enable the SC9830 display controller with one primary plane.
+	  It supports linear XRGB8888 and RGB565 scanout through a DSI
+	  bridge. Display clocks remain enabled while the driver is bound.
+	  The module is called sc9830-dispc.
+
 config DRM_SC9830_DSI
 	tristate "SC9830 MIPI DSI host"
 	depends on ARCH_SPRD || COMPILE_TEST

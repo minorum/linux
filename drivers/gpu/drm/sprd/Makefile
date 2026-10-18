@@ -7,3 +7,4 @@ sprd-drm-y := sprd_drm.o \
 
 obj-$(CONFIG_DRM_SPRD) += sprd-drm.o
 obj-$(CONFIG_DRM_SC9830_DSI) += sc9830-dsi.o
+obj-$(CONFIG_DRM_SC9830_DISPC) += sc9830-dispc.o
