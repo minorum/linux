@@ -7,6 +7,10 @@
 	model = "Samsung GT-S5620";
 	compatible = "samsung,gt-s5620", "brcm,bcm2153";
 
+	chosen {
+		linux,usable-memory-range = <0x81000000 0x06f00000>;
+	};
+
 	memory@80000000 {
 		device_type = "memory";
 		reg = <0x80000000 0x08000000>;
