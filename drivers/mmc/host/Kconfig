@@ -418,6 +418,15 @@ config MMC_SDHCI_S3C_DMA
 
 	  YMMV.
 
+config MMC_SDHCI_BCM2153
+	tristate "SDHCI support on Broadcom BCM2153"
+	depends on ARCH_BCM2153 || COMPILE_TEST
+	depends on MMC_SDHCI_PLTFM && OF
+	select MMC_SDHCI_IO_ACCESSORS
+	help
+	  Enable the BCM2153 SDHCI host with aligned register access and
+	  its external clock divider. Transfers use PIO.
+
 config MMC_SDHCI_BCM_KONA
 	tristate "SDHCI support on Broadcom KONA platform"
 	depends on ARCH_BCM_MOBILE || COMPILE_TEST
