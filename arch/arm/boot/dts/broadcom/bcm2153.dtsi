@@ -62,7 +62,7 @@
 			interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&osc32k>;
 			clock-names = "slow";
-			status = "disabled";
+			status = "okay";
 		};
 
 		sd1: mmc@8120000 {

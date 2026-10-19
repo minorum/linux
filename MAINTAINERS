@@ -5157,8 +5157,10 @@ F:	Documentation/devicetree/bindings/arm/bcm/brcm,bcm2153.yaml
 F:	Documentation/devicetree/bindings/i2c/brcm,bcm2153-i2c.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/brcm,bcm2153-intc.yaml
 F:	Documentation/devicetree/bindings/mfd/brcm,bcm59035.yaml
+F:	Documentation/devicetree/bindings/timer/brcm,bcm2153-gpt.yaml
 F:	arch/arm/boot/dts/broadcom/bcm2153*
 F:	arch/arm/mach-bcm/bcm2153.c
+F:	drivers/clocksource/timer-bcm2153.c
 F:	drivers/irqchip/irq-bcm2153.c
 
 BROADCOM BCM2711/BCM2835 ARM ARCHITECTURE

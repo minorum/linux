@@ -13,6 +13,9 @@ description:
   The block contains six 32-bit downcounters with individual control and
   reload registers, at a channel stride of 16 bytes. The slow clock input
   runs at 32768 Hz. Channel zero can provide a polled bootloader timebase.
+  Linux uses channel zero as its clocksource and channel one for software
+  one-shot clockevents. The node owns all six channels; unused channel
+  interrupts are disabled during initialization.
 
 properties:
   compatible:
@@ -30,6 +33,11 @@ properties:
   interrupts:
     minItems: 1
     maxItems: 2
+    description:
+      The first interrupt is AP IRQ 11 for channels with interrupt assignment
+      bit clear. The optional second interrupt is AP IRQ 62 for channels with
+      that bit set. Linux requires the first interrupt; polled bootloader use
+      does not require an interrupt.
 
 required:
   - compatible
