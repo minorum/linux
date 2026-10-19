@@ -5154,6 +5154,8 @@ BROADCOM BCM2153 DEVICE TREE
 M:	minorum <mit.mis@gmail.com>
 S:	Maintained
 F:	Documentation/devicetree/bindings/arm/bcm/brcm,bcm2153.yaml
+F:	Documentation/devicetree/bindings/i2c/brcm,bcm2153-i2c.yaml
+F:	Documentation/devicetree/bindings/mfd/brcm,bcm59035.yaml
 F:	arch/arm/boot/dts/broadcom/bcm2153*
 
 BROADCOM BCM2711/BCM2835 ARM ARCHITECTURE

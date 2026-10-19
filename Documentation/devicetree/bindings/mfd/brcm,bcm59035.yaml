@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mfd/brcm,bcm59035.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM59035 power management IC
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+properties:
+  compatible:
+    const: brcm,bcm59035
+
+  reg:
+    maxItems: 1
+
+  regulators:
+    type: object
+    additionalProperties: false
+
+    properties:
+      hcldo2:
+        type: object
+        $ref: /schemas/regulator/regulator.yaml#
+        unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
