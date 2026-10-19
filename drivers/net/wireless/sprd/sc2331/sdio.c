@@ -48,6 +48,7 @@ struct sc2331_wifi {
 	u8 regulatory_alpha2[2];
 	struct sk_buff_head tx_queue;
 	struct cfg80211_scan_request *scan;
+	struct cfg80211_bss *connect_bss;
 	unsigned long scan_deadline;
 	u32 sequence;
 	u32 packet_sequence;
@@ -403,6 +404,8 @@ static void sc2331_connection_down(struct sc2331_wifi *wifi, u16 reason, bool lo
 					WLAN_STATUS_UNSPECIFIED_FAILURE, GFP_KERNEL);
 	else if (wifi->connected)
 		cfg80211_disconnected(wifi->wdev.netdev, reason, NULL, 0, local, GFP_KERNEL);
+	cfg80211_put_bss(wifi->wdev.wiphy, wifi->connect_bss);
+	wifi->connect_bss = NULL;
 	wifi->connecting = false;
 	wifi->connected = false;
 	netif_carrier_off(wifi->wdev.netdev);
@@ -455,14 +458,18 @@ static void sc2331_runtime_event(void *context, const struct sc2331_record *reco
 		dev_info(&wifi->func->dev, "SC2331 station connection failed: %u\n", result.status);
 		return;
 	}
-	if (!is_valid_ether_addr(result.bssid))
+	if (!is_valid_ether_addr(result.bssid) || !wifi->connect_bss ||
+	    !ether_addr_equal(result.bssid, wifi->connect_bss->bssid))
 		return;
 	ether_addr_copy(wifi->bssid, result.bssid);
 	wifi->connecting = false;
 	wifi->connected = true;
-	cfg80211_connect_result(netdev, result.bssid, result.request_ie,
-				result.request_ie_len, result.response_ie,
-				result.response_ie_len, WLAN_STATUS_SUCCESS, GFP_KERNEL);
+	cfg80211_connect_bss(netdev, result.bssid, wifi->connect_bss,
+			     result.request_ie, result.request_ie_len,
+			     result.response_ie, result.response_ie_len,
+			     WLAN_STATUS_SUCCESS, GFP_KERNEL,
+			     NL80211_TIMEOUT_UNSPECIFIED);
+	wifi->connect_bss = NULL;
 	netif_carrier_on(netdev);
 	netif_wake_queue(netdev);
 	dev_info(&wifi->func->dev, "SC2331 station connected\n");
@@ -582,6 +589,8 @@ static void sc2331_rx_work(struct work_struct *work)
 				time_after_eq(jiffies, wifi->scan_deadline)))
 		sc2331_scan_finish(wifi, true);
 	if (wifi->connecting && time_after_eq(jiffies, wifi->connect_deadline)) {
+		cfg80211_put_bss(wifi->wdev.wiphy, wifi->connect_bss);
+		wifi->connect_bss = NULL;
 		cfg80211_connect_timeout(wifi->wdev.netdev, NULL, NULL, 0, GFP_KERNEL,
 					 NL80211_TIMEOUT_UNSPECIFIED);
 		wifi->connecting = false;
@@ -659,6 +668,7 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 			  struct cfg80211_connect_params *sme)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	struct cfg80211_bss *bss = NULL;
 	u8 payload[34];
 	u32 values[6];
 	const u8 commands[] = { 6, 5, 7, 8, 5, 9 };
@@ -697,6 +707,13 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 		ret = wifi->stopping ? -ENODEV : -EBUSY;
 		goto unlock;
 	}
+	bss = cfg80211_get_bss(wiphy, sme->channel, sme->bssid, sme->ssid,
+			       sme->ssid_len, IEEE80211_BSS_TYPE_ESS,
+			       IEEE80211_PRIVACY_ON);
+	if (!bss) {
+		ret = -ENOENT;
+		goto unlock;
+	}
 	for (i = 0; i < ARRAY_SIZE(commands); i++) {
 		put_unaligned_le32(values[i], payload);
 		ret = sc2331_wifi_command(wifi, commands[i], payload, 4, 3000);
@@ -711,30 +728,31 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 	memzero_explicit(wifi->data, SC2331_RUNTIME_RX_SIZE);
 	if (ret)
 		goto unlock;
-	if (sme->channel) {
-		channel = ieee80211_frequency_to_channel(sme->channel->center_freq);
-		put_unaligned_le32(channel, payload);
-		ret = sc2331_wifi_command(wifi, 0x0a, payload, 4, 3000);
-		if (ret)
-			goto unlock;
-	}
-	if (sme->bssid) {
-		ret = sc2331_wifi_command(wifi, 0x0b, sme->bssid, ETH_ALEN, 3000);
-		if (ret)
-			goto unlock;
-	}
+	channel = ieee80211_frequency_to_channel(bss->channel->center_freq);
+	put_unaligned_le32(channel, payload);
+	ret = sc2331_wifi_command(wifi, 0x0a, payload, 4, 3000);
+	if (ret)
+		goto unlock;
+	ret = sc2331_wifi_command(wifi, 0x0b, bss->bssid, ETH_ALEN, 3000);
+	if (ret)
+		goto unlock;
 	put_unaligned_le16(sme->ssid_len, payload);
 	memcpy(payload + 2, sme->ssid, sme->ssid_len);
+	wifi->connect_bss = bss;
+	bss = NULL;
 	wifi->connecting = true;
 	wifi->connect_deadline = jiffies + msecs_to_jiffies(20000);
 	ret = sc2331_wifi_command(wifi, 0x0c, payload, sme->ssid_len + 2, 3000);
 	if (ret && wifi->connecting) {
+		cfg80211_put_bss(wiphy, wifi->connect_bss);
+		wifi->connect_bss = NULL;
 		wifi->connecting = false;
 		goto unlock;
 	}
 	ret = 0;
 	schedule_delayed_work(&wifi->rx_work, 0);
 unlock:
+	cfg80211_put_bss(wiphy, bss);
 	mutex_unlock(&wifi->lock);
 	return ret;
 }
