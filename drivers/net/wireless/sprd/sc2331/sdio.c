@@ -11,6 +11,7 @@
 #include <linux/mutex.h>
 #include <linux/of_net.h>
 #include <linux/of_irq.h>
+#include <linux/pm.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 #include <linux/vmalloc.h>
@@ -1187,11 +1188,55 @@ static const struct sdio_device_id sc2331_sdio_ids[] = {
 };
 MODULE_DEVICE_TABLE(sdio, sc2331_sdio_ids);
 
+static int sc2331_sdio_suspend(struct device *dev)
+{
+	struct sdio_func *func = dev_to_sdio_func(dev);
+	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
+	int ret;
+
+	ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
+	if (ret)
+		return ret;
+
+	netif_device_detach(wifi->wdev.netdev);
+	netif_tx_disable(wifi->wdev.netdev);
+	if (wifi->irq)
+		disable_irq(wifi->irq);
+	cancel_delayed_work_sync(&wifi->rx_work);
+	cancel_work_sync(&wifi->tx_work);
+	skb_queue_purge(&wifi->tx_queue);
+	sc2331_boot_sleep_device(wifi->boot);
+
+	return 0;
+}
+
+static int sc2331_sdio_resume(struct device *dev)
+{
+	struct sdio_func *func = dev_to_sdio_func(dev);
+	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
+	int ret;
+
+	ret = sc2331_boot_wake_device(wifi->boot);
+	if (ret)
+		return ret;
+
+	if (wifi->irq)
+		enable_irq(wifi->irq);
+	netif_device_attach(wifi->wdev.netdev);
+	mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sc2331_sdio_pm_ops, sc2331_sdio_suspend,
+			      sc2331_sdio_resume);
+
 struct sdio_driver sc2331_sdio_driver = {
 	.name = "sc2331",
 	.id_table = sc2331_sdio_ids,
 	.probe = sc2331_sdio_probe,
 	.remove = sc2331_sdio_remove,
+	.drv.pm = pm_sleep_ptr(&sc2331_sdio_pm_ops),
 };
 MODULE_FIRMWARE(SC2331_WLAN_NAME);
 MODULE_FIRMWARE(SC2331_CALIB_NAME);
