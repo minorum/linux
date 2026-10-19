@@ -7,6 +7,15 @@ menuconfig ARCH_BCM
 
 if ARCH_BCM
 
+config ARCH_BCM2153
+	bool "Broadcom BCM2153 application processor"
+	depends on ARCH_MULTI_V6 && !SMP
+	select BCM2153_INTC
+	select CPU_V6
+	help
+	  Enable the BCM2153 ARM11 application processor and its AP
+	  interrupt controller. Modem processor support is separate.
+
 comment "IPROC architected SoCs"
 
 config ARCH_BCM_IPROC

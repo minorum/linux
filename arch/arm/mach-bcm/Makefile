@@ -3,6 +3,8 @@
 # Copyright (C) 2012-2015 Broadcom Corporation
 #
 
+obj-$(CONFIG_ARCH_BCM2153) += bcm2153.o
+
 # Cygnus
 obj-$(CONFIG_ARCH_BCM_CYGNUS) +=  bcm_cygnus.o
 

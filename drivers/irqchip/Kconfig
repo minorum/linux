@@ -5,6 +5,11 @@ config IRQCHIP
 	def_bool y
 	depends on (OF_IRQ || ACPI_GENERIC_GSI)
 
+config BCM2153_INTC
+	bool "Broadcom BCM2153 AP interrupt controller" if COMPILE_TEST
+	depends on ARM
+	select IRQ_DOMAIN
+
 config ARM_GIC
 	bool
 	depends on OF
