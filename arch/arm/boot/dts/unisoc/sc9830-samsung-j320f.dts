@@ -82,6 +82,7 @@
 &sdio1 {
 	assigned-clock-rates = <76800000>;
 	max-frequency = <38400000>;
+	keep-power-in-suspend;
 };
 
 &panel_vci {
