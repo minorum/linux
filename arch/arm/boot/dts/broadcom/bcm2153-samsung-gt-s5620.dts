@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/dts-v1/;
+
+#include "bcm2153.dtsi"
+
+/ {
+	model = "Samsung GT-S5620";
+	compatible = "samsung,gt-s5620", "brcm,bcm2153";
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x08000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		modem@80000000 {
+			reg = <0x80000000 0x00f00000>;
+			no-map;
+		};
+
+		stock@83800000 {
+			reg = <0x83800000 0x00200000>;
+			no-map;
+		};
+
+		stock@87f00000 {
+			reg = <0x87f00000 0x00100000>;
+			no-map;
+		};
+	};
+};
+
+&sd1 {
+	bus-width = <4>;
+	max-frequency = <25000000>;
+};
