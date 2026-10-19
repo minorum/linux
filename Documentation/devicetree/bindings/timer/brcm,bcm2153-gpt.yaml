@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/timer/brcm,bcm2153-gpt.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM2153 general-purpose timers
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  The block contains six 32-bit downcounters with individual control and
+  reload registers, at a channel stride of 16 bytes. The slow clock input
+  runs at 32768 Hz. Channel zero can provide a polled bootloader timebase.
+
+properties:
+  compatible:
+    const: brcm,bcm2153-gpt
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: slow
+
+  interrupts:
+    minItems: 1
+    maxItems: 2
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+
+additionalProperties: false
+
+examples:
+  - |
+    timer@8830100 {
+        compatible = "brcm,bcm2153-gpt";
+        reg = <0x08830100 0x60>;
+        clocks = <&osc32k>;
+        clock-names = "slow";
+    };
