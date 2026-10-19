@@ -166,9 +166,32 @@ static int bcm2153_irq_map(struct irq_domain *domain, unsigned int irq,
 	return 0;
 }
 
+static int bcm2153_irq_xlate(struct irq_domain *domain, struct device_node *node,
+			     const u32 *intspec, unsigned int intsize,
+			     irq_hw_number_t *out_hwirq, unsigned int *out_type)
+{
+	struct bcm2153_irq *ic = domain->host_data;
+
+	if (intsize != 2 || !bcm2153_irq_valid(ic, intspec[0]))
+		return -EINVAL;
+	switch (intspec[1]) {
+	case IRQ_TYPE_LEVEL_HIGH:
+	case IRQ_TYPE_LEVEL_LOW:
+	case IRQ_TYPE_EDGE_RISING:
+	case IRQ_TYPE_EDGE_FALLING:
+	case IRQ_TYPE_EDGE_BOTH:
+		break;
+	default:
+		return -EINVAL;
+	}
+	*out_hwirq = intspec[0];
+	*out_type = intspec[1];
+	return 0;
+}
+
 static const struct irq_domain_ops bcm2153_irq_ops = {
 	.map = bcm2153_irq_map,
-	.xlate = irq_domain_xlate_twocell,
+	.xlate = bcm2153_irq_xlate,
 };
 
 static void __exception_irq_entry bcm2153_handle_irq(struct pt_regs *regs)
