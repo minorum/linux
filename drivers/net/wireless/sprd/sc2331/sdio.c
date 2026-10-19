@@ -44,6 +44,8 @@ struct sc2331_wifi {
 	struct delayed_work rx_work;
 	int irq;
 	struct work_struct tx_work;
+	struct wiphy_work regulatory_work;
+	u8 regulatory_alpha2[2];
 	struct sk_buff_head tx_queue;
 	struct cfg80211_scan_request *scan;
 	unsigned long scan_deadline;
@@ -486,8 +488,7 @@ static int sc2331_wifi_command(struct sc2331_wifi *wifi, u8 command,
 					    timeout, sc2331_runtime_event, wifi);
 }
 
-static void sc2331_reg_notify(struct wiphy *wiphy,
-			      struct regulatory_request *request)
+static void sc2331_reg_work(struct wiphy *wiphy, struct wiphy_work *work)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
 	const struct ieee80211_reg_rule *rules[14], *rule;
@@ -532,14 +533,14 @@ static void sc2331_reg_notify(struct wiphy *wiphy,
 		goto failed;
 	}
 	put_unaligned_le32(count, payload);
-	payload[4] = request->alpha2[0];
-	payload[5] = request->alpha2[1];
+	payload[4] = wifi->regulatory_alpha2[0];
+	payload[5] = wifi->regulatory_alpha2[1];
 	ret = sc2331_wifi_command(wifi, 0x29, payload, 8 + count * 24, 3000);
 	if (ret)
 		goto failed;
 	wifi->regulatory_ready = true;
 	dev_info(&wifi->func->dev, "SC2331 regulatory domain applied: %c%c, %u rules\n",
-		 request->alpha2[0], request->alpha2[1], count);
+		 wifi->regulatory_alpha2[0], wifi->regulatory_alpha2[1], count);
 	goto unlock;
 failed:
 	if (wifi->connected || wifi->connecting) {
@@ -550,6 +551,18 @@ failed:
 	dev_err(&wifi->func->dev, "SC2331 regulatory update failed: %d\n", ret);
 unlock:
 	mutex_unlock(&wifi->lock);
+}
+
+static void sc2331_reg_notify(struct wiphy *wiphy,
+			      struct regulatory_request *request)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+
+	mutex_lock(&wifi->lock);
+	wifi->regulatory_ready = false;
+	memcpy(wifi->regulatory_alpha2, request->alpha2, 2);
+	mutex_unlock(&wifi->lock);
+	wiphy_work_queue(wiphy, &wifi->regulatory_work);
 }
 
 static void sc2331_rx_work(struct work_struct *work)
@@ -954,6 +967,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	mutex_init(&wifi->lock);
 	INIT_DELAYED_WORK(&wifi->rx_work, sc2331_rx_work);
 	INIT_WORK(&wifi->tx_work, sc2331_tx_work);
+	wiphy_work_init(&wifi->regulatory_work, sc2331_reg_work);
 	skb_queue_head_init(&wifi->tx_queue);
 	*(struct sc2331_wifi **)netdev_priv(netdev) = wifi;
 	wifi->wdev.wiphy = wiphy;
