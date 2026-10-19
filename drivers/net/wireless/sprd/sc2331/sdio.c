@@ -574,7 +574,7 @@ static void sc2331_rx_work(struct work_struct *work)
 		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
 	}
 	if (wifi->scan || wifi->connecting || wifi->connected)
-		schedule_delayed_work(&wifi->rx_work, ret ? msecs_to_jiffies(20) : 0);
+		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
 unlock:
 	mutex_unlock(&wifi->lock);
 }
