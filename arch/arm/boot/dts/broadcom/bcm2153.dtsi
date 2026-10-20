@@ -67,6 +67,14 @@
 			status = "disabled";
 		};
 
+		gpio: gpio@88ce000 {
+			compatible = "brcm,bcm2153-gpio";
+			reg = <0x088ce000 0x50>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
 		bsc1: i2c@88b0020 {
 			compatible = "brcm,bcm2153-i2c";
 			reg = <0x088b0020 0x30>;

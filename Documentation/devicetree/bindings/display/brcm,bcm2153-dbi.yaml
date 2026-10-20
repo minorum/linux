@@ -25,6 +25,8 @@ properties:
     properties:
       compatible:
         const: samsung,gt-s5620-lcd
+      reset-gpios:
+        maxItems: 1
     required:
       - compatible
 

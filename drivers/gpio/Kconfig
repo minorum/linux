@@ -214,6 +214,13 @@ config GPIO_RASPBERRYPI_EXP
 	  Turn on GPIO support for the expander on Raspberry Pi 3 boards, using
 	  the firmware mailbox to communicate with VideoCore on BCM283x chips.
 
+config GPIO_BCM2153
+	tristate "Broadcom BCM2153 GPIO outputs"
+	depends on OF && (ARM || COMPILE_TEST)
+	help
+	  GPIO output support for BCM2153, including GT-S5620 panel reset.
+	  Input and interrupt support are not implemented.
+
 config GPIO_BCM_KONA
 	bool "Broadcom Kona GPIO"
 	depends on ARCH_BCM_MOBILE || COMPILE_TEST

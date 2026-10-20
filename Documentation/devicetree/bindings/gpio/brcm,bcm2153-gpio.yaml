@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/gpio/brcm,bcm2153-gpio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM2153 GPIO controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+properties:
+  compatible:
+    const: brcm,bcm2153-gpio
+
+  reg:
+    maxItems: 1
+
+  gpio-controller: true
+
+  "#gpio-cells":
+    const: 2
+
+  gpio-reserved-ranges: true
+
+required:
+  - compatible
+  - reg
+  - gpio-controller
+  - '#gpio-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    gpio@88ce000 {
+        compatible = "brcm,bcm2153-gpio";
+        reg = <0x088ce000 0x50>;
+        gpio-controller;
+        #gpio-cells = <2>;
+    };

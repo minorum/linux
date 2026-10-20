@@ -2,6 +2,7 @@
 /dts-v1/;
 
 #include "bcm2153.dtsi"
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Samsung GT-S5620";
@@ -41,7 +42,13 @@
 &dbi {
 	panel {
 		compatible = "samsung,gt-s5620-lcd";
+		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
 	};
+};
+
+&gpio {
+	gpio-reserved-ranges = <0 24>, <25 39>;
+	status = "okay";
 };
 
 &bsc0 {
