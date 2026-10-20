@@ -27,6 +27,9 @@ struct spi_device;
  * struct mipi_dbi - MIPI DBI interface
  */
 struct mipi_dbi {
+	/** @dev: Transport device */
+	struct device *dev;
+
 	/**
 	 * @cmdlock: Command lock
 	 */
@@ -194,7 +197,7 @@ int mipi_dbi_buf_copy(void *dst, struct iosys_map *src, struct drm_framebuffer *
 #define mipi_dbi_command(dbi, cmd, seq...) \
 ({ \
 	const u8 d[] = { seq }; \
-	struct device *dev = &(dbi)->spi->dev;	\
+	struct device *dev = (dbi)->dev;	\
 	int ret; \
 	ret = mipi_dbi_command_stackbuf(dbi, cmd, d, ARRAY_SIZE(d)); \
 	if (ret) \

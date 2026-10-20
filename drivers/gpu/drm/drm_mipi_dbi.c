@@ -76,6 +76,7 @@
 		DRM_DEBUG_DRIVER("cmd=%02x, len=%zu\n", cmd, len); \
 })
 
+#if IS_ENABLED(CONFIG_SPI)
 static const u8 mipi_dbi_dcs_read_commands[] = {
 	MIPI_DCS_GET_DISPLAY_ID,
 	MIPI_DCS_GET_RED_CHANNEL,
@@ -99,6 +100,7 @@ static const u8 mipi_dbi_dcs_read_commands[] = {
 	MIPI_DCS_READ_DDB_CONTINUE,
 	0, /* sentinel */
 };
+#endif
 
 static bool mipi_dbi_command_is_read(struct mipi_dbi *dbi, u8 cmd)
 {
@@ -1154,6 +1156,7 @@ int mipi_dbi_spi_init(struct spi_device *spi, struct mipi_dbi *dbi,
 		}
 	}
 
+	dbi->dev = &spi->dev;
 	dbi->spi = spi;
 	dbi->read_commands = mipi_dbi_dcs_read_commands;
 	dbi->write_memory_bpw = 16;

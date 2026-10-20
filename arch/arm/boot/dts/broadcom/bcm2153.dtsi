@@ -30,6 +30,12 @@
 		#size-cells = <1>;
 		ranges;
 
+		dbi: display@8030000 {
+			compatible = "brcm,bcm2153-dbi";
+			reg = <0x08030000 0x20>;
+			status = "disabled";
+		};
+
 		usb: usb@8200000 {
 			compatible = "brcm,bcm2153-usb", "snps,dwc2";
 			reg = <0x08200000 0x10000>;

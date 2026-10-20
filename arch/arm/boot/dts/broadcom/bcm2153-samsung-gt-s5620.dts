@@ -38,6 +38,12 @@
 	};
 };
 
+&dbi {
+	panel {
+		compatible = "samsung,gt-s5620-lcd";
+	};
+};
+
 &bsc0 {
 	pmic@8 {
 		compatible = "brcm,bcm59035";

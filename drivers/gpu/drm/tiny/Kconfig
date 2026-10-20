@@ -24,6 +24,19 @@ config DRM_ARCPGU
 
 	  If M is selected the module will be called arcpgu.
 
+config DRM_BCM2153_DBI
+	tristate "Broadcom BCM2153 parallel DBI display"
+	depends on DRM && OF
+	depends on ARCH_BCM || COMPILE_TEST
+	select DRM_CLIENT_SELECTION
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	select DRM_MIPI_DBI
+	help
+	  Parallel DBI display support for the Samsung GT-S5620.
+	  The current driver requires bootloader display initialization.
+	  If M is selected the module will be called bcm2153-dbi.
+
 config DRM_BOCHS
 	tristate "DRM Support for bochs dispi vga interface (qemu stdvga)"
 	depends on DRM && PCI && MMU
