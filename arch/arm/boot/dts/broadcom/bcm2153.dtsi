@@ -30,6 +30,13 @@
 		#size-cells = <1>;
 		ranges;
 
+		usb: usb@8200000 {
+			compatible = "brcm,bcm2153-usb", "snps,dwc2";
+			reg = <0x08200000 0x10000>;
+			interrupts = <21 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
 		intc: interrupt-controller@8810000 {
 			compatible = "brcm,bcm2153-intc";
 			reg = <0x08810000 0x200>;
