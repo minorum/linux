@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <asm/barrier.h>
 
 #define BSC_CS		0x00
 #define BSC_TIM		0x04
@@ -23,11 +24,17 @@ struct bcm2153_bsc {
 	bool failed;
 };
 
+static void bcm2153_write(struct bcm2153_bsc *bsc, u8 value, unsigned int offset)
+{
+	writeb(value, bsc->base + offset);
+	dsb(st);
+}
+
 static int bcm2153_idle(struct bcm2153_bsc *bsc)
 {
 	u8 status;
 
-	return readb_poll_timeout(bsc->base + BSC_ISR, status,
+	return readb_poll_timeout_atomic(bsc->base + BSC_ISR, status,
 				 !(status & BSC_BUSY), 1, BSC_TIMEOUT_US);
 }
 
@@ -36,21 +43,21 @@ static int bcm2153_operation(struct bcm2153_bsc *bsc, u8 value, bool data)
 	u8 status;
 	int ret;
 
-	writeb(0x8f, bsc->base + BSC_ISR);
+	bcm2153_write(bsc, 0x8f, BSC_ISR);
 	ret = bcm2153_idle(bsc);
 	if (ret)
 		return ret;
 	if (data)
-		writeb(value, bsc->base + BSC_DAT);
+		bcm2153_write(bsc, value, BSC_DAT);
 	else
-		writeb((readb(bsc->base + BSC_CS) & (value == 4 ? 0xf9 : 0xf1)) |
-		       value, bsc->base + BSC_CS);
-	ret = readb_poll_timeout(bsc->base + BSC_ISR, status,
+		bcm2153_write(bsc, (readb(bsc->base + BSC_CS) &
+			      (value == 4 ? 0xf9 : 0xf1)) | value, BSC_CS);
+	ret = readb_poll_timeout_atomic(bsc->base + BSC_ISR, status,
 				 status & BSC_COMPLETE, 1, BSC_TIMEOUT_US);
 	if (ret)
 		return ret;
-	writeb(0x8f, bsc->base + BSC_ISR);
-	writeb(readb(bsc->base + BSC_CS) & 0xf9, bsc->base + BSC_CS);
+	bcm2153_write(bsc, 0x8f, BSC_ISR);
+	bcm2153_write(bsc, readb(bsc->base + BSC_CS) & 0xf9, BSC_CS);
 	ret = bcm2153_idle(bsc);
 	if (ret)
 		return ret;
@@ -58,7 +65,7 @@ static int bcm2153_operation(struct bcm2153_bsc *bsc, u8 value, bool data)
 		return -EIO;
 	if (status & 1)
 		return -EREMOTEIO;
-	usleep_range(31, 62);
+	udelay(31);
 	return 0;
 }
 
