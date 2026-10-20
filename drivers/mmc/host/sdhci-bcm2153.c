@@ -143,7 +143,7 @@ static const struct sdhci_pltfm_data bcm2153_data = {
 	.ops = &bcm2153_ops,
 	.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
 		  SDHCI_QUIRK_BROKEN_DMA | SDHCI_QUIRK_BROKEN_ADMA,
-	.quirks2 = SDHCI_QUIRK2_NO_1_8_V,
+	.quirks2 = SDHCI_QUIRK2_NO_1_8_V | SDHCI_QUIRK2_HOST_NO_CMD23,
 };
 
 static int bcm2153_probe(struct platform_device *pdev)
