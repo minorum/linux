@@ -220,6 +220,13 @@ config REGULATOR_AXP20X
 	  This driver provides support for the voltage regulators on the
 	  AXP20X PMIC.
 
+config REGULATOR_BCM59035
+	tristate "Broadcom BCM59035 HCLDO2 regulator"
+	depends on I2C
+	help
+	  Enable HCLDO2 with its firmware-selected voltage retained. This
+	  supports keeping the GT-S5620 microSD supply on during Linux boot.
+
 config REGULATOR_BCM590XX
 	tristate "Broadcom BCM590xx PMU Regulators"
 	depends on MFD_BCM590XX
