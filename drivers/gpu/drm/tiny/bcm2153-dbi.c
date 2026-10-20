@@ -29,8 +29,8 @@
 #define DBI_DATA		0x04
 #define DBI_CONTROL	0x18
 #define DBI_STATUS	0x1c
-#define DBI_BUSY		BIT(30)
-#define DBI_READ_MODE	BIT(26)
+#define DBI_FIFO_FULL		BIT(30)
+#define DBI_PANEL_SELECT	BIT(26)
 
 struct bcm2153_dbi {
 	struct mipi_dbi_dev dbidev;
@@ -50,7 +50,7 @@ static int bcm2153_dbi_write(struct bcm2153_dbi *lcd, u32 reg, u32 value)
 	if (lcd->error)
 		return lcd->error;
 	ret = readl_poll_timeout(lcd->base + DBI_STATUS, status,
-				 !(status & DBI_BUSY), 0, 10000);
+				 !(status & DBI_FIFO_FULL), 0, 10000);
 	if (ret) {
 		lcd->error = ret;
 		return ret;
@@ -73,12 +73,12 @@ static int bcm2153_dbi_command(struct mipi_dbi *dbi, u8 *cmd, u8 *data,
 	if (lcd->error)
 		return lcd->error;
 	ret = readl_poll_timeout(lcd->base + DBI_STATUS, status,
-				 !(status & DBI_BUSY), 0, 10000);
+				 !(status & DBI_FIFO_FULL), 0, 10000);
 	if (ret) {
 		lcd->error = ret;
 		return ret;
 	}
-	writel(readl(lcd->base + DBI_CONTROL) & ~DBI_READ_MODE,
+	writel(readl(lcd->base + DBI_CONTROL) & ~DBI_PANEL_SELECT,
 	       lcd->base + DBI_CONTROL);
 	ret = bcm2153_dbi_write(lcd, DBI_COMMAND, *cmd);
 	if (ret)
