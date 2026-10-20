@@ -77,7 +77,8 @@ static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int n
 	if (num < 0 || (num && !msgs))
 		return -EINVAL;
 	for (i = 0; i < num; i++) {
-		if (msgs[i].addr > 0x7f || (msgs[i].flags & ~(I2C_M_RD | I2C_M_STOP)) ||
+		if (msgs[i].addr > 0x7f ||
+		    (msgs[i].flags & ~(I2C_M_RD | I2C_M_STOP | I2C_M_DMA_SAFE)) ||
 		    (i + 1 < num && !(msgs[i].flags & I2C_M_STOP)))
 			return -EOPNOTSUPP;
 		if (msgs[i].len && !msgs[i].buf)
