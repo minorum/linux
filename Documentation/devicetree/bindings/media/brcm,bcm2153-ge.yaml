@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/brcm,bcm2153-ge.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM2153 2D graphics engine
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  Memory-to-memory graphics engine supporting rectangle copies and pixel
+  format conversion. The display bus interface is a separate peripheral.
+
+properties:
+  compatible:
+    const: brcm,bcm2153-ge
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    graphics-engine@8040000 {
+        compatible = "brcm,bcm2153-ge";
+        reg = <0x08040000 0x48>;
+        interrupt-parent = <&intc>;
+        interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+    };

@@ -36,6 +36,13 @@
 			status = "disabled";
 		};
 
+		ge: graphics-engine@8040000 {
+			compatible = "brcm,bcm2153-ge";
+			reg = <0x08040000 0x48>;
+			interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
 		usb: usb@8200000 {
 			compatible = "brcm,bcm2153-usb", "snps,dwc2";
 			reg = <0x08200000 0x10000>;
