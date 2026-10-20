@@ -7,6 +7,8 @@
 #include "sdhci-pltfm.h"
 
 #define BCM2153_SDIO_RATE	52000000
+#define BCM2153_SDIO_COREIMR	0x08
+#define BCM2153_SDIO_IP_IRQ	BIT(0)
 
 struct bcm2153_host {
 	void __iomem *clock;
@@ -147,7 +149,7 @@ static const struct sdhci_pltfm_data bcm2153_data = {
 static int bcm2153_probe(struct platform_device *pdev)
 {
 	static const char * const names[] = { "host", "control", "clock" };
-	static const resource_size_t sizes[] = { 0x100, 4, 8 };
+	static const resource_size_t sizes[] = { 0x100, 12, 8 };
 	struct sdhci_pltfm_host *pltfm;
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
@@ -194,9 +196,13 @@ static int bcm2153_probe(struct platform_device *pdev)
 		ret = -EOPNOTSUPP;
 		goto cleanup_host;
 	}
+	writel(readl(priv->control + BCM2153_SDIO_COREIMR) | BCM2153_SDIO_IP_IRQ,
+	       priv->control + BCM2153_SDIO_COREIMR);
 	ret = __sdhci_add_host(host);
 	if (!ret)
 		return 0;
+	writel(readl(priv->control + BCM2153_SDIO_COREIMR) & ~BCM2153_SDIO_IP_IRQ,
+	       priv->control + BCM2153_SDIO_COREIMR);
 
 cleanup_host:
 	sdhci_cleanup_host(host);
@@ -211,6 +217,8 @@ static void bcm2153_remove(struct platform_device *pdev)
 	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
 
 	sdhci_pltfm_remove(pdev);
+	writel(readl(priv->control + BCM2153_SDIO_COREIMR) & ~BCM2153_SDIO_IP_IRQ,
+	       priv->control + BCM2153_SDIO_COREIMR);
 	writel(0, priv->clock);
 }
 

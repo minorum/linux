@@ -18,6 +18,7 @@ DTC_FLAGS_bcm2711-rpi-4-b := -@
 DTC_FLAGS_bcm2711-rpi-cm4-io := -@
 DTC_FLAGS_bcm2835-rpi-zero := -@
 DTC_FLAGS_bcm2835-rpi-zero-w := -@
+dtb-$(CONFIG_ARCH_BCM2153) += bcm2153-samsung-gt-s5620.dtb
 dtb-$(CONFIG_ARCH_BCM2835) += \
 	bcm2835-rpi-b.dtb \
 	bcm2835-rpi-a.dtb \

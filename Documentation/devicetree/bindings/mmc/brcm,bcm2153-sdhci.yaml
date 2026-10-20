@@ -13,7 +13,7 @@ allOf:
   - $ref: mmc-controller.yaml#
 
 description:
-  Each host has an SDHCI register window, a separate reset/control word,
+  Each host has an SDHCI register window, separate reset and interrupt controls,
   and a dedicated external clock gate/divider pair. The divider output is
   the 52 MHz input divided by one plus the programmed divider value.
 
@@ -24,7 +24,7 @@ properties:
   reg:
     items:
       - description: SDHCI registers
-      - description: Reset/control word
+      - description: Reset/control, status and interrupt mask registers
       - description: Clock gate and divider words
 
   reg-names:
@@ -44,6 +44,7 @@ required:
   - reg
   - reg-names
   - clock-frequency
+  - interrupts
 
 unevaluatedProperties: false
 
@@ -51,9 +52,10 @@ examples:
   - |
     mmc@8120000 {
         compatible = "brcm,bcm2153-sdhci";
-        reg = <0x08120000 0x100>, <0x08128000 0x4>, <0x08140038 0x8>;
+        reg = <0x08120000 0x100>, <0x08128000 0xc>, <0x08140038 0x8>;
         reg-names = "host", "control", "clock";
         clock-frequency = <52000000>;
+        interrupts = <26 4>;
         bus-width = <4>;
         max-frequency = <25000000>;
     };

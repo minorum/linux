@@ -68,10 +68,11 @@
 		sd1: mmc@8120000 {
 			compatible = "brcm,bcm2153-sdhci";
 			reg = <0x08120000 0x100>,
-			      <0x08128000 0x4>,
+			      <0x08128000 0xc>,
 			      <0x08140038 0x8>;
 			reg-names = "host", "control", "clock";
 			clock-frequency = <52000000>;
+			interrupts = <26 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
 		};
 	};
