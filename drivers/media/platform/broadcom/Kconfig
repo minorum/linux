@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0
 
+config VIDEO_BCM2153_GE
+	tristate "Broadcom BCM2153 graphics engine"
+	depends on VIDEO_DEV && V4L_MEM2MEM_DRIVERS && OF && HAS_DMA
+	depends on ARM || COMPILE_TEST
+	select V4L2_MEM2MEM_DEV
+	select VIDEOBUF2_VMALLOC
+	help
+	  Memory-to-memory BGRX transfers through the BCM2153 graphics engine.
+	  Uses private DMA buffers and supports images up to 240 by 400 pixels.
+
 config VIDEO_BCM2835_UNICAM
 	tristate "Broadcom BCM283x/BCM271x Unicam video capture driver"
 	depends on ARCH_BCM2835 || COMPILE_TEST
