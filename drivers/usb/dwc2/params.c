@@ -15,6 +15,15 @@
 #define PCI_PRODUCT_ID_HAPS_HSOTG	0xabc0
 #define PCI_DEVICE_ID_LOONGSON_DWC2	0x7a04
 
+static void dwc2_set_bcm2153_params(struct dwc2_hsotg *hsotg)
+{
+	struct dwc2_core_params *p = &hsotg->params;
+
+	p->phy_utmi_width = 8;
+	p->power_down = DWC2_POWER_DOWN_PARAM_NONE;
+	p->no_clock_gating = true;
+}
+
 static void dwc2_set_bcm_params(struct dwc2_hsotg *hsotg)
 {
 	struct dwc2_core_params *p = &hsotg->params;
@@ -304,6 +313,7 @@ static void dwc2_set_stm32mp15_hsotg_params(struct dwc2_hsotg *hsotg)
 }
 
 const struct of_device_id dwc2_of_match_table[] = {
+	{ .compatible = "brcm,bcm2153-usb", .data = dwc2_set_bcm2153_params },
 	{ .compatible = "brcm,bcm2835-usb", .data = dwc2_set_bcm_params },
 	{ .compatible = "hisilicon,hi6220-usb", .data = dwc2_set_his_params },
 	{ .compatible = "ingenic,jz4775-otg", .data = dwc2_set_jz4775_params },
