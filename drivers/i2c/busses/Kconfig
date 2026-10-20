@@ -468,6 +468,12 @@ config I2C_AXXIA
 	  255 bytes in length. Any attempt to to a larger transfer will return
 	  an error.
 
+config I2C_BCM2153
+	tristate "Broadcom BCM2153 I2C controller"
+	depends on ARCH_BCM2153 || COMPILE_TEST
+	help
+	  Polled access with firmware-initialized BSC timing.
+
 config I2C_BCM2835
 	tristate "Broadcom BCM2835 I2C controller"
 	depends on ARCH_BCM2835 || ARCH_BRCMSTB || COMPILE_TEST
