@@ -30,6 +30,9 @@ description: |
   centered at 32 with a 3.3 V factory reference. Voltage changes are
   unsupported. Its calibration cells are
   supplied on the regulator child independently of connectivity calibration.
+  The sensor supplies vdd18 and vdd28 retain their boot-programmed 1.8 V
+  and 2.8 V selectors with OTP compensation enabled. Voltage changes are
+  unsupported, and these shared supplies must remain always on.
 
 allOf:
   - if:
@@ -52,6 +55,40 @@ allOf:
 properties:
   compatible:
     const: sprd,sc2723-regulator
+
+  vdd18:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 1800000
+      regulator-max-microvolt:
+        const: 1800000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
+
+  vdd28:
+    type: object
+    $ref: regulator.yaml#
+    properties:
+      regulator-min-microvolt:
+        const: 2800000
+      regulator-max-microvolt:
+        const: 2800000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
 
   vddgen0:
     type: object
