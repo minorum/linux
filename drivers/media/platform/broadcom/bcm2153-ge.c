@@ -115,6 +115,7 @@ static void ge_work(struct work_struct *work)
 	ge_pack(ge->source, source, input);
 	if (READ_ONCE(ge->removing) || atomic_read(&ctx->aborting))
 		goto finish;
+	memset(ge->destination, 0xff, job.destination_stride * job.height);
 	dma_wmb();
 	writel(0x100, ge->base + 0x0c);
 	bcm2153_ge_program(ge->base, &job);
