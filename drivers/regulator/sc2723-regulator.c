@@ -386,6 +386,76 @@ static const struct regulator_desc sc2723_rf_descs[] = {
 	},
 };
 
+static const struct regulator_desc sc2723_sensor_descs[] = {
+	{
+		.name = "vdd18",
+		.of_match = "vdd18",
+		.id = 7,
+		.ops = &sc2723_emmc_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = 1,
+		.fixed_uV = 1800000,
+		.enable_reg = 0x810,
+		.enable_mask = BIT(1),
+		.enable_is_inverted = true,
+		.vsel_reg = 0x83c,
+		.vsel_mask = GENMASK(14, 8),
+	},
+	{
+		.name = "vdd28",
+		.of_match = "vdd28",
+		.id = 8,
+		.ops = &sc2723_emmc_ops,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.n_voltages = 1,
+		.fixed_uV = 2800000,
+		.enable_reg = 0x810,
+		.enable_mask = BIT(2),
+		.enable_is_inverted = true,
+		.vsel_reg = 0x824,
+		.vsel_mask = GENMASK(7, 0),
+	},
+};
+
+static int sc2723_sensor_register(struct device *dev, struct regulator_config *config)
+{
+	static const unsigned int selectors[] = { 104 << 8, 160 };
+	static const unsigned int software_select[] = { BIT(10), BIT(9) };
+	struct regulator_dev *rdev;
+	struct device_node *node;
+	unsigned int power, source, selector;
+	int i, ret, count = 0;
+
+	for (i = 0; i < ARRAY_SIZE(sc2723_sensor_descs); i++) {
+		const struct regulator_desc *desc = &sc2723_sensor_descs[i];
+
+		node = of_get_child_by_name(dev->of_node, desc->of_match);
+		ret = of_device_is_available(node);
+		of_node_put(node);
+		if (!ret)
+			continue;
+		ret = regmap_read(config->regmap, 0x810, &power);
+		if (ret)
+			return ret;
+		ret = regmap_read(config->regmap, 0x8c0, &source);
+		if (ret)
+			return ret;
+		ret = regmap_read(config->regmap, desc->vsel_reg, &selector);
+		if (ret)
+			return ret;
+		if ((power & desc->enable_mask) || (source & software_select[i]) ||
+		    (selector & desc->vsel_mask) != selectors[i])
+			return dev_err_probe(dev, -EINVAL, "Sensor boot calibration differs\n");
+		rdev = devm_regulator_register(dev, desc, config);
+		if (IS_ERR(rdev))
+			return dev_err_probe(dev, PTR_ERR(rdev), "Sensor registration failed\n");
+		count++;
+	}
+	return count;
+}
+
 static const struct regulator_desc sc2723_kpled_desc = {
 	.name = "vddkpled",
 	.of_match = "vddkpled",
@@ -482,6 +552,10 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 	ret = sc2723_emmc_register(dev, &config);
 	if (ret < 0)
 		return ret;
+	ret += registered;
+	registered = sc2723_sensor_register(dev, &config);
+	if (registered < 0)
+		return registered;
 	ret += registered;
 	if (ret && !of_property_present(dev->of_node, "nvmem-cells")) {
 		if (of_get_available_child_count(dev->of_node) != ret)
