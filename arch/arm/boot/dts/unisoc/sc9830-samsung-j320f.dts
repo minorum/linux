@@ -29,6 +29,7 @@
 		proximity@60 {
 			compatible = "capella,cm36672p";
 			reg = <0x60>;
+			proximity-near-level = <3>;
 			interrupts-extended = <&gpio 95 IRQ_TYPE_EDGE_FALLING>;
 			vdd-supply = <&sensor_vdd28>;
 			vio-supply = <&sensor_vdd18>;
