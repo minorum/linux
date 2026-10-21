@@ -19,6 +19,12 @@ properties:
   clocks:
     maxItems: 1
 
+  pinctrl-0: true
+
+  pinctrl-names:
+    items:
+      - const: default
+
   panel:
     type: object
     additionalProperties: false
