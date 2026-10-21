@@ -10,6 +10,30 @@
 		bootargs = "console=ttyGS0 loglevel=7 maxcpus=1 clk_ignore_unused";
 	};
 
+	touchkey_vcc: regulator-touchkey {
+		compatible = "regulator-fixed";
+		regulator-name = "touchkey-vcc";
+		gpio = <&gpio 140 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	i2c-touchkey {
+		compatible = "i2c-gpio";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		sda-gpios = <&gpio 53 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio 55 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <10>;
+
+		touchkey@20 {
+			compatible = "coreriver,tc350-touchkey";
+			reg = <0x20>;
+			interrupts-extended = <&gpio 90 IRQ_TYPE_EDGE_FALLING>;
+			vcc-supply = <&touchkey_vcc>;
+			linux,keycodes = <KEY_APPSELECT KEY_BACK>;
+		};
+	};
+
 	pmu {
 		compatible = "arm,cortex-a7-pmu";
 		interrupts = <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH>,
