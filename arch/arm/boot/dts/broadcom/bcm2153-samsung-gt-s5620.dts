@@ -40,10 +40,16 @@
 };
 
 &dbi {
+	status = "okay";
+
 	panel {
 		compatible = "samsung,gt-s5620-lcd";
 		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
 	};
+};
+
+&ge {
+	status = "okay";
 };
 
 &gpio {
