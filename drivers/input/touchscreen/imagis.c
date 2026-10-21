@@ -35,6 +35,7 @@
 #define IST3038C_REG_TOUCH_COORD	(IST3038C_REG_HIB_BASE | IST3038C_HIB_ACCESS | 0x8)
 #define IST3038C_REG_INTR_MESSAGE	(IST3038C_REG_HIB_BASE | IST3038C_HIB_ACCESS | 0x4)
 #define IST3038C_CHIP_ON_DELAY_MS	60
+#define IST3038C_CHIP_OFF_DELAY_MS	50
 #define IST3038C_I2C_RETRY_COUNT	3
 #define IST3038C_MAX_FINGER_NUM		10
 #define IST3038C_X_MASK			GENMASK(23, 12)
@@ -170,6 +171,7 @@ static void imagis_power_off(void *_ts)
 	struct imagis_ts *ts = _ts;
 
 	regulator_bulk_disable(ARRAY_SIZE(ts->supplies), ts->supplies);
+	msleep(IST3038C_CHIP_OFF_DELAY_MS);
 }
 
 static int imagis_power_on(struct imagis_ts *ts)
@@ -355,6 +357,9 @@ static int imagis_probe(struct i2c_client *i2c)
 			i2c->irq, error);
 		return error;
 	}
+
+	imagis_power_off(ts);
+	devm_remove_action(dev, imagis_power_off, ts);
 
 	error = imagis_init_input_dev(ts);
 	if (error)
