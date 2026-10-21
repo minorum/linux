@@ -63,16 +63,36 @@ static void ge_finish(struct bcm2153_ge_context *ctx, enum vb2_buffer_state stat
 	v4l2_m2m_buf_done_and_job_finish(ctx->ge->m2m, ctx->fh.m2m_ctx, state);
 }
 
-static void ge_pack(void *destination, const void *source, const struct v4l2_pix_format *format)
+static void ge_pack(void *destination, const void *source,
+		    const struct v4l2_pix_format *format, unsigned int dma_width)
 {
 	unsigned int x, y;
 
 	for (y = 0; y < format->height; y++) {
-		for (x = 0; x < format->width; x++) {
-			u32 pixel = get_unaligned_le32(source + y * format->bytesperline + x * 4);
+		for (x = 0; x < dma_width; x++) {
+			u32 pixel = x < format->width ?
+				get_unaligned_le32(source + y * format->bytesperline + x * 4) : 0;
 
 			put_unaligned_le32(pixel | 0xff000000,
-					   destination + (y * format->width + x) * 4);
+					   destination + (y * dma_width + x) * 4);
+		}
+	}
+}
+
+static void ge_unpack(void *destination, const void *source,
+		      const struct v4l2_pix_format *format, unsigned int dma_stride)
+{
+	unsigned int x, y;
+
+	for (y = 0; y < format->height; y++) {
+		if (format->pixelformat == V4L2_PIX_FMT_RGB565) {
+			for (x = 0; x < format->width; x++)
+				put_unaligned_le16(get_unaligned_le16(source + y * dma_stride +
+							     (x ^ 1) * 2),
+						   destination + y * format->bytesperline + x * 2);
+		} else {
+			memcpy(destination + y * format->bytesperline,
+			       source + y * dma_stride, format->width * 4);
 		}
 	}
 }
@@ -83,17 +103,18 @@ static void ge_work(struct work_struct *work)
 	struct bcm2153_ge *ge = ctx->ge;
 	struct v4l2_pix_format *input = &ctx->format[0], *output = &ctx->format[1];
 	struct vb2_v4l2_buffer *src, *dst;
+	bool rgb565 = output->pixelformat == V4L2_PIX_FMT_RGB565;
+	unsigned int dma_width = rgb565 ? ALIGN(input->width, 2) : input->width;
 	struct bcm2153_ge_job job = {
 		.source = ge->source_dma,
 		.destination = ge->destination_dma,
-		.source_stride = input->width * 4,
-		.destination_stride = input->width * 4,
-		.width = input->width,
+		.source_stride = dma_width * 4,
+		.destination_stride = dma_width * (rgb565 ? 2 : 4),
+		.width = dma_width,
 		.height = input->height,
-		.format = 0x101,
+		.format = rgb565 ? 0x401 : 0x101,
 	};
 	void *source, *destination;
-	unsigned int y;
 	int ret = -EIO;
 	unsigned long completed;
 
@@ -112,7 +133,7 @@ static void ge_work(struct work_struct *work)
 	destination = vb2_plane_vaddr(&dst->vb2_buf, 0);
 	if (!source || !destination)
 		goto finish;
-	ge_pack(ge->source, source, input);
+	ge_pack(ge->source, source, input, job.width);
 	if (READ_ONCE(ge->removing) || atomic_read(&ctx->aborting))
 		goto finish;
 	memset(ge->destination, 0xff, job.destination_stride * job.height);
@@ -134,9 +155,7 @@ static void ge_work(struct work_struct *work)
 		goto finish;
 	}
 	dma_rmb();
-	for (y = 0; y < output->height; y++)
-		memcpy(destination + y * output->bytesperline,
-		       ge->destination + y * job.destination_stride, output->width * 4);
+	ge_unpack(destination, ge->destination, output, job.destination_stride);
 finish:
 	ge_finish(ctx, ret ? VB2_BUF_STATE_ERROR : VB2_BUF_STATE_DONE);
 }
@@ -282,13 +301,16 @@ static int ge_queue_init(void *priv, struct vb2_queue *source, struct vb2_queue 
 
 static void ge_format(struct v4l2_pix_format *format)
 {
+	unsigned int bytes = format->pixelformat == V4L2_PIX_FMT_RGB565 ? 2 : 4;
+
 	format->width = clamp_t(u32, format->width, 1, GE_WIDTH);
 	format->height = clamp_t(u32, format->height, 1, GE_HEIGHT);
 	format->bytesperline = clamp_t(u32, format->bytesperline,
-				     format->width * 4, GE_WIDTH * 4);
+				       format->width * bytes, GE_WIDTH * bytes);
 	format->bytesperline = ALIGN(format->bytesperline, 4);
 	format->sizeimage = format->bytesperline * format->height;
-	format->pixelformat = V4L2_PIX_FMT_XBGR32;
+	if (bytes == 4)
+		format->pixelformat = V4L2_PIX_FMT_XBGR32;
 	format->field = V4L2_FIELD_NONE;
 	format->colorspace = V4L2_COLORSPACE_SRGB;
 	format->xfer_func = V4L2_XFER_FUNC_SRGB;
@@ -367,9 +389,9 @@ static int ge_querycap(struct file *file, void *priv, struct v4l2_capability *ca
 
 static int ge_enum_format(struct file *file, void *priv, struct v4l2_fmtdesc *format)
 {
-	if (format->index)
+	if (format->index > (V4L2_TYPE_IS_OUTPUT(format->type) ? 0 : 1))
 		return -EINVAL;
-	format->pixelformat = V4L2_PIX_FMT_XBGR32;
+	format->pixelformat = format->index ? V4L2_PIX_FMT_RGB565 : V4L2_PIX_FMT_XBGR32;
 	return 0;
 }
 
@@ -388,6 +410,8 @@ static int ge_try_format(struct file *file, void *priv, struct v4l2_format *form
 	if (!V4L2_TYPE_IS_OUTPUT(format->type)) {
 		format->fmt.pix.width = ctx->format[0].width;
 		format->fmt.pix.height = ctx->format[0].height;
+	} else {
+		format->fmt.pix.pixelformat = V4L2_PIX_FMT_XBGR32;
 	}
 	ge_format(&format->fmt.pix);
 	return 0;
