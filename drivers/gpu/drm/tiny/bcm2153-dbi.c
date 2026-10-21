@@ -221,7 +221,10 @@ static int bcm2153_dbi_prepare(struct bcm2153_dbi *lcd)
 		drm_err(&lcd->dbidev.drm, "Unsupported panel ID: %*ph\n", 4, id);
 		return -ENODEV;
 	}
-	return bcm2153_dbi_init_panel(dbi);
+	ret = bcm2153_dbi_init_panel(dbi);
+	if (!ret)
+		drm_info(&lcd->dbidev.drm, "Initialized panel ID: %*ph\n", 4, id);
+	return ret;
 }
 
 static const struct drm_plane_helper_funcs bcm2153_dbi_plane_helpers = {
