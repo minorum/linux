@@ -10,6 +10,32 @@
 		bootargs = "console=ttyGS0 loglevel=7 maxcpus=1 clk_ignore_unused";
 	};
 
+	proximity_vled: regulator-proximity-led {
+		compatible = "regulator-fixed";
+		regulator-name = "proximity-led";
+		gpio = <&gpio 141 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <20000>;
+	};
+
+	i2c-proximity {
+		compatible = "i2c-gpio";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		sda-gpios = <&gpio 8 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio 10 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <10>;
+
+		proximity@60 {
+			compatible = "capella,cm36672p";
+			reg = <0x60>;
+			interrupts-extended = <&gpio 95 IRQ_TYPE_EDGE_FALLING>;
+			vdd-supply = <&sensor_vdd28>;
+			vio-supply = <&sensor_vdd18>;
+			vled-supply = <&proximity_vled>;
+		};
+	};
+
 	touchkey_vcc: regulator-touchkey {
 		compatible = "regulator-fixed";
 		regulator-name = "touchkey-vcc";
@@ -68,6 +94,22 @@
 
 &pmic {
 	regulators {
+		sensor_vdd18: vdd18 {
+			regulator-name = "vdd18";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
+		sensor_vdd28: vdd28 {
+			regulator-name = "vdd28";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
 		emmc_vqmmc: vddgen0 {
 			regulator-name = "vdd-emmc-1p8";
 			regulator-min-microvolt = <1800000>;
@@ -90,6 +132,20 @@
 	vmmc-supply = <&emmc_vmmc>;
 	vqmmc-supply = <&emmc_vqmmc>;
 	mmc-ddr-1_8v;
+};
+
+&i2c2 {
+	accelerometer@18 {
+		compatible = "bosch,bma254";
+		reg = <0x18>;
+		interrupts-extended = <&gpio 135 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "INT1";
+		vdd-supply = <&sensor_vdd18>;
+		vddio-supply = <&sensor_vdd18>;
+		mount-matrix = "0", "-1", "0",
+			       "1", "0", "0",
+			       "0", "0", "1";
+	};
 };
 
 &usb {
