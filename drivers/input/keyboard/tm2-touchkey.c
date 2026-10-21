@@ -40,6 +40,8 @@ struct touchkey_variant {
 	u8 cmd_led_off;
 	bool no_reg;
 	bool fixed_regulator;
+	bool bitmask_key_events;
+	unsigned int power_on_delay_ms;
 };
 
 struct tm2_touchkey_data {
@@ -82,6 +84,16 @@ static const struct touchkey_variant tc360_touchkey_variant = {
 	.cmd_led_off = TM2_TOUCHKEY_CMD_LED_OFF,
 };
 
+static const struct touchkey_variant tc350_touchkey_variant = {
+	.keycode_reg = 0x00,
+	.base_reg = 0x00,
+	.fixed_regulator = true,
+	.bitmask_key_events = true,
+	.power_on_delay_ms = 300,
+	.cmd_led_on = TM2_TOUCHKEY_CMD_LED_ON,
+	.cmd_led_off = TM2_TOUCHKEY_CMD_LED_OFF,
+};
+
 static int tm2_touchkey_led_brightness_set(struct led_classdev *led_dev,
 					    enum led_brightness brightness)
 {
@@ -117,7 +129,7 @@ static int tm2_touchkey_power_enable(struct tm2_touchkey_data *touchkey)
 		return error;
 
 	/* waiting for device initialization, at least 150ms */
-	msleep(150);
+	msleep(touchkey->variant->power_on_delay_ms ?: 150);
 
 	return 0;
 }
@@ -148,6 +160,22 @@ static irqreturn_t tm2_touchkey_irq_handler(int irq, void *devid)
 		goto out;
 	}
 
+	if (touchkey->variant->bitmask_key_events) {
+		for (i = 0; i < touchkey->num_keycodes; i++) {
+			if (!(data & (BIT(i) | BIT(i + 4))))
+				continue;
+			input_event(touchkey->input_dev, EV_MSC, MSC_SCAN, i);
+			if (data & BIT(i))
+				input_report_key(touchkey->input_dev,
+						 touchkey->keycodes[i], 1);
+			if (data & BIT(i + 4))
+				input_report_key(touchkey->input_dev,
+						 touchkey->keycodes[i], 0);
+		}
+		input_sync(touchkey->input_dev);
+		goto out;
+	}
+
 	index = (data & TM2_TOUCHKEY_BIT_KEYCODE) - 1;
 	if (index < 0 || index >= touchkey->num_keycodes) {
 		dev_warn(&touchkey->client->dev,
@@ -170,7 +198,8 @@ static irqreturn_t tm2_touchkey_irq_handler(int irq, void *devid)
 
 out:
 	if (touchkey->variant->fixed_regulator &&
-				data & TM2_TOUCHKEY_BIT_PRESS_EV) {
+	    data & (touchkey->variant->bitmask_key_events ?
+		    GENMASK(7, 4) : TM2_TOUCHKEY_BIT_PRESS_EV)) {
 		/* touch turns backlight on, so make sure we're in sync */
 		if (touchkey->led_dev.brightness == LED_OFF)
 			tm2_touchkey_led_brightness_set(&touchkey->led_dev,
@@ -344,6 +373,9 @@ static const struct of_device_id tm2_touchkey_of_match[] = {
 	}, {
 		.compatible = "coreriver,tc360-touchkey",
 		.data = &tc360_touchkey_variant,
+	}, {
+		.compatible = "coreriver,tc350-touchkey",
+		.data = &tc350_touchkey_variant,
 	},
 	{ },
 };
