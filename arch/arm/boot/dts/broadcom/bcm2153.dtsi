@@ -81,6 +81,14 @@
 			};
 		};
 
+		watchdog: watchdog@88a0010 {
+			compatible = "brcm,bcm2153-wdt";
+			reg = <0x088a0010 8>;
+			clocks = <&osc32k>;
+			clock-names = "slow";
+			timeout-sec = <60>;
+		};
+
 		bsc0: i2c@88a0020 {
 			compatible = "brcm,bcm2153-i2c";
 			reg = <0x088a0020 0x30>;

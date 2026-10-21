@@ -30,6 +30,14 @@ menuconfig WATCHDOG
 
 if WATCHDOG
 
+config BCM2153_WDT
+	tristate "Broadcom BCM2153 AP watchdog"
+	depends on ARCH_BCM2153 || COMPILE_TEST
+	depends on OF && HAS_IOMEM && COMMON_CLK
+	select WATCHDOG_CORE
+	help
+	  Support the BCM2153 application processor watchdog and reset output.
+
 config WATCHDOG_CORE
 	tristate "WatchDog Timer Driver Core"
 	help

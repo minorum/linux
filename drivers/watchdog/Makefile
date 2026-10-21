@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+obj-$(CONFIG_BCM2153_WDT) += bcm2153_wdt.o
 #
 # Makefile for the WatchDog device drivers.
 #
