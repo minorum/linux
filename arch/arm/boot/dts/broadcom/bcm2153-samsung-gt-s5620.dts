@@ -41,10 +41,24 @@
 
 &dbi {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&dbi_bus_pins &dbi_drive_pins>;
 
 	panel {
 		compatible = "samsung,gt-s5620-lcd";
 		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&pinctrl {
+	status = "okay";
+
+	dbi_bus_pins: dbi-bus-pins {
+		pinctrl-single,bits = <0x00 0x00000000 0x30000000>;
+	};
+
+	dbi_drive_pins: dbi-drive-pins {
+		pinctrl-single,bits = <0x20 0x00a00000 0x40e00000>;
 	};
 };
 

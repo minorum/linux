@@ -13,6 +13,8 @@ config ARCH_BCM2153
 	select BCM2153_INTC
 	select BCM2153_TIMER
 	select CPU_V6
+	select PINCTRL
+	select PINCTRL_SINGLE
 	help
 	  Enable the BCM2153 ARM11 application processor and its AP
 	  interrupt controller. Modem processor support is separate.

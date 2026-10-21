@@ -30,10 +30,13 @@
 #define DBI_COMMAND	0x00
 #define DBI_DATA		0x04
 #define DBI_READ_REQUEST	0x08
+#define DBI_WRITE_TIMING	0x10
+#define DBI_READ_TIMING	0x14
 #define DBI_CONTROL	0x18
 #define DBI_STATUS	0x1c
 #define DBI_FIFO_FULL		BIT(30)
 #define DBI_PANEL_SELECT	BIT(26)
+#define DBI_EIGHT_BIT		BIT(30)
 #define DBI_REQUEST_READY	BIT(31)
 #define DBI_DATA_READY		BIT(21)
 
@@ -62,6 +65,20 @@ static int bcm2153_dbi_write(struct bcm2153_dbi *lcd, u32 reg, u32 value)
 	}
 	writel(value, lcd->base + reg);
 	return 0;
+}
+
+static int bcm2153_dbi_setup(struct bcm2153_dbi *lcd)
+{
+	int ret;
+
+	ret = bcm2153_dbi_write(lcd, DBI_WRITE_TIMING, 0x10301);
+	if (ret)
+		return ret;
+	ret = bcm2153_dbi_write(lcd, DBI_READ_TIMING, 0x11101);
+	if (ret)
+		return ret;
+	return bcm2153_dbi_write(lcd, DBI_CONTROL,
+				 readl(lcd->base + DBI_CONTROL) & ~DBI_EIGHT_BIT);
 }
 
 static int bcm2153_dbi_command(struct mipi_dbi *dbi, u8 *cmd, u8 *data,
@@ -189,13 +206,6 @@ static int bcm2153_dbi_prepare(struct bcm2153_dbi *lcd)
 
 	if (!dbi->reset)
 		return 0;
-	ret = mipi_dbi_command_buf(dbi, MIPI_DCS_GET_DISPLAY_ID, id, sizeof(id));
-	if (ret)
-		return ret;
-	if (id[1] != 0x52 || (id[2] != 0x09 && id[2] != 0x0a) || id[3] != 0x11) {
-		drm_err(&lcd->dbidev.drm, "Unsupported panel ID: %*ph\n", 4, id);
-		return -ENODEV;
-	}
 	ret = gpiod_direction_output(dbi->reset, 1);
 	if (ret)
 		return ret;
@@ -203,6 +213,14 @@ static int bcm2153_dbi_prepare(struct bcm2153_dbi *lcd)
 	ret = gpiod_set_value_cansleep(dbi->reset, 0);
 	if (ret)
 		return ret;
+	usleep_range(10000, 11000);
+	ret = mipi_dbi_command_buf(dbi, MIPI_DCS_GET_DISPLAY_ID, id, sizeof(id));
+	if (ret)
+		return ret;
+	if (id[1] != 0x52 || (id[2] != 0x09 && id[2] != 0x0a) || id[3] != 0x11) {
+		drm_err(&lcd->dbidev.drm, "Unsupported panel ID: %*ph\n", 4, id);
+		return -ENODEV;
+	}
 	return bcm2153_dbi_init_panel(dbi);
 }
 
@@ -333,6 +351,9 @@ static int bcm2153_dbi_probe(struct platform_device *pdev)
 	clk = devm_clk_get_optional_enabled(dev, NULL);
 	if (IS_ERR(clk))
 		return dev_err_probe(dev, PTR_ERR(clk), "Failed to enable clock\n");
+	ret = bcm2153_dbi_setup(lcd);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to initialize controller\n");
 
 	dbidev = &lcd->dbidev;
 	drm = &dbidev->drm;

@@ -34,7 +34,7 @@ config DRM_BCM2153_DBI
 	select DRM_MIPI_DBI
 	help
 	  Parallel DBI display support for the Samsung GT-S5620.
-	  The current driver requires bootloader display initialization.
+	  Clock, power and backlight setup are still supplied by firmware.
 	  If M is selected the module will be called bcm2153-dbi.
 
 config DRM_BOCHS

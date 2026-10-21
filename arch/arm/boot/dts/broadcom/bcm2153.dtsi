@@ -50,6 +50,16 @@
 			status = "disabled";
 		};
 
+		pinctrl: pinctrl@8880000 {
+			compatible = "pinctrl-single";
+			reg = <0x08880000 0x24>;
+			#pinctrl-cells = <2>;
+			pinctrl-single,register-width = <32>;
+			pinctrl-single,function-mask = <1>;
+			pinctrl-single,bit-per-mux;
+			status = "disabled";
+		};
+
 		intc: interrupt-controller@8810000 {
 			compatible = "brcm,bcm2153-intc";
 			reg = <0x08810000 0x200>;
