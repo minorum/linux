@@ -68,6 +68,19 @@
 			#interrupt-cells = <2>;
 		};
 
+		system-controller@88e0000 {
+			compatible = "brcm,bcm2153-reset", "syscon", "simple-mfd";
+			reg = <0x088e0000 4>;
+			reg-io-width = <2>;
+
+			reboot {
+				compatible = "syscon-reboot";
+				offset = <0>;
+				mask = <8>;
+				value = <8>;
+			};
+		};
+
 		bsc0: i2c@88a0020 {
 			compatible = "brcm,bcm2153-i2c";
 			reg = <0x088a0020 0x30>;

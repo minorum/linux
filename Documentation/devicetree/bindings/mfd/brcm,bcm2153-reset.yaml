@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mfd/brcm,bcm2153-reset.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM2153 software reset controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  The software reset register uses 16-bit accesses. Bit 3 requests a system
+  reset. Other bits must be preserved.
+
+properties:
+  compatible:
+    items:
+      - const: brcm,bcm2153-reset
+      - const: syscon
+      - const: simple-mfd
+
+  reg:
+    maxItems: 1
+
+  reg-io-width:
+    const: 2
+
+  reboot:
+    $ref: /schemas/power/reset/syscon-reboot.yaml#
+    type: object
+    properties:
+      offset:
+        const: 0
+      mask:
+        const: 8
+      value:
+        const: 8
+    required:
+      - offset
+      - mask
+      - value
+
+required:
+  - compatible
+  - reg
+  - reg-io-width
+  - reboot
+
+additionalProperties: false
+
+examples:
+  - |
+    system-controller@88e0000 {
+        compatible = "brcm,bcm2153-reset", "syscon", "simple-mfd";
+        reg = <0x088e0000 4>;
+        reg-io-width = <2>;
+
+        reboot {
+            compatible = "syscon-reboot";
+            offset = <0>;
+            mask = <8>;
+            value = <8>;
+        };
+    };
