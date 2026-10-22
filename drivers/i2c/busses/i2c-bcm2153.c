@@ -12,6 +12,10 @@
 #define BSC_CS		0x00
 #define BSC_TIM		0x04
 #define BSC_DAT		0x08
+#define BSC_TOUT		0x0c
+#define BSC_RCM		0x10
+#define BSC_RCP		0x14
+#define BSC_FCR		0x1c
 #define BSC_ISR		0x28
 #define BSC_CLKEN	0x2c
 #define BSC_BUSY		0x80
@@ -155,6 +159,11 @@ static int bcm2153_bsc_probe(struct platform_device *pdev)
 	ret = bcm2153_idle(bsc);
 	if (ret)
 		return ret;
+	bcm2153_write(bsc, readb(bsc->base + BSC_RCM) & 0xfe, BSC_RCM);
+	bcm2153_write(bsc, readb(bsc->base + BSC_RCM) & 0xfd, BSC_RCM);
+	bcm2153_write(bsc, 0x89, BSC_RCP);
+	bcm2153_write(bsc, readb(bsc->base + BSC_TOUT) & 0x7f, BSC_TOUT);
+	bcm2153_write(bsc, readb(bsc->base + BSC_FCR) & 0xbf, BSC_FCR);
 	bsc->adapter.owner = THIS_MODULE;
 	bsc->adapter.algo = &bcm2153_algorithm;
 	bsc->adapter.dev.parent = dev;
