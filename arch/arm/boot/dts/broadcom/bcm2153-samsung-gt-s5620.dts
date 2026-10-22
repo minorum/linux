@@ -72,6 +72,8 @@
 };
 
 &bsc0 {
+	status = "okay";
+
 	pmic@8 {
 		compatible = "brcm,bcm59035";
 		reg = <0x08>;
@@ -79,13 +81,24 @@
 		regulators {
 			hcldo2: hcldo2 {
 				regulator-name = "vmmc";
+				regulator-always-on;
 			};
 		};
 	};
 };
 
 &sd1 {
-	bus-width = <4>;
-	max-frequency = <25000000>;
+	bus-width = <1>;
+	max-frequency = <12000000>;
+	broken-cd;
 	vmmc-supply = <&hcldo2>;
+	status = "okay";
+};
+
+&usb {
+	dr_mode = "peripheral";
+	g-rx-fifo-size = <512>;
+	g-np-tx-fifo-size = <128>;
+	g-tx-fifo-size = <128 128 128 128 128 128 128>;
+	status = "okay";
 };
