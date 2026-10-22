@@ -583,4 +583,11 @@ config NVMEM_QORIQ_EFUSE
 	  This driver can also be built as a module. If so, the module
 	  will be called nvmem_qoriq_efuse.
 
+config NVMEM_SC9830_EFUSE
+	tristate "Spreadtrum SC9830 AP efuse read support"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on COMMON_CLK && HWSPINLOCK
+	help
+	  Read-only access to the SC9830 application processor efuses.
+
 endif # NVMEM
