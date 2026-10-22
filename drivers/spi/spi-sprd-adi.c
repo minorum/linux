@@ -141,6 +141,7 @@ struct sprd_adi_data {
 	bool legacy;
 	int (*read_check)(u32 val, u32 reg);
 	int (*restart)(struct sys_off_data *data);
+	int (*power_off)(struct sys_off_data *data);
 	void (*wdg_rst)(void *p);
 };
 
@@ -544,6 +545,60 @@ out:
 	return NOTIFY_DONE;
 }
 
+static int sprd_adi_power_off_sc9830(struct sys_off_data *data)
+{
+	struct sprd_adi terminal = *(struct sprd_adi *)data->cb_data;
+	struct hwspinlock *lock = terminal.hwlock;
+	u32 value;
+	unsigned int i;
+	int ret;
+
+	if (!lock)
+		return NOTIFY_DONE;
+	ret = hwspin_lock_timeout_in_atomic(lock, 2);
+	if (ret)
+		return NOTIFY_DONE;
+	terminal.hwlock = NULL;
+	ret = sprd_adi_read(&terminal, 0x940, &value);
+	if (ret || value != 0x2723)
+		goto out;
+	ret = sprd_adi_write(&terminal, 0x814, 0x1fff);
+	if (ret)
+		goto out;
+	ret = sprd_adi_write(&terminal, 0x950, 0x6e7f);
+	if (ret)
+		goto relock;
+	ret = sprd_adi_drain_fifo(&terminal);
+	if (ret)
+		goto relock;
+	for (i = 0; i < 1000; i++) {
+		ret = sprd_adi_read(&terminal, 0x950, &value);
+		if (ret)
+			goto relock;
+		if (value & BIT(15))
+			break;
+		udelay(1);
+	}
+	if (i == 1000)
+		goto relock;
+	ret = sprd_adi_write(&terminal, 0x814, 0x0fff);
+	if (ret)
+		goto relock;
+	ret = sprd_adi_write(&terminal, 0x810, 0x7fff);
+	if (ret)
+		goto relock;
+	ret = sprd_adi_drain_fifo(&terminal);
+	if (!ret)
+		mdelay(100);
+relock:
+	sprd_adi_write(&terminal, 0x950, 0);
+	sprd_adi_drain_fifo(&terminal);
+out:
+	hwspin_unlock_in_atomic(lock);
+	dev_emerg(terminal.dev, "SC2723 power-off failed\n");
+	return NOTIFY_DONE;
+}
+
 static int sprd_adi_hw_init(struct sprd_adi *sadi)
 {
 	struct device_node *np = sadi->dev->of_node;
@@ -697,6 +752,15 @@ static int sprd_adi_probe(struct platform_device *pdev)
 		if (ret)
 			return dev_err_probe(&pdev->dev, ret, "can not register restart handler\n");
 	}
+	if (sadi->data->power_off) {
+		ret = devm_register_sys_off_handler(&pdev->dev,
+						    SYS_OFF_MODE_POWER_OFF,
+						    SYS_OFF_PRIO_DEFAULT,
+						    sadi->data->power_off, sadi);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "cannot register power-off handler\n");
+	}
 
 	return 0;
 }
@@ -706,6 +770,7 @@ static const struct sprd_adi_data sc9830_data = {
 	.slave_addr_size = ADI_10BIT_SLAVE_ADDR_SIZE,
 	.legacy = true,
 	.restart = sprd_adi_restart_sc9830,
+	.power_off = sprd_adi_power_off_sc9830,
 };
 
 static struct sprd_adi_data sc9860_data = {
