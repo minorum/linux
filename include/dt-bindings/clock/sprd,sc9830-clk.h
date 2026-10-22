@@ -36,7 +36,14 @@
 #define CLK_KPD_EB	30
 #define CLK_KPD_RTC_EB	31
 #define CLK_DISP_EMC_EB	32
-#define CLK_AON_CLK_NUM	33
+#define CLK_EFUSE_EB	33
+#define CLK_THM_EB	34
+#define CLK_THM_RTC_EB	35
+#define CLK_ARM_THM_RTC_EB	36
+#define CLK_GPU_THM_RTC_EB	37
+#define CLK_ARM_THM_AUTO_EB	38
+#define CLK_GPU_THM_AUTO_EB	39
+#define CLK_AON_CLK_NUM	40
 
 #define CLK_PMU_LTEPLL_GATE	0
 #define CLK_PMU_LTEPLL_614M4	1

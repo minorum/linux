@@ -424,7 +424,29 @@ static struct sprd_gate disp_emc_eb = {
 					       &sprd_gate_ops, CLK_IGNORE_UNUSED),
 };
 
+static SPRD_SC_GATE_CLK_FW_NAME(efuse_eb, "sc9830-efuse-eb", "ext-26m",
+			       0x0, 0x1000, BIT(13), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(thm_eb, "sc9830-thm-eb", "ext-26m",
+			       0x4, 0x1000, BIT(1), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(thm_rtc_eb, "sc9830-thm-rtc-eb", "ext-32k",
+			       0x10, 0x1000, BIT(10), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(arm_thm_rtc_eb, "sc9830-arm-thm-rtc-eb", "ext-32k",
+			       0x10, 0x1000, BIT(11), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(gpu_thm_rtc_eb, "sc9830-gpu-thm-rtc-eb", "ext-32k",
+			       0x10, 0x1000, BIT(12), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(arm_thm_auto_eb, "sc9830-arm-thm-auto-eb", "ext-32k",
+			       0x10, 0x1000, BIT(13), 0, 0);
+static SPRD_SC_GATE_CLK_FW_NAME(gpu_thm_auto_eb, "sc9830-gpu-thm-auto-eb", "ext-32k",
+			       0x10, 0x1000, BIT(14), 0, 0);
+
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
+	&efuse_eb.common,
+	&thm_eb.common,
+	&thm_rtc_eb.common,
+	&arm_thm_rtc_eb.common,
+	&gpu_thm_rtc_eb.common,
+	&arm_thm_auto_eb.common,
+	&gpu_thm_auto_eb.common,
 	&disp_emc_eb.common,
 	&adi_eb.common,
 	&splk_eb.common,
@@ -448,6 +470,13 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 	.hws = {
+		[CLK_EFUSE_EB] = &efuse_eb.common.hw,
+		[CLK_THM_EB] = &thm_eb.common.hw,
+		[CLK_THM_RTC_EB] = &thm_rtc_eb.common.hw,
+		[CLK_ARM_THM_RTC_EB] = &arm_thm_rtc_eb.common.hw,
+		[CLK_GPU_THM_RTC_EB] = &gpu_thm_rtc_eb.common.hw,
+		[CLK_ARM_THM_AUTO_EB] = &arm_thm_auto_eb.common.hw,
+		[CLK_GPU_THM_AUTO_EB] = &gpu_thm_auto_eb.common.hw,
 		[CLK_DISP_EMC_EB] = &disp_emc_eb.common.hw,
 		[CLK_ADI_EB] = &adi_eb.common.hw,
 		[CLK_SPLK_EB] = &splk_eb.common.hw,
@@ -1111,7 +1140,7 @@ static struct reset_simple_data sc9830_apahb_reset = {
 static struct reset_simple_data sc9830_aon_reset = {
 	.rcdev = {
 		.owner = THIS_MODULE,
-		.nr_resets = 32,
+		.nr_resets = 64,
 		.ops = &reset_simple_ops,
 	},
 	.reset_us = 2000,

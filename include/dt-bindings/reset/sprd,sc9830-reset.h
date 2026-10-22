@@ -4,5 +4,6 @@
 
 #define RST_EMMC 14
 #define RST_KPD 8
+#define RST_THM 33
 
 #endif
