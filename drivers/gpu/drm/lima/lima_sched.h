@@ -5,6 +5,7 @@
 #define __LIMA_SCHED_H__
 
 #include <drm/gpu_scheduler.h>
+#include <linux/atomic.h>
 #include <linux/list.h>
 #include <linux/xarray.h>
 
@@ -19,6 +20,7 @@ struct lima_sched_error_task {
 
 struct lima_sched_task {
 	struct drm_sched_job base;
+	atomic64_t start_ns;
 
 	struct lima_vm *vm;
 	void *frame;

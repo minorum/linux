@@ -5,6 +5,7 @@
 #define __LIMA_VM_H__
 
 #include <drm/drm_mm.h>
+#include <linux/atomic.h>
 #include <linux/kref.h>
 
 #define LIMA_PAGE_SIZE    4096
@@ -29,6 +30,8 @@ struct lima_vm_page {
 struct lima_vm {
 	struct mutex lock;
 	struct kref refcount;
+	atomic64_t gp_time_ns;
+	atomic64_t pp_time_ns;
 
 	struct drm_mm mm;
 

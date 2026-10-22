@@ -10,6 +10,7 @@
 #include <drm/drm_ioctl.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_prime.h>
+#include <drm/drm_print.h>
 #include <drm/lima_drm.h>
 
 #include "lima_device.h"
@@ -254,7 +255,22 @@ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(LIMA_CTX_FREE, lima_ioctl_ctx_free, DRM_RENDER_ALLOW),
 };
 
-DEFINE_DRM_GEM_FOPS(lima_drm_driver_fops);
+static void lima_show_fdinfo(struct drm_printer *p, struct drm_file *file)
+{
+	struct lima_drm_priv *priv = file->driver_priv;
+
+	drm_printf(p, "drm-engine-gp:\t%llu ns\n",
+		   (u64)atomic64_read(&priv->vm->gp_time_ns));
+	drm_printf(p, "drm-engine-pp:\t%llu ns\n",
+		   (u64)atomic64_read(&priv->vm->pp_time_ns));
+	drm_show_memory_stats(p, file);
+}
+
+static const struct file_operations lima_drm_driver_fops = {
+	.owner = THIS_MODULE,
+	DRM_GEM_FOPS,
+	.show_fdinfo = drm_show_fdinfo,
+};
 
 /*
  * Changelog:
@@ -266,6 +282,7 @@ static const struct drm_driver lima_drm_driver = {
 	.driver_features    = DRIVER_RENDER | DRIVER_GEM | DRIVER_SYNCOBJ,
 	.open               = lima_drm_driver_open,
 	.postclose          = lima_drm_driver_postclose,
+	.show_fdinfo        = lima_show_fdinfo,
 	.ioctls             = lima_drm_driver_ioctls,
 	.num_ioctls         = ARRAY_SIZE(lima_drm_driver_ioctls),
 	.fops               = &lima_drm_driver_fops,

@@ -203,6 +203,20 @@ static void lima_pm_idle(struct lima_device *ldev)
 	pm_runtime_put_autosuspend(ldev->dev);
 }
 
+static void lima_sched_account_task(struct lima_sched_pipe *pipe,
+				    struct lima_sched_task *task)
+{
+	u64 start = atomic64_xchg(&task->start_ns, 0);
+	atomic64_t *time;
+
+	if (!start)
+		return;
+
+	time = pipe == &pipe->ldev->pipe[lima_pipe_gp] ?
+		&task->vm->gp_time_ns : &task->vm->pp_time_ns;
+	atomic64_add(ktime_get_ns() - start, time);
+}
+
 static struct dma_fence *lima_sched_run_job(struct drm_sched_job *job)
 {
 	struct lima_sched_task *task = to_lima_task(job);
@@ -265,6 +279,7 @@ static struct dma_fence *lima_sched_run_job(struct drm_sched_job *job)
 	trace_lima_task_run(task);
 
 	pipe->error = false;
+	atomic64_set(&task->start_ns, ktime_get_ns());
 	pipe->task_run(pipe, task);
 
 	return task->fence;
@@ -451,6 +466,7 @@ static enum drm_gpu_sched_stat lima_sched_timedout_job(struct drm_sched_job *job
 	if (lima_max_error_tasks)
 		lima_sched_build_error_task_list(task);
 
+	lima_sched_account_task(pipe, task);
 	pipe->task_error(pipe);
 
 	if (pipe->bcast_mmu)
@@ -553,6 +569,7 @@ void lima_sched_pipe_task_done(struct lima_sched_pipe *pipe)
 		else
 			drm_sched_fault(&pipe->base);
 	} else {
+		lima_sched_account_task(pipe, task);
 		pipe->task_fini(pipe);
 		dma_fence_signal(task->fence);
 
