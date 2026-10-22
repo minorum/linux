@@ -53,6 +53,26 @@ allOf:
           minItems: 4
 
 properties:
+  vddcore:
+    type: object
+    $ref: regulator.yaml#
+    description: Firmware-controlled core rail with read-only voltage reporting.
+    properties:
+      regulator-min-microvolt:
+        minimum: 600000
+        maximum: 3125000
+      regulator-max-microvolt:
+        minimum: 600000
+        maximum: 3125000
+      regulator-always-on: true
+      regulator-boot-on: true
+    required:
+      - regulator-min-microvolt
+      - regulator-max-microvolt
+      - regulator-always-on
+      - regulator-boot-on
+    unevaluatedProperties: false
+
   compatible:
     const: sprd,sc2723-regulator
 
