@@ -13,6 +13,12 @@
 	#size-cells = <1>;
 	interrupt-parent = <&intc>;
 
+	ext_4m: clock-4m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <4000000>;
+	};
+
 	mm_domain: power-controller {
 		compatible = "sprd,sc9830-mm-pwrc";
 		#power-domain-cells = <0>;
@@ -269,10 +275,13 @@
 			clocks = <&ext_26m>, <&aon_gate CLK_TWPLL_192M>,
 				 <&aon_gate CLK_TWPLL_307M2>, <&aon_gate CLK_TWPLL_384M>,
 				 <&aon_gate CLK_TWPLL_512M>, <&aon_gate CLK_TWPLL_614M4>,
-				 <&aon_gate CLK_TWPLL_768M>, <&aon_gate CLK_DPLL>;
+				 <&aon_gate CLK_TWPLL_768M>, <&aon_gate CLK_DPLL>,
+				 <&ext_4m>, <&aon_gate CLK_TWPLL_76M8>,
+				 <&aon_gate CLK_TWPLL_96M>;
 			clock-names = "ext-26m", "twpll-192m", "twpll-307m2",
 				      "twpll-384m", "twpll-512m", "twpll-614m4",
-				      "twpll-768m", "dpll";
+				      "twpll-768m", "dpll", "ext-4m",
+				      "twpll-76m8", "twpll-96m";
 		};
 
 		ap_clk: clock-controller@21500000 {
