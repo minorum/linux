@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/thermal/sprd,sc9830-thermal.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Spreadtrum SC9830 die temperature controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+allOf:
+  - $ref: thermal-sensor.yaml#
+
+properties:
+  compatible:
+    const: sprd,sc9830-thermal
+  reg:
+    maxItems: 1
+  clocks:
+    items:
+      - description: Controller bus gate
+      - description: Thermal RTC gate
+      - description: ARM sensor RTC gate
+      - description: GPU sensor RTC gate
+      - description: ARM automatic monitor gate
+      - description: GPU automatic monitor gate
+  clock-names:
+    items:
+      - const: enable
+      - const: rtc
+      - const: arm
+      - const: gpu
+      - const: arm-auto
+      - const: gpu-auto
+  resets:
+    maxItems: 1
+  nvmem-cells:
+    maxItems: 1
+  nvmem-cell-names:
+    const: calibration
+  '#thermal-sensor-cells':
+    const: 1
+    description: Sensor index, 0 for CPU and 1 for GPU.
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - resets
+  - nvmem-cells
+  - nvmem-cell-names
+  - '#thermal-sensor-cells'
+
+unevaluatedProperties: false

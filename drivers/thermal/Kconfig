@@ -501,6 +501,13 @@ config UNIPHIER_THERMAL
 	  thermal framework. The driver supports CPU thermal zone temperature
 	  reporting and a couple of trip points.
 
+config SC9830_THERMAL
+	tristate "Spreadtrum SC9830 die temperature sensors"
+	depends on ARCH_SC9830 || COMPILE_TEST
+	depends on OF && NVMEM && COMMON_CLK && RESET_CONTROLLER
+	help
+	  Calibrated CPU and GPU die temperature reporting on SC9830.
+
 config SPRD_THERMAL
 	tristate "Temperature sensor on Spreadtrum SoCs"
 	depends on ARCH_SPRD || COMPILE_TEST

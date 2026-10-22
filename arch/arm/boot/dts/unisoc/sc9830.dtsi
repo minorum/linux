@@ -346,6 +346,42 @@
 			status = "disabled";
 		};
 
+		ap_efuse: efuse@40240000 {
+			compatible = "sprd,sc9830-efuse";
+			reg = <0x40240000 0x1000>;
+			clocks = <&aon_gate CLK_EFUSE_EB>;
+			hwlocks = <&hwlock 8>;
+			status = "disabled";
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				die_calibration: calibration@1c {
+					reg = <0x1c 4>;
+					bits = <24 5>;
+				};
+			};
+		};
+
+		die_thermal: thermal-sensor@402f0000 {
+			compatible = "sprd,sc9830-thermal";
+			reg = <0x402f0000 0x200>;
+			clocks = <&aon_gate CLK_THM_EB>,
+				 <&aon_gate CLK_THM_RTC_EB>,
+				 <&aon_gate CLK_ARM_THM_RTC_EB>,
+				 <&aon_gate CLK_GPU_THM_RTC_EB>,
+				 <&aon_gate CLK_ARM_THM_AUTO_EB>,
+				 <&aon_gate CLK_GPU_THM_AUTO_EB>;
+			clock-names = "enable", "rtc", "arm", "gpu", "arm-auto", "gpu-auto";
+			resets = <&aon_gate RST_THM>;
+			nvmem-cells = <&die_calibration>;
+			nvmem-cell-names = "calibration";
+			#thermal-sensor-cells = <1>;
+			status = "disabled";
+		};
+
 		hwlock: hwlock@40060000 {
 			compatible = "sprd,sc9830-hwspinlock";
 			reg = <0x40060000 0x1000>;
