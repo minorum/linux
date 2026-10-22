@@ -153,7 +153,7 @@ static int bcm2153_bsc_probe(struct platform_device *pdev)
 	bsc->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(bsc->base))
 		return PTR_ERR(bsc->base);
-	if (readb(bsc->base + BSC_CLKEN) != 0x13 || !(readb(bsc->base + BSC_CS) & 1))
+	if (!(readb(bsc->base + BSC_CLKEN) & 1) || !(readb(bsc->base + BSC_CS) & 1))
 		return dev_err_probe(dev, -EOPNOTSUPP, "unsupported firmware BSC state\n");
 	ret = bcm2153_idle(bsc);
 	if (ret)
@@ -163,6 +163,8 @@ static int bcm2153_bsc_probe(struct platform_device *pdev)
 	bcm2153_write(bsc, 0x89, BSC_RCP);
 	bcm2153_write(bsc, readb(bsc->base + BSC_TOUT) & 0x7f, BSC_TOUT);
 	bcm2153_write(bsc, readb(bsc->base + BSC_FCR) & 0xbf, BSC_FCR);
+	bcm2153_write(bsc, readb(bsc->base + BSC_CLKEN) & 0x7f, BSC_CLKEN);
+	bcm2153_write(bsc, 0x13, BSC_CLKEN);
 	bcm2153_write(bsc, (readb(bsc->base + BSC_TIM) & 0xc7) | 0x10, BSC_TIM);
 	bcm2153_write(bsc, (readb(bsc->base + BSC_TIM) & 0xfc) | 1, BSC_TIM);
 	bsc->adapter.owner = THIS_MODULE;
