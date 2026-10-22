@@ -109,6 +109,10 @@
 	status = "okay";
 };
 
+&usbphy {
+	status = "okay";
+};
+
 &usb {
 	dr_mode = "peripheral";
 	g-rx-fifo-size = <512>;

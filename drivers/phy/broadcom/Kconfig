@@ -4,6 +4,14 @@
 #
 menu "PHY drivers for Broadcom platforms"
 
+config PHY_BCM2153_USB
+	tristate "Broadcom BCM2153 USB PHY"
+	depends on HAS_IOMEM && OF && (ARCH_BCM2153 || COMPILE_TEST)
+	select GENERIC_PHY
+	help
+	  Enable the BCM2153 USB PHY used by Samsung GT-S5620.
+	  Device mode is supported; host and OTG roles are not qualified.
+
 config PHY_BCM63XX_USBH
 	tristate "BCM63xx USBH PHY driver"
 	depends on BMIPS_GENERIC || COMPILE_TEST

@@ -47,6 +47,16 @@
 			compatible = "brcm,bcm2153-usb", "snps,dwc2";
 			reg = <0x08200000 0x10000>;
 			interrupts = <21 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usbphy>;
+			phy-names = "usb2-phy";
+			status = "disabled";
+		};
+
+		usbphy: phy@8280000 {
+			compatible = "brcm,bcm2153-usb-phy";
+			reg = <0x08280000 4>, <0x088800a4 4>;
+			reg-names = "wrapper", "analog";
+			#phy-cells = <0>;
 			status = "disabled";
 		};
 
