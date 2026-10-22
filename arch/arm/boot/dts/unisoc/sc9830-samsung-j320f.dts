@@ -155,6 +155,8 @@
 
 &usb {
 	maximum-speed = "high-speed";
+	g-rx-fifo-size = <814>;
+	g-np-tx-fifo-size = <64>;
 	g-tx-fifo-size = <64 64 256 256 64 64 64 64
 			  64 64 64 64 64 64 64>;
 };
