@@ -35,11 +35,11 @@ properties:
 
   clocks:
     minItems: 1
-    maxItems: 8
+    maxItems: 11
 
   clock-names:
     minItems: 1
-    maxItems: 8
+    maxItems: 11
 
 allOf:
   - if:
@@ -83,8 +83,9 @@ allOf:
       properties:
         clocks:
           minItems: 8
-          maxItems: 8
+          maxItems: 11
         clock-names:
+          minItems: 8
           items:
             - const: ext-26m
             - const: twpll-192m
@@ -94,6 +95,9 @@ allOf:
             - const: twpll-614m4
             - const: twpll-768m
             - const: dpll
+            - const: ext-4m
+            - const: twpll-76m8
+            - const: twpll-96m
       required:
         - clocks
         - clock-names

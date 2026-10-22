@@ -43,7 +43,8 @@
 #define CLK_PMU_CLK_NUM		2
 
 #define CLK_EMC		0
-#define CLK_AON_MUX_NUM	1
+#define CLK_AON_APB	1
+#define CLK_AON_MUX_NUM	2
 
 #define CLK_I2C2		0
 #define CLK_SDIO0		1
