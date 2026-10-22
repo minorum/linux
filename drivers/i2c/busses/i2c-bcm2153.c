@@ -65,11 +65,11 @@ static int bcm2153_operation(struct bcm2153_bsc *bsc, u8 value, bool data)
 	ret = bcm2153_idle(bsc);
 	if (ret)
 		return ret;
+	udelay(31);
 	if (status & 4)
 		return -EIO;
 	if (status & 1)
 		return -EREMOTEIO;
-	udelay(31);
 	return 0;
 }
 
