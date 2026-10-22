@@ -67,7 +67,7 @@
 };
 
 &gpio {
-	gpio-reserved-ranges = <0 24>, <25 39>;
+	gpio-reserved-ranges = <0 24>, <25 27>, <53 11>;
 	status = "okay";
 };
 
@@ -90,7 +90,7 @@
 &sd1 {
 	bus-width = <1>;
 	max-frequency = <12000000>;
-	broken-cd;
+	cd-gpios = <&gpio 52 GPIO_ACTIVE_LOW>;
 	vmmc-supply = <&hcldo2>;
 	status = "okay";
 };
