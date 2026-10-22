@@ -78,8 +78,7 @@ static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int n
 		return -EINVAL;
 	for (i = 0; i < num; i++) {
 		if (msgs[i].addr > 0x7f ||
-		    (msgs[i].flags & ~(I2C_M_RD | I2C_M_STOP | I2C_M_DMA_SAFE)) ||
-		    (i + 1 < num && !(msgs[i].flags & I2C_M_STOP)))
+		    (msgs[i].flags & ~(I2C_M_RD | I2C_M_STOP | I2C_M_DMA_SAFE)))
 			return -EOPNOTSUPP;
 		if (msgs[i].len && !msgs[i].buf)
 			return -EINVAL;
@@ -87,7 +86,9 @@ static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int n
 	if (bsc->failed)
 		return -ESHUTDOWN;
 	for (i = 0; i < num; i++) {
-		ret = bcm2153_operation(bsc, 2, false);
+		ret = bcm2153_operation(bsc,
+					i && !(msgs[i - 1].flags & I2C_M_STOP) ? 0x0a : 2,
+					false);
 		if (ret)
 			goto failed;
 		ret = bcm2153_operation(bsc, msgs[i].addr << 1 |
@@ -106,13 +107,22 @@ static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int n
 			if (ret)
 				goto failed;
 		}
-		ret = bcm2153_operation(bsc, 4, false);
-		if (ret)
-			goto failed;
+		if (i + 1 == num || (msgs[i].flags & I2C_M_STOP)) {
+			ret = bcm2153_operation(bsc, 4, false);
+			if (ret)
+				goto failed;
+		}
 	}
 	return num;
 
 failed:
+	if (ret == -EREMOTEIO) {
+		int stop = bcm2153_operation(bsc, 4, false);
+
+		if (!stop)
+			return ret;
+		ret = stop;
+	}
 	bsc->failed = true;
 	return ret;
 }
@@ -125,10 +135,6 @@ static u32 bcm2153_functionality(struct i2c_adapter *adapter)
 static const struct i2c_algorithm bcm2153_algorithm = {
 	.xfer = bcm2153_xfer,
 	.functionality = bcm2153_functionality,
-};
-
-static const struct i2c_adapter_quirks bcm2153_quirks = {
-	.flags = I2C_AQ_NO_REP_START,
 };
 
 static int bcm2153_bsc_probe(struct platform_device *pdev)
@@ -151,7 +157,6 @@ static int bcm2153_bsc_probe(struct platform_device *pdev)
 		return ret;
 	bsc->adapter.owner = THIS_MODULE;
 	bsc->adapter.algo = &bcm2153_algorithm;
-	bsc->adapter.quirks = &bcm2153_quirks;
 	bsc->adapter.dev.parent = dev;
 	device_set_node(&bsc->adapter.dev, dev_fwnode(dev));
 	strscpy(bsc->adapter.name, "BCM2153 BSC");
