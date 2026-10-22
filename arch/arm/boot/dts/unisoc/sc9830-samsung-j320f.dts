@@ -95,6 +95,14 @@
 
 &pmic {
 	regulators {
+		vddcore: vddcore {
+			regulator-name = "vddcore";
+			regulator-min-microvolt = <600000>;
+			regulator-max-microvolt = <3125000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
 		sensor_vdd18: vdd18 {
 			regulator-name = "vdd18";
 			regulator-min-microvolt = <1800000>;
