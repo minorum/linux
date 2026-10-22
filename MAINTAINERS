@@ -8832,6 +8832,7 @@ L:	dri-devel@lists.freedesktop.org
 L:	lima@lists.freedesktop.org (moderated for non-subscribers)
 S:	Maintained
 T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
+F:	Documentation/gpu/lima.rst
 F:	drivers/gpu/drm/lima/
 F:	include/uapi/drm/lima_drm.h
 

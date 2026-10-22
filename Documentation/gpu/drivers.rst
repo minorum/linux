@@ -24,6 +24,7 @@ GPU Driver Documentation
    afbc
    komeda-kms
    panfrost
+   lima
    panthor
    zynqmp
    nova/index

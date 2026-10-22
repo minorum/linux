@@ -13,6 +13,7 @@
 #include "lima_regs.h"
 #include "lima_gem.h"
 #include "lima_vm.h"
+#include "lima_perfmon.h"
 
 #define gp_write(reg, data) writel(data, ip->iomem + reg)
 #define gp_read(reg) readl(ip->iomem + reg)
@@ -160,6 +161,7 @@ static void lima_gp_task_run(struct lima_sched_pipe *pipe,
 	/* before any hw ops, wait last success task async soft reset */
 	lima_gp_soft_reset_async_wait(ip);
 
+	lima_perfmon_start_ip(ip, task);
 	for (i = 0; i < LIMA_GP_FRAME_REG_NUM; i++)
 		writel(f[i], ip->iomem + LIMA_GP_VSCL_START_ADDR + i * 4);
 

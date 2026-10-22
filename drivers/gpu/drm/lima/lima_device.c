@@ -413,6 +413,7 @@ int lima_device_init(struct lima_device *ldev)
 	ldev->dump.version_minor = LIMA_DUMP_MINOR;
 	INIT_LIST_HEAD(&ldev->error_task_list);
 	mutex_init(&ldev->error_task_list_lock);
+	dma_resv_init(&ldev->perfmon_resv);
 
 	dev_info(ldev->dev, "bus rate = %lu\n", clk_get_rate(ldev->clk_bus));
 	dev_info(ldev->dev, "mod rate = %lu", clk_get_rate(ldev->clk_gpu));
@@ -450,6 +451,7 @@ void lima_device_fini(struct lima_device *ldev)
 
 	lima_fini_pp_pipe(ldev);
 	lima_fini_gp_pipe(ldev);
+	dma_resv_fini(&ldev->perfmon_resv);
 
 	for (i = lima_ip_num - 1; i >= 0; i--)
 		lima_fini_ip(ldev, i);

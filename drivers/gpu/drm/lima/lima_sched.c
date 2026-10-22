@@ -18,6 +18,7 @@
 #include "lima_l2_cache.h"
 #include "lima_gem.h"
 #include "lima_trace.h"
+#include "lima_perfmon.h"
 
 struct lima_fence {
 	struct dma_fence base;
@@ -146,6 +147,7 @@ void lima_sched_task_fini(struct lima_sched_task *task)
 {
 	int i;
 
+	lima_perfmon_task_fini(task);
 	drm_sched_job_cleanup(&task->base);
 
 	if (task->bos) {
@@ -280,6 +282,7 @@ static struct dma_fence *lima_sched_run_job(struct drm_sched_job *job)
 
 	pipe->error = false;
 	atomic64_set(&task->start_ns, ktime_get_ns());
+	lima_perfmon_start_l2(pipe, task);
 	pipe->task_run(pipe, task);
 
 	return task->fence;
@@ -467,6 +470,7 @@ static enum drm_gpu_sched_stat lima_sched_timedout_job(struct drm_sched_job *job
 		lima_sched_build_error_task_list(task);
 
 	lima_sched_account_task(pipe, task);
+	lima_perfmon_stop(pipe, task, false);
 	pipe->task_error(pipe);
 
 	if (pipe->bcast_mmu)
@@ -570,6 +574,7 @@ void lima_sched_pipe_task_done(struct lima_sched_pipe *pipe)
 			drm_sched_fault(&pipe->base);
 	} else {
 		lima_sched_account_task(pipe, task);
+		lima_perfmon_stop(pipe, task, true);
 		pipe->task_fini(pipe);
 		dma_fence_signal(task->fence);
 

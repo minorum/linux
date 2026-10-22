@@ -11,6 +11,7 @@
 
 struct lima_device;
 struct lima_vm;
+struct lima_perfmon;
 
 struct lima_sched_error_task {
 	struct list_head list;
@@ -21,6 +22,9 @@ struct lima_sched_error_task {
 struct lima_sched_task {
 	struct drm_sched_job base;
 	atomic64_t start_ns;
+	struct lima_perfmon *perfmon;
+	bool perfmon_started;
+	bool perfmon_sampled;
 
 	struct lima_vm *vm;
 	void *frame;

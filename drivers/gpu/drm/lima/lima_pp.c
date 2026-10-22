@@ -14,6 +14,7 @@
 #include "lima_bcast.h"
 #include "lima_vm.h"
 #include "lima_regs.h"
+#include "lima_perfmon.h"
 
 #define pp_write(reg, data) writel(data, ip->iomem + reg)
 #define pp_read(reg) readl(ip->iomem + reg)
@@ -401,6 +402,7 @@ static void lima_pp_task_run(struct lima_sched_pipe *pipe,
 
 			lima_pp_soft_reset_async_wait(ip);
 
+			lima_perfmon_start_ip(ip, task);
 			lima_pp_write_frame(ip, frame->frame, frame->wb);
 
 			pp_write(LIMA_PP_CTRL, LIMA_PP_CTRL_START_RENDERING);

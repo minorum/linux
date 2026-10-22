@@ -2,6 +2,7 @@
 /* Copyright 2017-2019 Qiang Yu <yuq825@gmail.com> */
 
 #include <linux/module.h>
+#include <linux/capability.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
@@ -17,6 +18,7 @@
 #include "lima_drv.h"
 #include "lima_gem.h"
 #include "lima_vm.h"
+#include "lima_perfmon.h"
 
 int lima_sched_timeout_ms;
 uint lima_heap_init_nr_pages = 8;
@@ -39,6 +41,7 @@ static int lima_ioctl_get_param(struct drm_device *dev, void *data, struct drm_f
 {
 	struct drm_lima_get_param *args = data;
 	struct lima_device *ldev = to_lima_dev(dev);
+	unsigned int i;
 
 	if (args->pad)
 		return -EINVAL;
@@ -68,6 +71,14 @@ static int lima_ioctl_get_param(struct drm_device *dev, void *data, struct drm_f
 
 	case DRM_LIMA_PARAM_PP_VERSION:
 		args->value = ldev->pp_version;
+		break;
+	case DRM_LIMA_PARAM_PERFMON:
+		args->value = ldev->id == lima_gpu_mali400;
+		break;
+	case DRM_LIMA_PARAM_PP_MASK:
+		args->value = 0;
+		for (i = 0; i < ldev->pipe[lima_pipe_pp].num_processor; i++)
+			args->value |= BIT(ldev->pipe[lima_pipe_pp].processor[i]->id - lima_ip_pp0);
 		break;
 
 	default:
@@ -115,6 +126,10 @@ static int lima_ioctl_gem_submit(struct drm_device *dev, void *data, struct drm_
 
 	if (args->pipe >= lima_pipe_num || args->nr_bos == 0)
 		return -EINVAL;
+	if (args->pad)
+		return -EINVAL;
+	if (args->perfmon_id && !perfmon_capable())
+		return -EPERM;
 
 	if (args->flags & ~(LIMA_SUBMIT_FLAG_EXPLICIT_FENCE))
 		return -EINVAL;
@@ -165,9 +180,18 @@ static int lima_ioctl_gem_submit(struct drm_device *dev, void *data, struct drm_
 	submit.in_sync[0] = args->in_sync[0];
 	submit.in_sync[1] = args->in_sync[1];
 	submit.out_sync = args->out_sync;
+	if (args->perfmon_id) {
+		submit.perfmon = lima_perfmon_find(file, args->perfmon_id);
+		if (!submit.perfmon) {
+			err = -ENOENT;
+			goto out_ctx;
+		}
+	}
 
 	err = lima_gem_submit(file, &submit);
+	lima_perfmon_put(submit.perfmon);
 
+out_ctx:
 	lima_ctx_put(ctx);
 out1:
 	if (err)
@@ -227,6 +251,7 @@ static int lima_drm_driver_open(struct drm_device *dev, struct drm_file *file)
 	}
 
 	lima_ctx_mgr_init(&priv->ctx_mgr);
+	xa_init_flags(&priv->perfmons, XA_FLAGS_ALLOC1);
 
 	file->driver_priv = priv;
 	return 0;
@@ -241,6 +266,7 @@ static void lima_drm_driver_postclose(struct drm_device *dev, struct drm_file *f
 	struct lima_drm_priv *priv = file->driver_priv;
 
 	lima_ctx_mgr_fini(&priv->ctx_mgr);
+	lima_perfmon_close(priv);
 	lima_vm_put(priv->vm);
 	kfree(priv);
 }
@@ -253,6 +279,9 @@ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(LIMA_GEM_WAIT, lima_ioctl_gem_wait, DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(LIMA_CTX_CREATE, lima_ioctl_ctx_create, DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(LIMA_CTX_FREE, lima_ioctl_ctx_free, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(LIMA_PERFMON_CREATE, lima_perfmon_create_ioctl, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(LIMA_PERFMON_DESTROY, lima_perfmon_destroy_ioctl, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(LIMA_PERFMON_GET_VALUES, lima_perfmon_get_values_ioctl, DRM_RENDER_ALLOW),
 };
 
 static void lima_show_fdinfo(struct drm_printer *p, struct drm_file *file)

@@ -17,6 +17,7 @@
 #include "lima_drv.h"
 #include "lima_gem.h"
 #include "lima_vm.h"
+#include "lima_perfmon.h"
 
 int lima_heap_alloc(struct lima_bo *bo, struct lima_vm *vm)
 {
@@ -334,16 +335,23 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
 		bos[i] = bo;
 	}
 
+	err = dma_resv_lock_interruptible(&vm->dev->perfmon_resv, NULL);
+	if (err)
+		goto err_out0;
 	err = drm_gem_lock_reservations((struct drm_gem_object **)bos,
 					submit->nr_bos, &ctx);
 	if (err)
-		goto err_out0;
+		goto err_out_perfmon;
 
 	err = lima_sched_task_init(
 		submit->task, submit->ctx->context + submit->pipe,
 		bos, submit->nr_bos, vm, file->client_id);
 	if (err)
 		goto err_out1;
+	lima_perfmon_task_init(submit->task, submit->perfmon);
+	err = lima_perfmon_add_deps(submit->task);
+	if (err)
+		goto err_out2;
 
 	err = lima_gem_add_deps(file, submit);
 	if (err)
@@ -359,6 +367,9 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
 	}
 
 	fence = lima_sched_context_queue_task(submit->task);
+	dma_resv_add_fence(&vm->dev->perfmon_resv, fence,
+			   submit->perfmon && submit->perfmon->l2 ?
+			   DMA_RESV_USAGE_WRITE : DMA_RESV_USAGE_READ);
 
 	for (i = 0; i < submit->nr_bos; i++) {
 		dma_resv_add_fence(lima_bo_resv(bos[i]), fence,
@@ -368,6 +379,7 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
 
 	drm_gem_unlock_reservations((struct drm_gem_object **)bos,
 				    submit->nr_bos, &ctx);
+	dma_resv_unlock(&vm->dev->perfmon_resv);
 
 	for (i = 0; i < submit->nr_bos; i++)
 		drm_gem_object_put(&bos[i]->base.base);
@@ -386,6 +398,8 @@ err_out2:
 err_out1:
 	drm_gem_unlock_reservations((struct drm_gem_object **)bos,
 				    submit->nr_bos, &ctx);
+err_out_perfmon:
+	dma_resv_unlock(&vm->dev->perfmon_resv);
 err_out0:
 	for (i = 0; i < submit->nr_bos; i++) {
 		if (!bos[i])

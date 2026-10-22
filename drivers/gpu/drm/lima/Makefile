@@ -18,4 +18,6 @@ lima-y := \
 	lima_trace.o \
 	lima_devfreq.o
 
+lima-y += lima_perfmon.o
+
 obj-$(CONFIG_DRM_LIMA) += lima.o

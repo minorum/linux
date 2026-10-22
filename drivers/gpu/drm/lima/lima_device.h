@@ -6,6 +6,7 @@
 
 #include <drm/drm_device.h>
 #include <linux/delay.h>
+#include <linux/dma-resv.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 
@@ -101,6 +102,7 @@ struct lima_device {
 	dma_addr_t dlbu_dma;
 
 	struct lima_devfreq devfreq;
+	struct dma_resv perfmon_resv;
 
 	/* debug info */
 	struct lima_dump_head dump;

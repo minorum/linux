@@ -17,12 +17,14 @@ extern uint lima_job_hang_limit;
 struct lima_vm;
 struct lima_bo;
 struct lima_sched_task;
+struct lima_perfmon;
 
 struct drm_lima_gem_submit_bo;
 
 struct lima_drm_priv {
 	struct lima_vm *vm;
 	struct lima_ctx_mgr ctx_mgr;
+	struct xarray perfmons;
 };
 
 struct lima_submit {
@@ -38,6 +40,7 @@ struct lima_submit {
 	u32 out_sync;
 
 	struct lima_sched_task *task;
+	struct lima_perfmon *perfmon;
 };
 
 struct lima_compatible {
