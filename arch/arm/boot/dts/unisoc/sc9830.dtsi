@@ -41,6 +41,7 @@
 		cpu0: cpu@f00 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
+			capacity-dmips-mhz = <1024>;
 			reg = <0xf00>;
 			clocks = <&apahb CLK_CA7_MCU>, <&aon_gate CLK_MPLL>,
 				 <&aon_gate CLK_TWPLL_768M>, <&apahb CLK_CA7_AXI>;
@@ -50,6 +51,7 @@
 		cpu1: cpu@f01 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
+			capacity-dmips-mhz = <1024>;
 			reg = <0xf01>;
 			clocks = <&apahb CLK_CA7_MCU>;
 			clock-names = "cpu";
@@ -58,6 +60,7 @@
 		cpu2: cpu@f02 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
+			capacity-dmips-mhz = <1024>;
 			reg = <0xf02>;
 			clocks = <&apahb CLK_CA7_MCU>;
 			clock-names = "cpu";
@@ -66,6 +69,7 @@
 		cpu3: cpu@f03 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
+			capacity-dmips-mhz = <1024>;
 			reg = <0xf03>;
 			clocks = <&apahb CLK_CA7_MCU>;
 			clock-names = "cpu";
