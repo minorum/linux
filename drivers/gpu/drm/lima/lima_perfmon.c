@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 #include <linux/capability.h>
+#include <linux/device.h>
 #include <linux/dma-resv.h>
 #include <linux/slab.h>
 
@@ -266,6 +267,22 @@ void lima_perfmon_stop(struct lima_sched_pipe *pipe, struct lima_sched_task *tas
 	}
 	for (i = 0; i < DRM_LIMA_PERFMON_COUNTERS; i++)
 		perfmon->values[i] += values[i];
+	if (capture) {
+		for (i = 0; i < count; i++) {
+			struct lima_ip *ip = pipe->processor[i];
+			unsigned int slot = gp ? 0 : 2 + (ip->id - lima_ip_pp0) * 2;
+			u32 enable = gp ? LIMA_GP_PERF_CNT_0_ENABLE : LIMA_PP_PERF_CNT_0_ENABLE;
+			u32 limit = gp ? LIMA_GP_PERF_CNT_0_LIMIT : LIMA_PP_PERF_CNT_0_LIMIT;
+
+			dev_dbg(pipe->ldev->dev,
+				"%s perfmon rawstat=%08x mask=%08x enable0=%08x limit0=%08x value0=%08x value1=%08x\n",
+				lima_ip_name(ip),
+				readl(ip->iomem + (gp ? LIMA_GP_INT_RAWSTAT : LIMA_PP_INT_RAWSTAT)),
+				readl(ip->iomem + (gp ? LIMA_GP_INT_MASK : LIMA_PP_INT_MASK)),
+				readl(ip->iomem + enable), readl(ip->iomem + limit),
+				values[slot], values[slot + 1]);
+		}
+	}
 	if (!capture)
 		perfmon->status |= DRM_LIMA_PERFMON_LOST;
 out:
