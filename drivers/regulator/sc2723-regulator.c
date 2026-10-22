@@ -48,6 +48,75 @@ static int sc2723_cpu_select(bool linear, int minimum, int maximum)
 	return best;
 }
 
+static int sc2723_core_get_voltage(struct regulator_dev *rdev)
+{
+	unsigned int mode, power, selector;
+	int ret;
+
+	ret = regmap_read(rdev->regmap, 0x918, &mode);
+	if (ret)
+		return ret;
+	ret = regmap_read(rdev->regmap, 0x810, &power);
+	if (ret)
+		return ret;
+	if (power & BIT(9))
+		return -EIO;
+	ret = regmap_read(rdev->regmap, 0xa00, &selector);
+	if (ret)
+		return ret;
+	return sc2723_cpu_voltage(mode & BIT(14),
+				 selector & (mode & BIT(14) ? 0x3ff : 0xff));
+}
+
+static int sc2723_core_init(struct regulator_dev *rdev, struct regulator_config *config)
+{
+	struct regulation_constraints *constraints = rdev->constraints;
+	int voltage;
+
+	if (!constraints->always_on || !constraints->boot_on || constraints->uV_offset)
+		return -EINVAL;
+	voltage = sc2723_core_get_voltage(rdev);
+	if (voltage < 0)
+		return voltage;
+	if (voltage < constraints->min_uV || voltage > constraints->max_uV)
+		return -EINVAL;
+	constraints->apply_uV = false;
+	return 0;
+}
+
+static const struct regulator_ops sc2723_core_ops = {
+	.is_enabled = regulator_is_enabled_regmap,
+	.get_voltage = sc2723_core_get_voltage,
+};
+
+static const struct regulator_desc sc2723_core_desc = {
+	.name = "vddcore",
+	.of_match = "vddcore",
+	.init_cb = sc2723_core_init,
+	.id = 9,
+	.ops = &sc2723_core_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+	.enable_reg = 0x810,
+	.enable_mask = BIT(9),
+	.enable_is_inverted = true,
+};
+
+static int sc2723_core_register(struct device *dev, struct regulator_config *config)
+{
+	struct regulator_dev *rdev;
+	struct device_node *node;
+	bool available;
+
+	node = of_get_child_by_name(dev->of_node, "vddcore");
+	available = of_device_is_available(node);
+	of_node_put(node);
+	if (!available)
+		return 0;
+	rdev = devm_regulator_register(dev, &sc2723_core_desc, config);
+	return IS_ERR(rdev) ? PTR_ERR(rdev) : 1;
+}
+
 static int sc2723_cpu_get_selector(struct regulator_dev *rdev)
 {
 	struct sc2723_cpu_regulator *cpu = rdev_get_drvdata(rdev);
@@ -554,6 +623,10 @@ static int sc2723_regulator_probe(struct platform_device *pdev)
 		return ret;
 	ret += registered;
 	registered = sc2723_sensor_register(dev, &config);
+	if (registered < 0)
+		return registered;
+	ret += registered;
+	registered = sc2723_core_register(dev, &config);
 	if (registered < 0)
 		return registered;
 	ret += registered;
