@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/serial_core.h>
 #include <linux/serial.h>
 #include <linux/slab.h>
@@ -515,6 +516,9 @@ static void sprd_request_dma(struct uart_port *port)
 {
 	struct sprd_uart_port *sp =
 		container_of(port, struct sprd_uart_port, port);
+
+	if (!device_property_present(port->dev, "dmas"))
+		return;
 
 	sp->tx_dma.enable = true;
 	sp->rx_dma.enable = true;
