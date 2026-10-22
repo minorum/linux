@@ -343,7 +343,7 @@ static irqreturn_t sm5701_irq(int irq, void *arg)
 	ret = sm5701_ack_irq(data);
 	if (ret)
 		dev_err_ratelimited(data->dev, "Failed to acknowledge interrupts: %d\n", ret);
-	mod_delayed_work(system_wq, &data->poll, 0);
+	mod_delayed_work(system_percpu_wq, &data->poll, 0);
 
 	return IRQ_HANDLED;
 }
