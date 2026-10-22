@@ -403,11 +403,13 @@ static struct sprd_gate mbox_eb = {
 					       CLK_IS_CRITICAL),
 };
 
+static struct sprd_clk_common aon_apb_clk;
+
 static struct sprd_gate gpu_eb = {
 	.enable_mask = BIT(27),
 	.sc_offset = 0x1000,
-	.common.hw.init = CLK_HW_INIT_NO_PARENT("sc9830-gpu-eb",
-					       &sprd_sc_gate_ops, 0),
+	.common.hw.init = CLK_HW_INIT_HW("sc9830-gpu-eb", &aon_apb_clk.hw,
+					&sprd_sc_gate_ops, 0),
 };
 
 static SPRD_SC_GATE_CLK_FW_NAME(kpd_eb, "sc9830-kpd-eb", "ext-26m",
@@ -580,10 +582,56 @@ static struct sprd_clk_common emc_clk = {
 					  &sc9830_emc_ops, CLK_GET_RATE_NOCACHE),
 };
 
-static struct sprd_clk_common *sc9830_aon_mux_clks[] = { &emc_clk };
+static const struct clk_parent_data aon_apb_parents[] = {
+	{ .fw_name = "ext-4m" },
+	{ .fw_name = "ext-26m" },
+	{ .fw_name = "twpll-76m8" },
+	{ .fw_name = "twpll-96m" },
+};
+
+static u8 sc9830_aon_apb_get_parent(struct clk_hw *hw)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	u32 cfg;
+
+	if (regmap_read(clock->regmap, clock->reg, &cfg))
+		return 0;
+	return FIELD_GET(GENMASK(1, 0), cfg);
+}
+
+static unsigned long sc9830_aon_apb_recalc(struct clk_hw *hw,
+					   unsigned long parent_rate)
+{
+	struct sprd_clk_common *clock = hw_to_sprd_clk_common(hw);
+	u32 cfg;
+
+	if (regmap_read(clock->regmap, clock->reg, &cfg))
+		return 0;
+	return parent_rate / (FIELD_GET(GENMASK(9, 8), cfg) + 1);
+}
+
+static const struct clk_ops sc9830_aon_apb_ops = {
+	.get_parent = sc9830_aon_apb_get_parent,
+	.recalc_rate = sc9830_aon_apb_recalc,
+};
+
+static struct sprd_clk_common aon_apb_clk = {
+	.reg = 0x24,
+	.hw.init = CLK_HW_INIT_PARENTS_DATA("sc9830-aon-apb", aon_apb_parents,
+					  &sc9830_aon_apb_ops,
+					  CLK_GET_RATE_NOCACHE),
+};
+
+static struct sprd_clk_common *sc9830_aon_mux_clks[] = {
+	&emc_clk,
+	&aon_apb_clk,
+};
 
 static struct clk_hw_onecell_data sc9830_aon_mux_hws = {
-	.hws = { [CLK_EMC] = &emc_clk.hw },
+	.hws = {
+		[CLK_EMC] = &emc_clk.hw,
+		[CLK_AON_APB] = &aon_apb_clk.hw,
+	},
 	.num = CLK_AON_MUX_NUM,
 };
 
