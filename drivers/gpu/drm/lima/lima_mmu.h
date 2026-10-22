@@ -5,6 +5,7 @@
 #define __LIMA_MMU_H__
 
 struct lima_ip;
+struct lima_device;
 struct lima_vm;
 
 int lima_mmu_resume(struct lima_ip *ip);
@@ -15,5 +16,7 @@ void lima_mmu_fini(struct lima_ip *ip);
 void lima_mmu_flush_tlb(struct lima_ip *ip);
 void lima_mmu_switch_vm(struct lima_ip *ip, struct lima_vm *vm);
 void lima_mmu_page_fault_resume(struct lima_ip *ip);
+int lima_mmu_init_fault_flush(struct lima_device *dev);
+void lima_mmu_page_fault_flush(struct lima_ip *ip);
 
 #endif

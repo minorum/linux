@@ -387,6 +387,10 @@ int lima_device_init(struct lima_device *ldev)
 		goto err_out1;
 	}
 
+	err = lima_mmu_init_fault_flush(ldev);
+	if (err)
+		goto err_out3;
+
 	ldev->iomem = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(ldev->iomem)) {
 		dev_err(ldev->dev, "fail to ioremap iomem\n");
