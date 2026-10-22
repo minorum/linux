@@ -15,6 +15,7 @@
 #include "lima_vm.h"
 #include "lima_regs.h"
 #include "lima_perfmon.h"
+#include "lima_mmu.h"
 
 #define pp_write(reg, data) writel(data, ip->iomem + reg)
 #define pp_read(reg) readl(ip->iomem + reg)
@@ -189,6 +190,7 @@ static int lima_pp_hard_reset(struct lima_ip *ip)
 	pp_write(LIMA_PP_INT_MASK, 0);
 
 	pp_write(LIMA_PP_CTRL, LIMA_PP_CTRL_STOP_BUS);
+	lima_mmu_page_fault_flush(&dev->ip[lima_ip_ppmmu0 + ip->id - lima_ip_pp0]);
 	ret = lima_poll_timeout(ip, lima_pp_bus_stop_poll, 10, 100);
 	if (ret) {
 		dev_err(dev->dev, "%s bus stop timeout\n", lima_ip_name(ip));

@@ -63,7 +63,7 @@ struct lima_ip {
 	union {
 		/* gp/pp */
 		bool async_reset;
-		/* gpmmu */
+		/* mmu */
 		bool fault_flushed;
 		/* l2 cache */
 		spinlock_t lock;
@@ -97,8 +97,8 @@ struct lima_device {
 	struct lima_sched_pipe pipe[lima_pipe_num];
 
 	struct lima_vm *empty_vm;
-	u32 *fault_flush_cpu;
-	dma_addr_t fault_flush_dma;
+	u32 *fault_flush_cpu[lima_pipe_num];
+	dma_addr_t fault_flush_dma[lima_pipe_num];
 	uint64_t va_start;
 	uint64_t va_end;
 

@@ -155,21 +155,25 @@ void lima_mmu_switch_vm(struct lima_ip *ip, struct lima_vm *vm)
 int lima_mmu_init_fault_flush(struct lima_device *dev)
 {
 	u32 *pd, *pt;
-	int i;
+	int i, pipe;
 
 	if (dev->id != lima_gpu_mali400)
 		return 0;
 
-	pd = dmam_alloc_coherent(dev->dev, 3 * LIMA_PAGE_SIZE,
-				 &dev->fault_flush_dma, GFP_KERNEL | __GFP_ZERO);
-	if (!pd)
-		return -ENOMEM;
+	for (pipe = 0; pipe < lima_pipe_num; pipe++) {
+		pd = dmam_alloc_coherent(dev->dev, 3 * LIMA_PAGE_SIZE,
+					 &dev->fault_flush_dma[pipe], GFP_KERNEL | __GFP_ZERO);
+		if (!pd)
+			return -ENOMEM;
 
-	dev->fault_flush_cpu = pd;
-	pt = pd + LIMA_PAGE_ENT_NUM;
-	for (i = 0; i < LIMA_PAGE_ENT_NUM; i++) {
-		pd[i] = (dev->fault_flush_dma + LIMA_PAGE_SIZE) | LIMA_VM_FLAG_PRESENT;
-		pt[i] = (dev->fault_flush_dma + 2 * LIMA_PAGE_SIZE) | LIMA_VM_FLAGS_UNCACHE;
+		dev->fault_flush_cpu[pipe] = pd;
+		pt = pd + LIMA_PAGE_ENT_NUM;
+		for (i = 0; i < LIMA_PAGE_ENT_NUM; i++) {
+			pd[i] = (dev->fault_flush_dma[pipe] + LIMA_PAGE_SIZE) |
+				LIMA_VM_FLAG_PRESENT;
+			pt[i] = (dev->fault_flush_dma[pipe] + 2 * LIMA_PAGE_SIZE) |
+				LIMA_VM_FLAGS_UNCACHE;
+		}
 	}
 	return 0;
 }
@@ -177,15 +181,16 @@ int lima_mmu_init_fault_flush(struct lima_device *dev)
 void lima_mmu_page_fault_flush(struct lima_ip *ip)
 {
 	struct lima_device *dev = ip->dev;
+	int pipe = ip->id == lima_ip_gpmmu ? lima_pipe_gp : lima_pipe_pp;
 
-	if (!dev->fault_flush_cpu ||
+	if (!dev->fault_flush_cpu[pipe] ||
 	    !(mmu_read(LIMA_MMU_STATUS) & LIMA_MMU_STATUS_PAGE_FAULT_ACTIVE))
 		return;
 
-	memset(dev->fault_flush_cpu + 2 * LIMA_PAGE_ENT_NUM, 0, LIMA_PAGE_SIZE);
+	memset(dev->fault_flush_cpu[pipe] + 2 * LIMA_PAGE_ENT_NUM, 0, LIMA_PAGE_SIZE);
 	/* Scratch visibility */
 	wmb();
-	mmu_write(LIMA_MMU_DTE_ADDR, dev->fault_flush_dma);
+	mmu_write(LIMA_MMU_DTE_ADDR, dev->fault_flush_dma[pipe]);
 	mmu_write(LIMA_MMU_COMMAND, LIMA_MMU_COMMAND_ZAP_CACHE);
 	mmu_write(LIMA_MMU_COMMAND, LIMA_MMU_COMMAND_PAGE_FAULT_DONE);
 	ip->data.fault_flushed = true;
@@ -198,7 +203,7 @@ void lima_mmu_page_fault_resume(struct lima_ip *ip)
 	u32 v;
 
 	if (status & LIMA_MMU_STATUS_PAGE_FAULT_ACTIVE ||
-	    (ip->id == lima_ip_gpmmu && ip->data.fault_flushed)) {
+	    (ip->id != lima_ip_ppmmu_bcast && ip->data.fault_flushed)) {
 		dev_info(dev->dev, "%s resume\n", lima_ip_name(ip));
 
 		mmu_write(LIMA_MMU_INT_MASK, 0);
@@ -210,7 +215,7 @@ void lima_mmu_page_fault_resume(struct lima_ip *ip)
 		lima_mmu_send_command(LIMA_MMU_COMMAND_ENABLE_PAGING,
 				      LIMA_MMU_STATUS, v,
 				      v & LIMA_MMU_STATUS_PAGING_ENABLED);
-		if (ip->id == lima_ip_gpmmu)
+		if (ip->id != lima_ip_ppmmu_bcast)
 			ip->data.fault_flushed = false;
 	}
 }
