@@ -7,6 +7,7 @@
 
 #define BCM2153_GPIO_MODE 0x00
 #define BCM2153_GPIO_DATA 0x10
+#define BCM2153_GPIO_INPUT 0x18
 #define BCM2153_GPIO_MASK0 0x30
 #define BCM2153_GPIO_MASK1 0x34
 #define BCM2153_GPIO_EDGE 0x40
@@ -17,7 +18,7 @@ struct bcm2153_gpio {
 	raw_spinlock_t lock;
 };
 
-static void bcm2153_gpio_output_mode(struct bcm2153_gpio *gpio, unsigned int pin)
+static void bcm2153_gpio_set_mode(struct bcm2153_gpio *gpio, unsigned int pin, u32 mode)
 {
 	u32 modes[2], edges[2], masks[2];
 	unsigned int bank = pin / 32;
@@ -30,7 +31,7 @@ static void bcm2153_gpio_output_mode(struct bcm2153_gpio *gpio, unsigned int pin
 		edges[half] = readl(gpio->base + BCM2153_GPIO_EDGE + offset);
 	}
 	half = pin % 32 / 16;
-	modes[half] = (modes[half] & ~(3U << shift)) | (2U << shift);
+	modes[half] = (modes[half] & ~(3U << shift)) | (mode << shift);
 	for (half = 0; half < 2; half++) {
 		offset = bank * 8 + half * 4;
 		writel(modes[half], gpio->base + BCM2153_GPIO_MODE + offset);
@@ -71,7 +72,18 @@ static int bcm2153_gpio_direction_output(struct gpio_chip *chip,
 
 	raw_spin_lock_irqsave(&gpio->lock, flags);
 	bcm2153_gpio_write(gpio, pin, value);
-	bcm2153_gpio_output_mode(gpio, pin);
+	bcm2153_gpio_set_mode(gpio, pin, 2);
+	raw_spin_unlock_irqrestore(&gpio->lock, flags);
+	return 0;
+}
+
+static int bcm2153_gpio_direction_input(struct gpio_chip *chip, unsigned int pin)
+{
+	struct bcm2153_gpio *gpio = gpiochip_get_data(chip);
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&gpio->lock, flags);
+	bcm2153_gpio_set_mode(gpio, pin, 0);
 	raw_spin_unlock_irqrestore(&gpio->lock, flags);
 	return 0;
 }
@@ -81,18 +93,26 @@ static int bcm2153_gpio_get_direction(struct gpio_chip *chip, unsigned int pin)
 	struct bcm2153_gpio *gpio = gpiochip_get_data(chip);
 	u32 mode = readl(gpio->base + BCM2153_GPIO_MODE + pin / 16 * 4);
 
-	return ((mode >> (pin % 16 * 2)) & 3) == 2 ?
-		GPIO_LINE_DIRECTION_OUT : -EOPNOTSUPP;
+	switch ((mode >> (pin % 16 * 2)) & 3) {
+	case 0:
+		return GPIO_LINE_DIRECTION_IN;
+	case 2:
+		return GPIO_LINE_DIRECTION_OUT;
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static int bcm2153_gpio_get(struct gpio_chip *chip, unsigned int pin)
 {
 	struct bcm2153_gpio *gpio = gpiochip_get_data(chip);
+	unsigned int offset;
 	int ret = bcm2153_gpio_get_direction(chip, pin);
 
 	if (ret < 0)
 		return ret;
-	return !!(readl(gpio->base + BCM2153_GPIO_DATA + pin / 32 * 4) & BIT(pin % 32));
+	offset = ret == GPIO_LINE_DIRECTION_IN ? BCM2153_GPIO_INPUT : BCM2153_GPIO_DATA;
+	return !!(readl(gpio->base + offset + pin / 32 * 4) & BIT(pin % 32));
 }
 
 static int bcm2153_gpio_probe(struct platform_device *pdev)
@@ -113,6 +133,7 @@ static int bcm2153_gpio_probe(struct platform_device *pdev)
 	gpio->chip.base = -1;
 	gpio->chip.ngpio = 64;
 	gpio->chip.get_direction = bcm2153_gpio_get_direction;
+	gpio->chip.direction_input = bcm2153_gpio_direction_input;
 	gpio->chip.direction_output = bcm2153_gpio_direction_output;
 	gpio->chip.get = bcm2153_gpio_get;
 	gpio->chip.set = bcm2153_gpio_set;
@@ -134,5 +155,5 @@ static struct platform_driver bcm2153_gpio_driver = {
 };
 module_platform_driver(bcm2153_gpio_driver);
 
-MODULE_DESCRIPTION("Broadcom BCM2153 GPIO outputs");
+MODULE_DESCRIPTION("Broadcom BCM2153 GPIO");
 MODULE_LICENSE("GPL");

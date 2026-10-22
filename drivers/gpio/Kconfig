@@ -215,11 +215,11 @@ config GPIO_RASPBERRYPI_EXP
 	  the firmware mailbox to communicate with VideoCore on BCM283x chips.
 
 config GPIO_BCM2153
-	tristate "Broadcom BCM2153 GPIO outputs"
+	tristate "Broadcom BCM2153 GPIO"
 	depends on OF && (ARM || COMPILE_TEST)
 	help
-	  GPIO output support for BCM2153, including GT-S5620 panel reset.
-	  Input and interrupt support are not implemented.
+	  GPIO input/output support for BCM2153, including GT-S5620 panel
+	  reset and microSD card detection. Interrupts are not implemented.
 
 config GPIO_BCM_KONA
 	bool "Broadcom Kona GPIO"
