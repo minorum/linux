@@ -60,6 +60,18 @@
 	dbi_drive_pins: dbi-drive-pins {
 		pinctrl-single,bits = <0x20 0x00a00000 0x40e00000>;
 	};
+
+	sd1_clear_pins: sd1-clear-pins {
+		pinctrl-single,bits = <0x0c 0x00000000 0xfc000000>;
+	};
+
+	sd1_data_pins: sd1-data-pins {
+		pinctrl-single,bits = <0x0c 0x50000000 0xfc000000>;
+	};
+
+	sd1_command_pins: sd1-command-pins {
+		pinctrl-single,bits = <0x20 0x38000000 0x38000000>;
+	};
 };
 
 &ge {
@@ -88,6 +100,8 @@
 };
 
 &sd1 {
+	pinctrl-names = "powered";
+	pinctrl-0 = <&sd1_clear_pins &sd1_data_pins &sd1_command_pins>;
 	bus-width = <1>;
 	max-frequency = <12000000>;
 	cd-gpios = <&gpio 52 GPIO_ACTIVE_LOW>;

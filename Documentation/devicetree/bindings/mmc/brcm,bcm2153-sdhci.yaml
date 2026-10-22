@@ -16,6 +16,8 @@ description:
   Each host has an SDHCI register window, separate reset and interrupt controls,
   and a dedicated external clock gate/divider pair. The divider output is
   the 52 MHz input divided by one plus the programmed divider value.
+  The card supply must be enabled before selecting the powered pin state,
+  which precedes host reset and card enumeration.
 
 properties:
   compatible:
@@ -39,12 +41,21 @@ properties:
   interrupts:
     maxItems: 1
 
+  pinctrl-0: true
+
+  pinctrl-names:
+    items:
+      - const: powered
+
 required:
   - compatible
   - reg
   - reg-names
   - clock-frequency
   - interrupts
+  - vmmc-supply
+  - pinctrl-0
+  - pinctrl-names
 
 unevaluatedProperties: false
 
@@ -56,6 +67,9 @@ examples:
         reg-names = "host", "control", "clock";
         clock-frequency = <52000000>;
         interrupts = <26 4>;
+        vmmc-supply = <&vmmc>;
+        pinctrl-names = "powered";
+        pinctrl-0 = <&sd1_pins>;
         bus-width = <4>;
         max-frequency = <25000000>;
     };

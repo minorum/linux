@@ -3,6 +3,8 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/pinctrl/consumer.h>
+#include <linux/regulator/consumer.h>
 
 #include "sdhci-pltfm.h"
 
@@ -153,6 +155,8 @@ static int bcm2153_probe(struct platform_device *pdev)
 	struct sdhci_pltfm_host *pltfm;
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
+	struct regulator *supply;
+	struct pinctrl *pins;
 	struct resource *res;
 	unsigned int i;
 	int ret;
@@ -185,6 +189,16 @@ static int bcm2153_probe(struct platform_device *pdev)
 		host->mmc->f_max = 25000000;
 	if (readl(host->ioaddr + SDHCI_CLOCK_CONTROL) & BIT(24))
 		return -EBUSY;
+
+	supply = devm_regulator_get_optional(&pdev->dev, "vmmc");
+	if (IS_ERR(supply))
+		return PTR_ERR(supply);
+	ret = regulator_is_enabled(supply);
+	if (ret <= 0)
+		return ret ?: -EIO;
+	pins = devm_pinctrl_get_select(&pdev->dev, "powered");
+	if (IS_ERR(pins))
+		return PTR_ERR(pins);
 
 	ret = sdhci_setup_host(host);
 	if (ret) {
