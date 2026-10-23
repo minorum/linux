@@ -4,6 +4,8 @@
 #include <dt-bindings/clock/mediatek,mt6785-clk.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/phy/phy.h>
+#include <dt-bindings/reset/mediatek,mt6785-resets.h>
 
 / {
 	#address-cells = <2>;
@@ -171,6 +173,18 @@
 			#clock-cells = <1>;
 		};
 
+		pwrap: pwrap@1000d000 {
+			compatible = "mediatek,mt6785-pwrap";
+			reg = <0 0x1000d000 0 0x1000>;
+			reg-names = "pwrap";
+			interrupts = <GIC_SPI 212 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&infracfg CLK_INFRA_PMIC_AP>,
+				 <&infracfg CLK_INFRA_PMIC_TMR>;
+			clock-names = "spi", "wrap";
+			resets = <&infracfg MT6785_INFRA_PMIC_WRAP_RST>;
+			reset-names = "pwrap";
+		};
+
 		uart0: serial@11002000 {
 			compatible = "mediatek,mt6785-uart", "mediatek,mt6577-uart";
 			reg = <0 0x11002000 0 0x1000>;
@@ -178,6 +192,34 @@
 			clocks = <&clk26m>, <&infracfg CLK_INFRA_UART0>;
 			clock-names = "baud", "bus";
 			status = "disabled";
+		};
+
+		ssusb: usb@11201000 {
+			compatible = "mediatek,mt6785-mtu3", "mediatek,mtu3";
+			reg = <0 0x11201000 0 0x2e00>,
+			      <0 0x11203e00 0 0x100>;
+			reg-names = "mac", "ippc";
+			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&infracfg CLK_INFRA_SSUSB>,
+				 <&infracfg CLK_INFRA_SSUSB_XHCI>;
+			clock-names = "sys_ck", "ref_ck";
+			phys = <&u2port PHY_TYPE_USB2>;
+			status = "disabled";
+		};
+
+		u3phy: t-phy@11e40000 {
+			compatible = "mediatek,mt6785-tphy", "mediatek,generic-tphy-v2";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0 0x11e40000 0x1000>;
+			status = "disabled";
+
+			u2port: usb-phy@0 {
+				reg = <0 0x700>;
+				clocks = <&clk26m>;
+				clock-names = "ref";
+				#phy-cells = <1>;
+			};
 		};
 	};
 };
