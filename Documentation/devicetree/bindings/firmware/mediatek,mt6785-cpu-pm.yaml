@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/firmware/mediatek,mt6785-cpu-pm.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6785 CPU power management firmware
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description: |
+  Legacy MT6785 secure firmware requires a SiP completion call on a surviving
+  CPU after PSCI reports a target CPU offline. Function 0xc2000212 completes
+  power-down for the core index supplied in x1, with other arguments zero.
+  Core indices 0 through 7 correspond to MPIDR Aff1; other affinities are zero.
+  The call is idempotent for an already-off target and returns zero on success.
+  This node describes firmware that implements and requires this service.
+  Firmware using standard PSCI power-down without this service omits the node.
+
+properties:
+  $nodename:
+    const: cpu-power-management
+
+  compatible:
+    const: mediatek,mt6785-cpu-pm
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    firmware {
+        cpu-power-management {
+            compatible = "mediatek,mt6785-cpu-pm";
+        };
+    };
