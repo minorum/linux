@@ -2,6 +2,20 @@
 #
 # ARM CPU Idle drivers
 #
+config ARM_SC9830_CPUIDLE
+	bool "CPU Idle Driver for Spreadtrum SC9830"
+	depends on (ARCH_SC9830 || COMPILE_TEST) && ARM && SMP
+	depends on COMMON_CLK && OF
+	depends on !PREEMPT_RT
+	select DT_IDLE_STATES
+	select ARCH_NEEDS_CPU_IDLE_COUPLED
+	select MFD_SYSCON
+	help
+	  Support coupled light sleep on Spreadtrum SC9830 using the
+	  AP AHB system controller and Cortex-A7 debug clock.
+	  All online CPUs coordinate entry and wake-up. CPU context and
+	  local timers are retained. The state is disabled by default.
+
 config ARM_CPUIDLE
 	bool "Generic ARM CPU idle Driver"
 	depends on ARM
