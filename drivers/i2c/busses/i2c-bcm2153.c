@@ -76,6 +76,7 @@ static int bcm2153_operation(struct bcm2153_bsc *bsc, u8 value, bool data)
 static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int num)
 {
 	struct bcm2153_bsc *bsc = i2c_get_adapdata(adapter);
+	bool address_nack = false;
 	int i, j, ret;
 
 	if (num < 0 || (num && !msgs))
@@ -97,8 +98,10 @@ static int bcm2153_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int n
 			goto failed;
 		ret = bcm2153_operation(bsc, msgs[i].addr << 1 |
 					!!(msgs[i].flags & I2C_M_RD), true);
-		if (ret)
+		if (ret) {
+			address_nack = ret == -EREMOTEIO;
 			goto failed;
+		}
 		for (j = 0; j < msgs[i].len; j++) {
 			if (msgs[i].flags & I2C_M_RD) {
 				ret = bcm2153_operation(bsc, j + 1 == msgs[i].len ? 0x0e : 6,
@@ -124,7 +127,7 @@ failed:
 		int stop = bcm2153_operation(bsc, 4, false);
 
 		if (!stop)
-			return ret;
+			return address_nack ? -ENXIO : ret;
 		ret = stop;
 	}
 	bsc->failed = true;
