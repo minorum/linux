@@ -185,7 +185,6 @@ properties:
           - arm,neoverse-v3
           - arm,neoverse-v3ae
           - arm,rainier
-          - brcm,bcm2153-arm11
           - brcm,brahma-b15
           - brcm,brahma-b53
           - brcm,vulcan
