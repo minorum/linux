@@ -353,13 +353,6 @@ config COMMON_CLK_MT6785_MFG
 	help
 	  This driver supports MediaTek MT6785 MFlexGraphics clocks.
 
-config COMMON_CLK_MT6785_MM
-	tristate "Clock driver for MediaTek MT6785 MultiMedia"
-	depends on COMMON_CLK_MT6785
-	default COMMON_CLK_MT6785
-	help
-	  This driver supports MediaTek MT6785 MultiMedia clocks.
-
 config COMMON_CLK_MT6785_VDEC
 	tristate "Clock driver for MediaTek MT6785 Video Decoders"
 	depends on COMMON_CLK_MT6785

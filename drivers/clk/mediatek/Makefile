@@ -30,7 +30,6 @@ obj-$(CONFIG_COMMON_CLK_MT6785_CAM) += clk-mt6785-cam.o
 obj-$(CONFIG_COMMON_CLK_MT6785_IMG) += clk-mt6785-img.o
 obj-$(CONFIG_COMMON_CLK_MT6785_MCU) += clk-mt6785-mcu.o
 obj-$(CONFIG_COMMON_CLK_MT6785_MFG) += clk-mt6785-mfg.o
-obj-$(CONFIG_COMMON_CLK_MT6785_MM) += clk-mt6785-mm.o
 obj-$(CONFIG_COMMON_CLK_MT6785_VDEC) += clk-mt6785-vdec.o
 obj-$(CONFIG_COMMON_CLK_MT6785_VENC) += clk-mt6785-venc.o
 obj-$(CONFIG_COMMON_CLK_MT6795) += clk-mt6795-apmixedsys.o clk-mt6795-infracfg.o \
