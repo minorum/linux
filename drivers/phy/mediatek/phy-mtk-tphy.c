@@ -111,6 +111,9 @@
 
 #define U3P_U2PHYDTM1		0x06C
 #define P2C_RG_UART_EN			BIT(16)
+#define P2C_FORCE_VBUSVALID		BIT(13)
+#define P2C_FORCE_SESSEND		BIT(12)
+#define P2C_FORCE_AVALID		BIT(10)
 #define P2C_FORCE_IDDIG		BIT(9)
 #define P2C_RG_VBUSVALID		BIT(5)
 #define P2C_RG_SESSEND			BIT(4)
@@ -283,6 +286,7 @@ enum mtk_phy_version {
  * @sw_efuse_supported:       Switches off eFuse auto-load from PHY and applies values
  *                            read from different nvmem (usually different eFuse array)
  *                            that is pointed at in the device tree node for this PHY
+ * @u2_sw_session:            Software-controlled USB2 session signals
  * @slew_ref_clock_mhz:         Default reference clock (in MHz) for slew rate calibration
  * @slew_rate_coefficient:    Coefficient for slew rate calibration
  * @version:                  PHY IP Version
@@ -291,6 +295,7 @@ struct mtk_phy_pdata {
 	bool avoid_rx_sen_degradation;
 	bool sw_pll_48m_to_26m;
 	bool sw_efuse_supported;
+	bool u2_sw_session;
 	u8 slew_ref_clock_mhz;
 	u8 slew_rate_coefficient;
 	enum mtk_phy_version version;
@@ -860,6 +865,10 @@ static void u2_phy_instance_init(struct mtk_tphy *tphy,
 
 	/* Workaround only for mt8195, HW fix it for others (V3) */
 	u2_phy_pll_26m_set(tphy, instance);
+
+	if (tphy->pdata->u2_sw_session)
+		mtk_phy_set_bits(com + U3P_U2PHYDTM1, P2C_FORCE_VBUSVALID |
+				 P2C_FORCE_AVALID | P2C_FORCE_SESSEND);
 
 	dev_dbg(tphy->dev, "%s(%d)\n", __func__, index);
 }
@@ -1545,6 +1554,14 @@ static const struct mtk_phy_pdata mt8173_pdata = {
 	.version = MTK_PHY_V1,
 };
 
+static const struct mtk_phy_pdata mt6785_pdata = {
+	.sw_efuse_supported = true,
+	.u2_sw_session = true,
+	.slew_ref_clock_mhz = 26,
+	.slew_rate_coefficient = 28,
+	.version = MTK_PHY_V2,
+};
+
 static const struct mtk_phy_pdata mt8195_pdata = {
 	.sw_pll_48m_to_26m = true,
 	.sw_efuse_supported = true,
@@ -1554,6 +1571,7 @@ static const struct mtk_phy_pdata mt8195_pdata = {
 static const struct of_device_id mtk_tphy_id_table[] = {
 	{ .compatible = "mediatek,mt2701-u3phy", .data = &tphy_v1_pdata },
 	{ .compatible = "mediatek,mt2712-u3phy", .data = &tphy_v2_pdata },
+	{ .compatible = "mediatek,mt6785-tphy", .data = &mt6785_pdata },
 	{ .compatible = "mediatek,mt8173-u3phy", .data = &mt8173_pdata },
 	{ .compatible = "mediatek,mt8195-tphy", .data = &mt8195_pdata },
 	{ .compatible = "mediatek,generic-tphy-v1", .data = &tphy_v1_pdata },
