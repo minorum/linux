@@ -43,7 +43,8 @@
 #define CLK_GPU_THM_RTC_EB	37
 #define CLK_ARM_THM_AUTO_EB	38
 #define CLK_GPU_THM_AUTO_EB	39
-#define CLK_AON_CLK_NUM	40
+#define CLK_CA7_DAP_EB	40
+#define CLK_AON_CLK_NUM	41
 
 #define CLK_PMU_LTEPLL_GATE	0
 #define CLK_PMU_LTEPLL_614M4	1
@@ -51,7 +52,8 @@
 
 #define CLK_EMC		0
 #define CLK_AON_APB	1
-#define CLK_AON_MUX_NUM	2
+#define CLK_CA7_DAP	2
+#define CLK_AON_MUX_NUM	3
 
 #define CLK_I2C2		0
 #define CLK_SDIO0		1
