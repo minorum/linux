@@ -95,6 +95,7 @@ static int bcm2153_gpio_get_direction(struct gpio_chip *chip, unsigned int pin)
 
 	switch ((mode >> (pin % 16 * 2)) & 3) {
 	case 0:
+	case 1:
 		return GPIO_LINE_DIRECTION_IN;
 	case 2:
 		return GPIO_LINE_DIRECTION_OUT;
