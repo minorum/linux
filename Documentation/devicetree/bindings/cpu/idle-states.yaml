@@ -358,12 +358,18 @@ patternProperties:
 
     properties:
       compatible:
+        description: |
+          The sprd,sc9830-light-sleep state requires a clock named "dap"
+          in the boot CPU node. It must reference the Cortex-A7 DAP enable
+          gate (CLK_CA7_DAP_EB) in the SC9830 AON clock controller, not the
+          parent DAP selector. CPU context and local timers are retained.
         oneOf:
           - items:
               - enum:
                   - qcom,idle-state-ret
                   - qcom,idle-state-spc
                   - qcom,idle-state-pc
+                  - sprd,sc9830-light-sleep
               - const: arm,idle-state
           - enum:
               - arm,idle-state
@@ -426,6 +432,16 @@ patternProperties:
         $ref: /schemas/types.yaml#/definitions/string
         description:
           A string used as a descriptive name for the idle state.
+
+    allOf:
+      - if:
+          properties:
+            compatible:
+              contains:
+                const: sprd,sc9830-light-sleep
+        then:
+          properties:
+            local-timer-stop: false
 
     additionalProperties: false
 
