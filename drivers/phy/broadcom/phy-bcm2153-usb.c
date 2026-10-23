@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <linux/align.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -41,10 +42,20 @@ static const struct phy_ops bcm2153_usb_phy_ops = {
 
 static int bcm2153_usb_phy_probe(struct platform_device *pdev)
 {
+	static const char * const names[] = { "wrapper", "analog" };
 	struct device *dev = &pdev->dev;
 	struct bcm2153_usb_phy *usb;
 	struct phy_provider *provider;
 	struct phy *phy;
+	struct resource *res;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, names[i]);
+		if (!res || resource_size(res) < sizeof(u32) ||
+		    !IS_ALIGNED(res->start, sizeof(u32)))
+			return -EINVAL;
+	}
 
 	usb = devm_kzalloc(dev, sizeof(*usb), GFP_KERNEL);
 	if (!usb)
