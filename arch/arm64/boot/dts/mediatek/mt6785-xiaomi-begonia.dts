@@ -24,6 +24,38 @@
 	};
 };
 
+&pwrap {
+	pmic: pmic {
+		compatible = "mediatek,mt6359";
+		interrupts-extended = <&pio 193 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+
+		regulators {
+			compatible = "mediatek,mt6359-regulator";
+
+			mt6359_vusb_ldo_reg: ldo_vusb {
+				regulator-name = "vusb";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-enable-ramp-delay = <960>;
+			};
+		};
+	};
+};
+
+&ssusb {
+	maximum-speed = "high-speed";
+	dr_mode = "peripheral";
+	mediatek,u3p-dis-msk = <1>;
+	vusb33-supply = <&mt6359_vusb_ldo_reg>;
+	status = "okay";
+};
+
+&u3phy {
+	status = "okay";
+};
+
 &uart0 {
 	status = "okay";
 };
