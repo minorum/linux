@@ -8,7 +8,6 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
-#include <asm/barrier.h>
 
 #define BSC_CS		0x00
 #define BSC_TIM		0x04
@@ -32,7 +31,7 @@ struct bcm2153_bsc {
 static void bcm2153_write(struct bcm2153_bsc *bsc, u8 value, unsigned int offset)
 {
 	writeb(value, bsc->base + offset);
-	dsb(st);
+	readb(bsc->base + BSC_ISR);
 }
 
 static int bcm2153_idle(struct bcm2153_bsc *bsc)
