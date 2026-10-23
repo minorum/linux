@@ -979,6 +979,7 @@ static const struct of_device_id mt6785_pinctrl_of_match[] = {
 	{ .compatible = "mediatek,mt6785-pinctrl", .data = &mt6785_data },
 	{ /* sentinel */ }
 };
+MODULE_DEVICE_TABLE(of, mt6785_pinctrl_of_match);
 
 static struct platform_driver mt6785_pinctrl_driver = {
 	.driver = {
@@ -996,3 +997,4 @@ static int __init mt6785_pinctrl_init(void)
 arch_initcall(mt6785_pinctrl_init);
 
 MODULE_DESCRIPTION("MediaTek MT6785 Pinctrl Driver");
+MODULE_LICENSE("GPL");
