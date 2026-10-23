@@ -173,7 +173,7 @@ examples:
             pins-bus {
                 pinmux = <PINMUX_GPIO51__FUNC_SCL0>,
                          <PINMUX_GPIO52__FUNC_SDA0>;
-                mediatek,pull-up-adv = <3>;
+                bias-pull-up;
             };
         };
     };
