@@ -169,7 +169,6 @@ static int bcm2153_probe(struct platform_device *pdev)
 	struct sdhci_pltfm_host *pltfm;
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
-	struct regulator *supply;
 	struct pinctrl *pins;
 	struct resource *res;
 	unsigned int i;
@@ -204,21 +203,29 @@ static int bcm2153_probe(struct platform_device *pdev)
 	if (readl(host->ioaddr + SDHCI_CLOCK_CONTROL) & BIT(24))
 		return -EBUSY;
 
-	supply = devm_regulator_get_optional(&pdev->dev, "vmmc");
-	if (IS_ERR(supply))
-		return PTR_ERR(supply);
-	ret = regulator_is_enabled(supply);
-	if (ret <= 0)
-		return ret ?: -EIO;
+	ret = mmc_regulator_get_supply(host->mmc);
+	if (ret)
+		return ret;
+	if (IS_ERR(host->mmc->supply.vmmc))
+		return PTR_ERR(host->mmc->supply.vmmc);
+	ret = regulator_enable(host->mmc->supply.vmmc);
+	if (ret)
+		return ret;
+	host->mmc->regulator_enabled = true;
+	ret = mmc_regulator_enable_vqmmc(host->mmc);
+	if (ret)
+		goto disable_vmmc;
 	pins = devm_pinctrl_get_select(&pdev->dev, "powered");
-	if (IS_ERR(pins))
-		return PTR_ERR(pins);
+	if (IS_ERR(pins)) {
+		ret = PTR_ERR(pins);
+		goto disable_vqmmc;
+	}
 
 	ret = sdhci_setup_host(host);
 	if (ret) {
 		if (priv->reset_done)
 			writel(0, priv->clock);
-		return ret;
+		goto disable_vqmmc;
 	}
 	if (host->clk_mul) {
 		ret = -EOPNOTSUPP;
@@ -235,6 +242,10 @@ static int bcm2153_probe(struct platform_device *pdev)
 cleanup_host:
 	sdhci_cleanup_host(host);
 	writel(0, priv->clock);
+disable_vqmmc:
+	mmc_regulator_disable_vqmmc(host->mmc);
+disable_vmmc:
+	mmc_regulator_set_ocr(host->mmc, host->mmc->supply.vmmc, 0);
 	return ret;
 }
 
@@ -248,6 +259,8 @@ static void bcm2153_remove(struct platform_device *pdev)
 	writel(readl(priv->control + BCM2153_SDIO_COREIMR) & ~BCM2153_SDIO_IP_IRQ,
 	       priv->control + BCM2153_SDIO_COREIMR);
 	writel(0, priv->clock);
+	mmc_regulator_disable_vqmmc(host->mmc);
+	mmc_regulator_set_ocr(host->mmc, host->mmc->supply.vmmc, 0);
 }
 
 static const struct of_device_id bcm2153_match[] = {
