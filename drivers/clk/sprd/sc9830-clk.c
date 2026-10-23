@@ -2,6 +2,7 @@
 #include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/math64.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/reset/reset-simple.h>
@@ -1226,8 +1227,14 @@ static int __init sc9830_clk_register(struct device_node *node,
 			goto unregister;
 	}
 	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, desc->hw_clks);
-	if (!ret)
-		return 0;
+	if (!ret) {
+		if (desc != &sc9830_apahb_desc)
+			return 0;
+		ret = of_syscon_register_regmap(node, regmap);
+		if (!ret)
+			return 0;
+		of_clk_del_provider(node);
+	}
 	if (reset)
 		reset_controller_unregister(&reset->rcdev);
 unregister:
