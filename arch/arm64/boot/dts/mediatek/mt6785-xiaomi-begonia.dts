@@ -22,6 +22,13 @@
 			compatible = "mediatek,mt6785-cpu-pm";
 		};
 	};
+
+	reboot-mode {
+		compatible = "nvmem-reboot-mode";
+		nvmem-cells = <&rtc_bootloader>;
+		nvmem-cell-names = "reboot-mode";
+		mode-bootloader = <1>;
+	};
 };
 
 &pwrap {
@@ -39,6 +46,21 @@
 				regulator-min-microvolt = <3000000>;
 				regulator-max-microvolt = <3000000>;
 				regulator-enable-ramp-delay = <960>;
+			};
+		};
+
+		rtc {
+			compatible = "mediatek,mt6359-rtc", "mediatek,mt6358-rtc";
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				rtc_bootloader: reboot-mode@1 {
+					reg = <1 1>;
+					bits = <5 1>;
+				};
 			};
 		};
 	};
