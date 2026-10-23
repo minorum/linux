@@ -72,6 +72,10 @@
 	sd1_command_pins: sd1-command-pins {
 		pinctrl-single,bits = <0x20 0x38000000 0x38000000>;
 	};
+
+	sd1_detect_pins: sd1-detect-pins {
+		pinctrl-single,bits = <0x00 0x00001000 0x00001000>;
+	};
 };
 
 &ge {
@@ -102,7 +106,8 @@
 
 &sd1 {
 	pinctrl-names = "powered";
-	pinctrl-0 = <&sd1_clear_pins &sd1_data_pins &sd1_command_pins>;
+	pinctrl-0 = <&sd1_clear_pins &sd1_data_pins &sd1_command_pins
+		     &sd1_detect_pins>;
 	bus-width = <4>;
 	max-frequency = <25000000>;
 	cd-gpios = <&gpio 52 GPIO_ACTIVE_LOW>;
