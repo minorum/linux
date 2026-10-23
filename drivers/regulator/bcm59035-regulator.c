@@ -77,11 +77,13 @@ static int bcm59035_enable(struct regulator_dev *rdev)
 	ret = bcm59035_is_enabled(rdev);
 	if (ret)
 		return ret < 0 ? ret : 0;
+	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0xaa observed\n");
 	ret = i2c_transfer(pmu->client->adapter, &msg, 1);
 	if (ret != 1) {
 		pmu->failed = true;
 		return ret < 0 ? ret : -EIO;
 	}
+	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0x11 written\n");
 	msleep(1000);
 	ret = bcm59035_read(pmu, BCM59035_H2);
 	if (ret < 0)
@@ -90,6 +92,7 @@ static int bcm59035_enable(struct regulator_dev *rdev)
 		pmu->failed = true;
 		return -EIO;
 	}
+	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0x11 verified\n");
 	return 0;
 }
 
