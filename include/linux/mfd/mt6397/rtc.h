@@ -65,6 +65,7 @@
 
 struct mtk_rtc_data {
 	u32                     wrtgr;
+	bool                    pdn1_nvmem;
 };
 
 struct mt6397_rtc {

@@ -9,11 +9,15 @@
 #include <linux/mfd/mt6397/core.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/nvmem-provider.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/rtc.h>
+#include <linux/unaligned.h>
 #include <linux/mfd/mt6397/rtc.h>
+
+#define MT6359_RTC_PDN1 0x002c
 
 static int mtk_rtc_write_trigger(struct mt6397_rtc *rtc)
 {
@@ -243,8 +247,65 @@ static const struct rtc_class_ops mtk_rtc_ops = {
 	.set_alarm  = mtk_rtc_set_alarm,
 };
 
+static int mt6359_rtc_nvmem_read(void *priv, unsigned int offset,
+				 void *val, size_t bytes)
+{
+	struct mt6397_rtc *rtc = priv;
+	u8 data[sizeof(u16)];
+	u32 value;
+	int ret;
+
+	if (offset >= sizeof(data) || !bytes || bytes > sizeof(data) - offset)
+		return -EINVAL;
+
+	mutex_lock(&rtc->lock);
+	ret = regmap_read(rtc->regmap, rtc->addr_base + MT6359_RTC_PDN1, &value);
+	if (!ret) {
+		put_unaligned_le16(value, data);
+		memcpy(val, data + offset, bytes);
+	}
+	mutex_unlock(&rtc->lock);
+
+	return ret;
+}
+
+static int mt6359_rtc_nvmem_write(void *priv, unsigned int offset,
+				  void *val, size_t bytes)
+{
+	struct mt6397_rtc *rtc = priv;
+	u32 mask, value;
+	int ret;
+
+	if (offset >= sizeof(u16) || !bytes || bytes > sizeof(u16) - offset)
+		return -EINVAL;
+
+	mask = GENMASK((offset + bytes) * 8 - 1, offset * 8);
+	value = bytes == sizeof(u16) ? get_unaligned_le16(val) : *(u8 *)val;
+	value <<= offset * 8;
+
+	mutex_lock(&rtc->lock);
+	ret = regmap_update_bits(rtc->regmap, rtc->addr_base + MT6359_RTC_PDN1,
+				 mask, value);
+	if (!ret)
+		ret = mtk_rtc_write_trigger(rtc);
+	mutex_unlock(&rtc->lock);
+
+	return ret;
+}
+
 static int mtk_rtc_probe(struct platform_device *pdev)
 {
+	struct nvmem_config nvmem_config = {
+		.name = "mt6359-rtc",
+		.id = NVMEM_DEVID_AUTO,
+		.type = NVMEM_TYPE_BATTERY_BACKED,
+		.root_only = true,
+		.reg_read = mt6359_rtc_nvmem_read,
+		.reg_write = mt6359_rtc_nvmem_write,
+		.size = sizeof(u16),
+		.word_size = 1,
+		.stride = 1,
+	};
 	struct resource *res;
 	struct mt6397_chip *mt6397_chip = dev_get_drvdata(pdev->dev.parent);
 	struct mt6397_rtc *rtc;
@@ -293,7 +354,15 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	rtc->rtc_dev->start_secs = mktime64(1968, 1, 2, 0, 0, 0);
 	rtc->rtc_dev->set_start_time = true;
 
-	return devm_rtc_register_device(rtc->rtc_dev);
+	ret = devm_rtc_register_device(rtc->rtc_dev);
+	if (ret)
+		return ret;
+
+	if (!rtc->data->pdn1_nvmem)
+		return 0;
+
+	nvmem_config.priv = rtc;
+	return devm_rtc_nvmem_register(rtc->rtc_dev, &nvmem_config);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -325,6 +394,11 @@ static const struct mtk_rtc_data mt6358_rtc_data = {
 	.wrtgr = RTC_WRTGR_MT6358,
 };
 
+static const struct mtk_rtc_data mt6359_rtc_data = {
+	.wrtgr = RTC_WRTGR_MT6358,
+	.pdn1_nvmem = true,
+};
+
 static const struct mtk_rtc_data mt6397_rtc_data = {
 	.wrtgr = RTC_WRTGR_MT6397,
 };
@@ -333,6 +407,7 @@ static const struct of_device_id mt6397_rtc_of_match[] = {
 	{ .compatible = "mediatek,mt6323-rtc", .data = &mt6397_rtc_data },
 	{ .compatible = "mediatek,mt6357-rtc", .data = &mt6358_rtc_data },
 	{ .compatible = "mediatek,mt6358-rtc", .data = &mt6358_rtc_data },
+	{ .compatible = "mediatek,mt6359-rtc", .data = &mt6359_rtc_data },
 	{ .compatible = "mediatek,mt6397-rtc", .data = &mt6397_rtc_data },
 	{ }
 };
