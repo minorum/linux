@@ -16,6 +16,12 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+
+	firmware {
+		cpu-power-management {
+			compatible = "mediatek,mt6785-cpu-pm";
+		};
+	};
 };
 
 &uart0 {
