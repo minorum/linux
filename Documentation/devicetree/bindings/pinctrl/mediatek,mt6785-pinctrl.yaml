@@ -156,7 +156,7 @@ examples:
         reg-names = "base", "rm", "br", "bl", "lb", "rt", "lt", "tl", "eint";
         gpio-controller;
         #gpio-cells = <2>;
-        gpio-ranges = <&pio 0 0 202>;
+        gpio-ranges = <&pio 0 0 203>;
         interrupt-controller;
         interrupts = <GIC_SPI 204 IRQ_TYPE_LEVEL_HIGH>;
         #interrupt-cells = <2>;
