@@ -405,6 +405,13 @@ static struct sprd_gate mbox_eb = {
 
 static struct sprd_clk_common aon_apb_clk;
 
+static struct sprd_gate ca7_dap_eb = {
+	.enable_mask = BIT(30),
+	.sc_offset = 0x1000,
+	.common.hw.init = CLK_HW_INIT("sc9830-ca7-dap-eb", "sc9830-ca7-dap",
+				    &sprd_sc_gate_ops, CLK_IGNORE_UNUSED),
+};
+
 static struct sprd_gate gpu_eb = {
 	.enable_mask = BIT(27),
 	.sc_offset = 0x1000,
@@ -440,6 +447,7 @@ static SPRD_SC_GATE_CLK_FW_NAME(gpu_thm_auto_eb, "sc9830-gpu-thm-auto-eb", "ext-
 			       0x10, 0x1000, BIT(14), 0, 0);
 
 static struct sprd_clk_common *sc9830_aon_full_clks[] = {
+	&ca7_dap_eb.common,
 	&efuse_eb.common,
 	&thm_eb.common,
 	&thm_rtc_eb.common,
@@ -470,6 +478,7 @@ static struct sprd_clk_common *sc9830_aon_full_clks[] = {
 
 static struct clk_hw_onecell_data sc9830_aon_full_hws = {
 	.hws = {
+		[CLK_CA7_DAP_EB] = &ca7_dap_eb.common.hw,
 		[CLK_EFUSE_EB] = &efuse_eb.common.hw,
 		[CLK_THM_EB] = &thm_eb.common.hw,
 		[CLK_THM_RTC_EB] = &thm_rtc_eb.common.hw,
@@ -651,15 +660,27 @@ static struct sprd_clk_common aon_apb_clk = {
 					  CLK_GET_RATE_NOCACHE),
 };
 
+static const struct clk_parent_data ca7_dap_parents[] = {
+	{ .fw_name = "ext-26m" },
+	{ .name = "sc9830-twpll-76m8", .index = -1 },
+	{ .name = "sc9830-twpll-128m", .index = -1 },
+	{ .name = "sc9830-twpll-153m6", .index = -1 },
+};
+
+static SPRD_MUX_CLK_DATA(ca7_dap_clk, "sc9830-ca7-dap", ca7_dap_parents,
+			 0x54, 0, 2, CLK_SET_RATE_NO_REPARENT);
+
 static struct sprd_clk_common *sc9830_aon_mux_clks[] = {
 	&emc_clk,
 	&aon_apb_clk,
+	&ca7_dap_clk.common,
 };
 
 static struct clk_hw_onecell_data sc9830_aon_mux_hws = {
 	.hws = {
 		[CLK_EMC] = &emc_clk.hw,
 		[CLK_AON_APB] = &aon_apb_clk.hw,
+		[CLK_CA7_DAP] = &ca7_dap_clk.common.hw,
 	},
 	.num = CLK_AON_MUX_NUM,
 };
