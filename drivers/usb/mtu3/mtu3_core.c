@@ -1009,6 +1009,7 @@ void ssusb_gadget_exit(struct ssusb_mtk *ssusb)
 {
 	struct mtu3 *mtu = ssusb->u3d;
 
+	disable_irq(mtu->irq);
 	mtu3_gadget_cleanup(mtu);
 	device_init_wakeup(ssusb->dev, false);
 	mtu3_hw_exit(mtu);
