@@ -81,6 +81,23 @@ properties:
 
       start-year: true
 
+      nvmem-layout:
+        $ref: /schemas/nvmem/layouts/fixed-layout.yaml
+        description:
+          MT6359 RTC_PDN1 storage. Logical byte 0 contains register bits 7:0
+          and byte 1 contains bits 15:8.
+
+    allOf:
+      - if:
+          not:
+            properties:
+              compatible:
+                contains:
+                  const: mediatek,mt6359-rtc
+        then:
+          properties:
+            nvmem-layout: false
+
     required:
       - compatible
 
