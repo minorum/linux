@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <asm/barrier.h>
 
 #define BSC_CS		0x00
@@ -145,7 +146,15 @@ static int bcm2153_bsc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct bcm2153_bsc *bsc;
+	u32 frequency;
 	int ret;
+
+	if (device_property_present(dev, "clock-frequency") &&
+	    (device_property_count_u32(dev, "clock-frequency") != 1 ||
+	     device_property_read_u32(dev, "clock-frequency", &frequency) ||
+	     frequency != I2C_MAX_STANDARD_MODE_FREQ))
+		return dev_err_probe(dev, -EINVAL,
+				     "Only 100 kHz bus frequency supported\n");
 
 	bsc = devm_kzalloc(dev, sizeof(*bsc), GFP_KERNEL);
 	if (!bsc)
