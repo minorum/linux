@@ -73,6 +73,15 @@
 		};
 	};
 
+	clk13m: clock-13000000 {
+		compatible = "fixed-factor-clock";
+		#clock-cells = <0>;
+		clocks = <&clk26m>;
+		clock-div = <2>;
+		clock-mult = <1>;
+		clock-output-names = "clk13m";
+	};
+
 	clk26m: oscillator-26m {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -155,7 +164,7 @@
 			interrupts = <GIC_SPI 204 IRQ_TYPE_LEVEL_HIGH>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-ranges = <&pio 0 0 202>;
+			gpio-ranges = <&pio 0 0 203>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
