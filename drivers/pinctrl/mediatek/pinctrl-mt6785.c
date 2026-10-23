@@ -720,7 +720,7 @@ static const struct mtk_pin_field_calc mt6785_pin_rsel_range[] = {
 	PIN_FIELD_BASE(199, 199, 5, 0x0100, 0x10, 14, 2),
 };
 
-static const unsigned int mt6785_pull_type[] = {
+static const unsigned int mt6785_pull_type[ARRAY_SIZE(mtk_pins_mt6785)] = {
 	MTK_PULL_PU_PD_TYPE, /*0*/
 	MTK_PULL_PU_PD_TYPE, /*1*/
 	MTK_PULL_PU_PD_TYPE, /*2*/
