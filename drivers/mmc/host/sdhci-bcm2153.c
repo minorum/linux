@@ -129,6 +129,18 @@ static void bcm2153_reset(struct sdhci_host *host, u8 mask)
 	sdhci_reset(host, mask);
 }
 
+static void bcm2153_dump_vendor_regs(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
+	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
+
+	pr_err("%s: BCM2153 control: %08x mask: %08x gate: %08x divider: %08x requested: %u reported: %u\n",
+	       mmc_hostname(host->mmc), readl(priv->control),
+	       readl(priv->control + BCM2153_SDIO_COREIMR),
+	       readl(priv->clock), readl(priv->clock + 4),
+	       host->clock, host->mmc->actual_clock);
+}
+
 static const struct sdhci_ops bcm2153_ops = {
 	.read_w = bcm2153_readw,
 	.read_b = bcm2153_readb,
@@ -139,6 +151,7 @@ static const struct sdhci_ops bcm2153_ops = {
 	.set_bus_width = sdhci_set_bus_width,
 	.reset = bcm2153_reset,
 	.set_uhs_signaling = sdhci_set_uhs_signaling,
+	.dump_vendor_regs = bcm2153_dump_vendor_regs,
 };
 
 static const struct sdhci_pltfm_data bcm2153_data = {
