@@ -139,6 +139,7 @@ enum ufs_mtk_host_caps {
 	UFS_MTK_CAP_RTFF_MTCMOS                = 1 << 9,
 
 	UFS_MTK_CAP_MCQ_BROKEN_RTC             = 1 << 10,
+	UFS_MTK_CAP_REF_CLK_HALF_HW           = 1 << 11,
 };
 
 struct ufs_mtk_crypt_cfg {
@@ -185,6 +186,7 @@ struct ufs_mtk_host {
 	struct ufs_mtk_hw_ver hw_ver;
 	enum ufs_mtk_host_caps caps;
 	bool mphy_powered_on;
+	bool phy_clks_enabled;
 	bool unipro_lpm;
 	bool ref_clk_enabled;
 	bool clk_scale_up;

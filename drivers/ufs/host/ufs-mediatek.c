@@ -49,6 +49,7 @@ static const struct ufs_dev_quirk ufs_mtk_dev_fixups[] = {
 };
 
 static const struct of_device_id ufs_mtk_of_match[] = {
+	{ .compatible = "mediatek,mt6785-ufshci" },
 	{ .compatible = "mediatek,mt8183-ufshci" },
 	{ .compatible = "mediatek,mt8195-ufshci" },
 	{},
@@ -349,6 +350,11 @@ static int ufs_mtk_setup_ref_clk(struct ufs_hba *hba, bool on)
 
 	ufs_mtk_ref_clk_notify(on, PRE_CHANGE, res);
 
+	if (host->caps & UFS_MTK_CAP_REF_CLK_HALF_HW) {
+		ufshcd_writel(hba, REFCLK_RELEASE, REG_UFS_REFCLK_CTRL);
+		goto out;
+	}
+
 	if (on) {
 		ufshcd_writel(hba, REFCLK_REQUEST, REG_UFS_REFCLK_CTRL);
 	} else {
@@ -537,7 +543,9 @@ static int ufs_mtk_mphy_power_on(struct ufs_hba *hba, bool on)
 			return ret;
 		}
 	} else {
-		phy_power_off(mphy);
+		ret = phy_power_off(mphy);
+		if (ret)
+			goto out;
 		if (ufs_mtk_is_va09_supported(hba)) {
 			ufs_mtk_va09_pwr_ctrl(res, 0);
 			ret = regulator_disable(host->reg_va09);
@@ -688,27 +696,38 @@ disable_caps:
 	return;
 }
 
-static void ufs_mtk_init_va09_pwr_ctrl(struct ufs_hba *hba)
+static int ufs_mtk_init_va09_pwr_ctrl(struct ufs_hba *hba)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
 
-	host->reg_va09 = regulator_get(hba->dev, "va09");
+	host->reg_va09 = devm_regulator_get(hba->dev, "va09");
 	if (IS_ERR(host->reg_va09))
-		dev_info(hba->dev, "failed to get va09");
-	else
-		host->caps |= UFS_MTK_CAP_VA09_PWR_CTRL;
+		return dev_err_probe(hba->dev, PTR_ERR(host->reg_va09),
+				     "failed to get va09\n");
+
+	host->caps |= UFS_MTK_CAP_VA09_PWR_CTRL;
+	return 0;
 }
 
-static void ufs_mtk_init_host_caps(struct ufs_hba *hba)
+static int ufs_mtk_init_host_caps(struct ufs_hba *hba)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
 	struct device_node *np = hba->dev->of_node;
+	int ret;
+
+	if (of_device_is_compatible(np, "mediatek,mt6785-ufshci"))
+		host->caps |= UFS_MTK_CAP_REF_CLK_HALF_HW |
+			      UFS_MTK_CAP_DISABLE_MCQ;
 
 	if (of_property_read_bool(np, "mediatek,ufs-boost-crypt"))
 		ufs_mtk_init_boost_crypt(hba);
 
-	if (of_property_read_bool(np, "mediatek,ufs-support-va09"))
-		ufs_mtk_init_va09_pwr_ctrl(hba);
+	if (of_property_present(np, "va09-supply") ||
+	    of_property_read_bool(np, "mediatek,ufs-support-va09")) {
+		ret = ufs_mtk_init_va09_pwr_ctrl(hba);
+		if (ret)
+			return ret;
+	}
 
 	if (of_property_read_bool(np, "mediatek,ufs-disable-ah8"))
 		host->caps |= UFS_MTK_CAP_DISABLE_AH8;
@@ -732,6 +751,7 @@ static void ufs_mtk_init_host_caps(struct ufs_hba *hba)
 		host->caps |= UFS_MTK_CAP_MCQ_BROKEN_RTC;
 
 	dev_info(hba->dev, "caps: 0x%x", host->caps);
+	return 0;
 }
 
 static void ufs_mtk_scale_perf(struct ufs_hba *hba, bool scale_up)
@@ -739,21 +759,37 @@ static void ufs_mtk_scale_perf(struct ufs_hba *hba, bool scale_up)
 	ufs_mtk_boost_crypt(hba, scale_up);
 }
 
-static void ufs_mtk_pwr_ctrl(struct ufs_hba *hba, bool on)
+static int ufs_mtk_pwr_ctrl(struct ufs_hba *hba, bool on)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
+	int ret;
+
+	if (on == host->phy_clks_enabled)
+		return 0;
 
 	if (on) {
-		phy_power_on(host->mphy);
-		ufs_mtk_setup_ref_clk(hba, on);
+		ret = phy_power_on(host->mphy);
+		if (ret)
+			return ret;
+		ret = ufs_mtk_setup_ref_clk(hba, on);
+		if (ret) {
+			phy_power_off(host->mphy);
+			return ret;
+		}
 		if (!ufshcd_is_clkscaling_supported(hba))
 			ufs_mtk_scale_perf(hba, on);
 	} else {
 		if (!ufshcd_is_clkscaling_supported(hba))
 			ufs_mtk_scale_perf(hba, on);
-		ufs_mtk_setup_ref_clk(hba, on);
-		phy_power_off(host->mphy);
+		ret = ufs_mtk_setup_ref_clk(hba, on);
+		if (ret)
+			return ret;
+		ret = phy_power_off(host->mphy);
+		if (ret)
+			return ret;
 	}
+	host->phy_clks_enabled = on;
+	return 0;
 }
 
 static void ufs_mtk_mcq_disable_irq(struct ufs_hba *hba)
@@ -837,7 +873,7 @@ static int ufs_mtk_setup_clocks(struct ufs_hba *hba, bool on,
 		}
 
 		if (clk_pwr_off) {
-			ufs_mtk_pwr_ctrl(hba, false);
+			ret = ufs_mtk_pwr_ctrl(hba, false);
 		} else {
 			dev_warn(hba->dev, "Clock is not turned off, hba->ahit = 0x%x, AHIT = 0x%x\n",
 				hba->ahit,
@@ -846,7 +882,7 @@ static int ufs_mtk_setup_clocks(struct ufs_hba *hba, bool on,
 		}
 		ufs_mtk_mcq_disable_irq(hba);
 	} else if (on && status == POST_CHANGE) {
-		ufs_mtk_pwr_ctrl(hba, true);
+		ret = ufs_mtk_pwr_ctrl(hba, true);
 		ufs_mtk_mcq_enable_irq(hba);
 	}
 
@@ -1251,7 +1287,9 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 	}
 
 	/* Initialize host capability */
-	ufs_mtk_init_host_caps(hba);
+	err = ufs_mtk_init_host_caps(hba);
+	if (err)
+		goto out_variant_clear;
 
 	ufs_mtk_init_mcq_irq(hba);
 
@@ -1319,7 +1357,11 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 		ufs_mtk_mtcmos_ctrl(true, res);
 	}
 
-	ufs_mtk_setup_clocks(hba, true, POST_CHANGE);
+	err = ufs_mtk_setup_clocks(hba, true, POST_CHANGE);
+	if (err) {
+		ufs_mtk_mphy_power_on(hba, false);
+		goto out_variant_clear;
+	}
 
 	ufs_mtk_get_hw_ip_version(hba);
 
@@ -1329,6 +1371,18 @@ out_variant_clear:
 	ufshcd_set_variant(hba, NULL);
 out:
 	return err;
+}
+
+static void ufs_mtk_exit(struct ufs_hba *hba)
+{
+	int ret;
+
+	ret = ufs_mtk_pwr_ctrl(hba, false);
+	if (!ret)
+		ret = ufs_mtk_mphy_power_on(hba, false);
+	if (ret)
+		dev_err(hba->dev, "failed to power off PHY: %d\n", ret);
+	ufshcd_set_variant(hba, NULL);
 }
 
 static int ufs_mtk_negotiate_pwr_mode(struct ufs_hba *hba,
@@ -1424,8 +1478,9 @@ static int ufs_mtk_pre_pwr_change(struct ufs_hba *hba,
 		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_HSSERIES),
 			       dev_req_params->hs_rate);
 
-		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_TXHSADAPTTYPE),
-			       PA_NO_ADAPT);
+		if (host->hw_ver.major >= 3)
+			ufshcd_dme_set(hba, UIC_ARG_MIB(PA_TXHSADAPTTYPE),
+				       PA_NO_ADAPT);
 
 		if (!(hba->quirks & UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING)) {
 			ufshcd_dme_set(hba, UIC_ARG_MIB(PA_PWRMODEUSERDATA0),
@@ -1457,6 +1512,9 @@ static int ufs_mtk_pre_pwr_change(struct ufs_hba *hba,
 				__func__, ret);
 		}
 	}
+
+	if (host->hw_ver.major < 3)
+		return ret;
 
 	/* if already configured to the requested pwr_mode, skip adapt */
 	if (dev_req_params->gear_rx == hba->pwr_info.gear_rx &&
@@ -2345,6 +2403,7 @@ static void ufs_mtk_config_scsi_dev(struct scsi_device *sdev)
 static const struct ufs_hba_variant_ops ufs_hba_mtk_vops = {
 	.name                = "mediatek.ufshci",
 	.init                = ufs_mtk_init,
+	.exit                = ufs_mtk_exit,
 	.get_ufs_hci_version = ufs_mtk_get_ufs_hci_version,
 	.setup_clocks        = ufs_mtk_setup_clocks,
 	.hce_enable_notify   = ufs_mtk_hce_enable_notify,
