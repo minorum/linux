@@ -13,6 +13,7 @@ maintainers:
 properties:
   compatible:
     enum:
+      - mediatek,mt6785-ufshci
       - mediatek,mt8183-ufshci
       - mediatek,mt8192-ufshci
       - mediatek,mt8195-ufshci
@@ -32,6 +33,18 @@ properties:
     maxItems: 1
 
   vcc-supply: true
+
+  va09-supply:
+    description: M-PHY 0.9 V analog supply.
+
+  resets:
+    maxItems: 3
+
+  reset-names:
+    items:
+      - const: hci_rst
+      - const: unipro_rst
+      - const: crypto_rst
 
   mediatek,ufs-disable-mcq:
     $ref: /schemas/types.yaml#/definitions/flag
@@ -70,7 +83,40 @@ allOf:
             - const: unipro_mp_bclk
             - const: ufs_tx_symbol
             - const: ufs_mem_sub
-    else:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6785-ufshci
+    then:
+      properties:
+        clocks:
+          items:
+            - description: UFS controller clock
+            - description: UFS AXI clock
+            - description: UFS tick clock
+            - description: UniPro memory test clock
+            - description: UniPro tick clock
+        clock-names:
+          items:
+            - const: ufs
+            - const: ufs-axi
+            - const: ufs-tick
+            - const: unipro-mbist
+            - const: unipro-tick
+      required:
+        - va09-supply
+        - resets
+        - reset-names
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - mediatek,mt8183-ufshci
+              - mediatek,mt8192-ufshci
+    then:
       properties:
         clocks:
           maxItems: 1
