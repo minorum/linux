@@ -10903,6 +10903,7 @@ void ufshcd_remove(struct ufs_hba *hba)
 {
 	if (hba->ufs_device_wlun)
 		ufshcd_rpm_get_sync(hba);
+	ufshcd_hold(hba);
 	ufs_hwmon_remove(hba);
 	ufs_bsg_remove(hba);
 	ufs_rpmb_remove(hba);
@@ -10917,6 +10918,7 @@ void ufshcd_remove(struct ufs_hba *hba)
 	ufshcd_disable_intr(hba, hba->intr_mask);
 	ufshcd_hba_stop(hba);
 	ufshcd_hba_exit(hba);
+	ufshcd_release(hba);
 }
 EXPORT_SYMBOL_GPL(ufshcd_remove);
 
