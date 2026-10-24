@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/reset/brcm,bcm2153-sdio-reset.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Broadcom BCM2153 SDIO reset controller
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  Bit 1 of the SDIO wrapper control word resets the external host interface.
+  A reset pulse asserts this bit for at least 10 ms. Other bits are preserved.
+  The wrapper interrupt-mask word is a separate resource owned by the host.
+
+properties:
+  compatible:
+    const: brcm,bcm2153-sdio-reset
+
+  reg:
+    maxItems: 1
+
+  '#reset-cells':
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - '#reset-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    reset-controller@8128000 {
+        compatible = "brcm,bcm2153-sdio-reset";
+        reg = <0x08128000 4>;
+        #reset-cells = <0>;
+    };

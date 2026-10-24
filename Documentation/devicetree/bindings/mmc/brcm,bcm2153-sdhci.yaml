@@ -13,11 +13,12 @@ allOf:
   - $ref: mmc-controller.yaml#
 
 description:
-  Each host has an SDHCI register window, separate reset and interrupt controls,
+  Each host has an SDHCI register window, a separate interrupt mask,
   and a dedicated external clock gate/divider pair. The divider output is
   the 52 MHz input divided by one plus the programmed divider value.
   The card supply must be enabled before selecting the powered pin state,
   which precedes host reset and card enumeration.
+  External reset is provided by the SDIO wrapper reset controller.
 
 properties:
   compatible:
@@ -26,19 +27,22 @@ properties:
   reg:
     items:
       - description: SDHCI registers
-      - description: Reset/control, status and interrupt mask registers
+      - description: Interrupt mask word
       - description: Clock gate and divider words
 
   reg-names:
     items:
       - const: host
-      - const: control
+      - const: interrupt-mask
       - const: clock
 
   clock-frequency:
     const: 52000000
 
   interrupts:
+    maxItems: 1
+
+  resets:
     maxItems: 1
 
   pinctrl-0: true
@@ -53,6 +57,7 @@ required:
   - reg-names
   - clock-frequency
   - interrupts
+  - resets
   - vmmc-supply
   - pinctrl-0
   - pinctrl-names
@@ -63,8 +68,9 @@ examples:
   - |
     mmc@8120000 {
         compatible = "brcm,bcm2153-sdhci";
-        reg = <0x08120000 0x100>, <0x08128000 0xc>, <0x08140038 0x8>;
-        reg-names = "host", "control", "clock";
+        reg = <0x08120000 0x100>, <0x08128008 0x4>, <0x08140038 0x8>;
+        reg-names = "host", "interrupt-mask", "clock";
+        resets = <&sd1_reset>;
         clock-frequency = <52000000>;
         interrupts = <26 4>;
         vmmc-supply = <&vmmc>;
