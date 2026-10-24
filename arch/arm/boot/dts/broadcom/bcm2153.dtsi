@@ -138,12 +138,19 @@
 			status = "okay";
 		};
 
+		sd1_reset: reset-controller@8128000 {
+			compatible = "brcm,bcm2153-sdio-reset";
+			reg = <0x08128000 4>;
+			#reset-cells = <0>;
+		};
+
 		sd1: mmc@8120000 {
 			compatible = "brcm,bcm2153-sdhci";
 			reg = <0x08120000 0x100>,
-			      <0x08128000 0xc>,
+			      <0x08128008 0x4>,
 			      <0x08140038 0x8>;
-			reg-names = "host", "control", "clock";
+			reg-names = "host", "interrupt-mask", "clock";
+			resets = <&sd1_reset>;
 			clock-frequency = <52000000>;
 			interrupts = <26 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
