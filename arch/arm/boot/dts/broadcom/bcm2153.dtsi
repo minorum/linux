@@ -18,6 +18,10 @@
 		};
 	};
 
+	pmu {
+		compatible = "arm,arm1136-pmu";
+	};
+
 	osc32k: clock-32768 {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
