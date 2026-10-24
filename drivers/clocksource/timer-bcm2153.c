@@ -75,6 +75,7 @@ static struct clocksource bcm2153_clocksource = {
 	.rating = 200,
 	.read = bcm2153_clock_read,
 	.mask = CLOCKSOURCE_MASK(32),
+	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
 static struct clock_event_device bcm2153_clockevent = {
