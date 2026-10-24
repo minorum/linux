@@ -1375,6 +1375,7 @@ out:
 
 static void ufs_mtk_exit(struct ufs_hba *hba)
 {
+	struct ufs_vreg_info *info = &hba->vreg_info;
 	int ret;
 
 	ret = ufs_mtk_pwr_ctrl(hba, false);
@@ -1382,6 +1383,10 @@ static void ufs_mtk_exit(struct ufs_hba *hba)
 		ret = ufs_mtk_mphy_power_on(hba, false);
 	if (ret)
 		dev_err(hba->dev, "failed to power off PHY: %d\n", ret);
+	if (info->vccq)
+		info->vccq->always_on = false;
+	if (info->vccq2)
+		info->vccq2->always_on = false;
 	ufshcd_set_variant(hba, NULL);
 }
 
@@ -2428,6 +2433,15 @@ static const struct ufs_hba_variant_ops ufs_hba_mtk_vops = {
 	.config_scsi_dev     = ufs_mtk_config_scsi_dev,
 };
 
+static void ufs_mtk_phy_pm_put(void *data)
+{
+	struct device *phy_dev = data;
+
+	pm_runtime_put_sync(phy_dev);
+	pm_runtime_disable(phy_dev);
+	put_device(phy_dev);
+}
+
 /**
  * ufs_mtk_probe - probe routine of the driver
  * @pdev: pointer to Platform device handle
@@ -2478,11 +2492,19 @@ skip_reset:
 			goto skip_phy;
 		phy_dev = &phy_pdev->dev;
 
-		pm_runtime_set_active(phy_dev);
+		err = pm_runtime_set_active(phy_dev);
+		if (err)
+			goto out_phy_put;
 		pm_runtime_enable(phy_dev);
-		pm_runtime_get_sync(phy_dev);
+		err = pm_runtime_resume_and_get(phy_dev);
+		if (err < 0) {
+			pm_runtime_disable(phy_dev);
+			goto out_phy_put;
+		}
 
-		put_device(phy_dev);
+		err = devm_add_action_or_reset(dev, ufs_mtk_phy_pm_put, phy_dev);
+		if (err)
+			goto out;
 		dev_info(dev, "phys node found\n");
 	} else {
 		dev_notice(dev, "phys node not found\n");
@@ -2516,6 +2538,10 @@ out:
 	of_node_put(phy_node);
 	of_node_put(reset_node);
 	return err;
+
+out_phy_put:
+	put_device(phy_dev);
+	goto out;
 }
 
 /**
