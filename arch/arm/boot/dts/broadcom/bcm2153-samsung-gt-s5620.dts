@@ -105,8 +105,9 @@
 };
 
 &sd1 {
-	pinctrl-names = "powered";
-	pinctrl-0 = <&sd1_clear_pins &sd1_data_pins &sd1_command_pins
+	pinctrl-names = "powered-init", "powered";
+	pinctrl-0 = <&sd1_clear_pins>;
+	pinctrl-1 = <&sd1_data_pins &sd1_command_pins
 		     &sd1_detect_pins>;
 	bus-width = <4>;
 	max-frequency = <25000000>;

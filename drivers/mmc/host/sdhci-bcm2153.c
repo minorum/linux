@@ -153,6 +153,7 @@ static int bcm2153_probe(struct platform_device *pdev)
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
 	struct pinctrl *pins;
+	struct pinctrl_state *pins_init, *pins_powered;
 	struct reset_control *reset;
 	struct resource *res;
 	unsigned int i;
@@ -204,11 +205,27 @@ static int bcm2153_probe(struct platform_device *pdev)
 	ret = mmc_regulator_enable_vqmmc(host->mmc);
 	if (ret)
 		goto disable_vmmc;
-	pins = devm_pinctrl_get_select(&pdev->dev, "powered");
+	pins = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(pins)) {
 		ret = PTR_ERR(pins);
 		goto disable_vqmmc;
 	}
+	pins_init = pinctrl_lookup_state(pins, "powered-init");
+	if (IS_ERR(pins_init)) {
+		ret = PTR_ERR(pins_init);
+		goto disable_vqmmc;
+	}
+	pins_powered = pinctrl_lookup_state(pins, "powered");
+	if (IS_ERR(pins_powered)) {
+		ret = PTR_ERR(pins_powered);
+		goto disable_vqmmc;
+	}
+	ret = pinctrl_select_state(pins, pins_init);
+	if (ret)
+		goto disable_vqmmc;
+	ret = pinctrl_select_state(pins, pins_powered);
+	if (ret)
+		goto disable_vqmmc;
 
 	ret = reset_control_reset(reset);
 	if (ret)
