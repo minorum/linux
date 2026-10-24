@@ -518,23 +518,28 @@ static int ufs_mtk_mphy_power_on(struct ufs_hba *hba, bool on)
 	int err;
 	int ret = 0;
 
-	if (!mphy || !(on ^ host->mphy_powered_on))
+	if (!mphy || (on && host->mphy_powered_on) ||
+	    (!on && !host->mphy_powered_on && !host->va09_enabled))
 		return 0;
 
 	if (on) {
-		if (ufs_mtk_is_va09_supported(hba)) {
+		if (ufs_mtk_is_va09_supported(hba) && !host->va09_enabled) {
 			ret = regulator_enable(host->reg_va09);
 			if (ret < 0)
 				goto out;
+			host->va09_enabled = true;
 			/* wait 200 us to stablize VA09 */
 			usleep_range(200, 210);
-			ufs_mtk_va09_pwr_ctrl(res, 1);
 		}
+		if (ufs_mtk_is_va09_supported(hba))
+			ufs_mtk_va09_pwr_ctrl(res, 1);
 		ret = phy_power_on(mphy);
 		if (ret) {
 			if (ufs_mtk_is_va09_supported(hba)) {
 				ufs_mtk_va09_pwr_ctrl(res, 0);
 				err = regulator_disable(host->reg_va09);
+				if (!err)
+					host->va09_enabled = false;
 				if (err)
 					dev_err(hba->dev,
 						"failed to unwind va09: %d\n", err);
@@ -543,12 +548,17 @@ static int ufs_mtk_mphy_power_on(struct ufs_hba *hba, bool on)
 			return ret;
 		}
 	} else {
-		ret = phy_power_off(mphy);
-		if (ret)
-			goto out;
-		if (ufs_mtk_is_va09_supported(hba)) {
+		if (host->mphy_powered_on) {
+			ret = phy_power_off(mphy);
+			if (ret)
+				goto out;
+			host->mphy_powered_on = false;
+		}
+		if (host->va09_enabled) {
 			ufs_mtk_va09_pwr_ctrl(res, 0);
 			ret = regulator_disable(host->reg_va09);
+			if (!ret)
+				host->va09_enabled = false;
 		}
 	}
 out:

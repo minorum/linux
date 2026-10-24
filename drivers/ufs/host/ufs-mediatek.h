@@ -186,6 +186,7 @@ struct ufs_mtk_host {
 	struct ufs_mtk_hw_ver hw_ver;
 	enum ufs_mtk_host_caps caps;
 	bool mphy_powered_on;
+	bool va09_enabled;
 	bool phy_clks_enabled;
 	bool unipro_lpm;
 	bool ref_clk_enabled;
