@@ -421,7 +421,7 @@ config MMC_SDHCI_S3C_DMA
 config MMC_SDHCI_BCM2153
 	tristate "SDHCI support on Broadcom BCM2153"
 	depends on ARCH_BCM2153 || COMPILE_TEST
-	depends on MMC_SDHCI_PLTFM && OF
+	depends on MMC_SDHCI_PLTFM && OF && RESET_CONTROLLER
 	select MMC_SDHCI_IO_ACCESSORS
 	help
 	  Enable the BCM2153 SDHCI host with aligned register access and

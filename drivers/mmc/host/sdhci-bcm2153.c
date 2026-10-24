@@ -1,23 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/regulator/consumer.h>
+#include <linux/reset.h>
 
 #include "sdhci-pltfm.h"
 
 #define BCM2153_SDIO_RATE	52000000
-#define BCM2153_SDIO_COREIMR	0x08
 #define BCM2153_SDIO_IP_IRQ	BIT(0)
 
 struct bcm2153_host {
 	void __iomem *clock;
-	void __iomem *control;
+	void __iomem *irq_mask;
 	u16 transfer_mode;
 	u16 block_size;
-	bool reset_done;
 };
 
 static u16 bcm2153_readw(struct sdhci_host *host, int reg)
@@ -115,28 +113,13 @@ static unsigned int bcm2153_get_max_clock(struct sdhci_host *host)
 	return pltfm->clock;
 }
 
-static void bcm2153_reset(struct sdhci_host *host, u8 mask)
-{
-	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
-	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
-
-	if ((mask & SDHCI_RESET_ALL) && !priv->reset_done) {
-		writel(readl(priv->control) | BIT(1), priv->control);
-		mdelay(10);
-		writel(readl(priv->control) & ~BIT(1), priv->control);
-		priv->reset_done = true;
-	}
-	sdhci_reset(host, mask);
-}
-
 static void bcm2153_dump_vendor_regs(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
 	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
 
-	pr_err("%s: BCM2153 control: %08x mask: %08x gate: %08x divider: %08x requested: %u reported: %u\n",
-	       mmc_hostname(host->mmc), readl(priv->control),
-	       readl(priv->control + BCM2153_SDIO_COREIMR),
+	pr_err("%s: BCM2153 mask: %08x gate: %08x divider: %08x requested: %u reported: %u\n",
+	       mmc_hostname(host->mmc), readl(priv->irq_mask),
 	       readl(priv->clock), readl(priv->clock + 4),
 	       host->clock, host->mmc->actual_clock);
 }
@@ -149,7 +132,7 @@ static const struct sdhci_ops bcm2153_ops = {
 	.set_clock = bcm2153_set_clock,
 	.get_max_clock = bcm2153_get_max_clock,
 	.set_bus_width = sdhci_set_bus_width,
-	.reset = bcm2153_reset,
+	.reset = sdhci_reset,
 	.set_uhs_signaling = sdhci_set_uhs_signaling,
 	.dump_vendor_regs = bcm2153_dump_vendor_regs,
 };
@@ -164,12 +147,13 @@ static const struct sdhci_pltfm_data bcm2153_data = {
 
 static int bcm2153_probe(struct platform_device *pdev)
 {
-	static const char * const names[] = { "host", "control", "clock" };
-	static const resource_size_t sizes[] = { 0x100, 12, 8 };
+	static const char * const names[] = { "host", "interrupt-mask", "clock" };
+	static const resource_size_t sizes[] = { 0x100, 4, 8 };
 	struct sdhci_pltfm_host *pltfm;
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
 	struct pinctrl *pins;
+	struct reset_control *reset;
 	struct resource *res;
 	unsigned int i;
 	int ret;
@@ -180,14 +164,19 @@ static int bcm2153_probe(struct platform_device *pdev)
 		    res != platform_get_resource(pdev, IORESOURCE_MEM, i))
 			return -EINVAL;
 	}
+	reset = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(reset))
+		return dev_err_probe(&pdev->dev, PTR_ERR(reset),
+				     "failed to get external reset\n");
+
 	host = sdhci_pltfm_init(pdev, &bcm2153_data, sizeof(*priv));
 	if (IS_ERR(host))
 		return PTR_ERR(host);
 	pltfm = sdhci_priv(host);
 	priv = sdhci_pltfm_priv(pltfm);
-	priv->control = devm_platform_ioremap_resource_byname(pdev, "control");
-	if (IS_ERR(priv->control))
-		return PTR_ERR(priv->control);
+	priv->irq_mask = devm_platform_ioremap_resource_byname(pdev, "interrupt-mask");
+	if (IS_ERR(priv->irq_mask))
+		return PTR_ERR(priv->irq_mask);
 	priv->clock = devm_platform_ioremap_resource_byname(pdev, "clock");
 	if (IS_ERR(priv->clock))
 		return PTR_ERR(priv->clock);
@@ -221,23 +210,24 @@ static int bcm2153_probe(struct platform_device *pdev)
 		goto disable_vqmmc;
 	}
 
+	ret = reset_control_reset(reset);
+	if (ret)
+		goto disable_vqmmc;
+
 	ret = sdhci_setup_host(host);
 	if (ret) {
-		if (priv->reset_done)
-			writel(0, priv->clock);
+		writel(0, priv->clock);
 		goto disable_vqmmc;
 	}
 	if (host->clk_mul) {
 		ret = -EOPNOTSUPP;
 		goto cleanup_host;
 	}
-	writel(readl(priv->control + BCM2153_SDIO_COREIMR) | BCM2153_SDIO_IP_IRQ,
-	       priv->control + BCM2153_SDIO_COREIMR);
+	writel(readl(priv->irq_mask) | BCM2153_SDIO_IP_IRQ, priv->irq_mask);
 	ret = __sdhci_add_host(host);
 	if (!ret)
 		return 0;
-	writel(readl(priv->control + BCM2153_SDIO_COREIMR) & ~BCM2153_SDIO_IP_IRQ,
-	       priv->control + BCM2153_SDIO_COREIMR);
+	writel(readl(priv->irq_mask) & ~BCM2153_SDIO_IP_IRQ, priv->irq_mask);
 
 cleanup_host:
 	sdhci_cleanup_host(host);
@@ -256,8 +246,7 @@ static void bcm2153_remove(struct platform_device *pdev)
 	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
 
 	sdhci_pltfm_remove(pdev);
-	writel(readl(priv->control + BCM2153_SDIO_COREIMR) & ~BCM2153_SDIO_IP_IRQ,
-	       priv->control + BCM2153_SDIO_COREIMR);
+	writel(readl(priv->irq_mask) & ~BCM2153_SDIO_IP_IRQ, priv->irq_mask);
 	writel(0, priv->clock);
 	mmc_regulator_disable_vqmmc(host->mmc);
 	mmc_regulator_set_ocr(host->mmc, host->mmc->supply.vmmc, 0);

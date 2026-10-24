@@ -10,6 +10,7 @@ if ARCH_BCM
 config ARCH_BCM2153
 	bool "Broadcom BCM2153 application processor"
 	depends on ARCH_MULTI_V6 && !SMP
+	select ARCH_HAS_RESET_CONTROLLER
 	select BCM2153_INTC
 	select BCM2153_TIMER
 	select CPU_V6

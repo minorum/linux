@@ -56,6 +56,16 @@ config RESET_BERLIN
 	help
 	  This enables the reset controller driver for Marvell Berlin SoCs.
 
+config RESET_BCM2153_SDIO
+	tristate "Broadcom BCM2153 SDIO reset controller"
+	depends on ARCH_BCM2153 || COMPILE_TEST
+	default ARCH_BCM2153
+	help
+	  This enables the external reset controller for the BCM2153
+	  SDIO host interface. It provides the standard reset-controller
+	  API and preserves the other SDIO wrapper control bits.
+	  The reset pulse is sleepable and intended for host setup.
+
 config RESET_BRCMSTB
 	tristate "Broadcom STB reset controller"
 	depends on ARCH_BRCMSTB || ARCH_BCM2835 || COMPILE_TEST
