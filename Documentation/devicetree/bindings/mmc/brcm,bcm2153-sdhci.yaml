@@ -13,9 +13,8 @@ allOf:
   - $ref: mmc-controller.yaml#
 
 description:
-  Each host has an SDHCI register window, a separate interrupt mask,
-  and a dedicated external clock gate/divider pair. The divider output is
-  the 52 MHz input divided by one plus the programmed divider value.
+  Each host has an SDHCI register window and a separate interrupt mask.
+  Its external gate/divider output is supplied by the clock controller.
   The card supply must be enabled before selecting powered-init followed
   by powered. These states clear and configure the mux before host reset
   and card enumeration.
@@ -29,16 +28,14 @@ properties:
     items:
       - description: SDHCI registers
       - description: Interrupt mask word
-      - description: Clock gate and divider words
 
   reg-names:
     items:
       - const: host
       - const: interrupt-mask
-      - const: clock
 
-  clock-frequency:
-    const: 52000000
+  clocks:
+    maxItems: 1
 
   interrupts:
     maxItems: 1
@@ -58,7 +55,7 @@ required:
   - compatible
   - reg
   - reg-names
-  - clock-frequency
+  - clocks
   - interrupts
   - resets
   - vmmc-supply
@@ -72,10 +69,10 @@ examples:
   - |
     mmc@8120000 {
         compatible = "brcm,bcm2153-sdhci";
-        reg = <0x08120000 0x100>, <0x08128008 0x4>, <0x08140038 0x8>;
-        reg-names = "host", "interrupt-mask", "clock";
+        reg = <0x08120000 0x100>, <0x08128008 0x4>;
+        reg-names = "host", "interrupt-mask";
         resets = <&sd1_reset>;
-        clock-frequency = <52000000>;
+        clocks = <&sd1_clock>;
         interrupts = <26 4>;
         vmmc-supply = <&vmmc>;
         pinctrl-names = "powered-init", "powered";
