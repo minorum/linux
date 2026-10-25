@@ -5154,6 +5154,7 @@ BROADCOM BCM2153 ARM ARCHITECTURE
 M:	minorum <mit.mis@gmail.com>
 S:	Maintained
 F:	Documentation/devicetree/bindings/arm/bcm/brcm,bcm2153.yaml
+F:	Documentation/devicetree/bindings/clock/brcm,bcm2153-sdio-clock.yaml
 F:	Documentation/devicetree/bindings/i2c/brcm,bcm2153-i2c.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/brcm,bcm2153-intc.yaml
 F:	Documentation/devicetree/bindings/mfd/brcm,bcm59035.yaml
@@ -5163,6 +5164,7 @@ F:	Documentation/devicetree/bindings/reset/brcm,bcm2153-sdio-reset.yaml
 F:	Documentation/devicetree/bindings/timer/brcm,bcm2153-gpt.yaml
 F:	arch/arm/boot/dts/broadcom/bcm2153*
 F:	arch/arm/mach-bcm/bcm2153.c
+F:	drivers/clk/bcm/clk-bcm2153-sdio.c
 F:	drivers/clocksource/timer-bcm2153.c
 F:	drivers/irqchip/irq-bcm2153.c
 F:	drivers/mmc/host/sdhci-bcm2153.c

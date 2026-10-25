@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <linux/clk.h>
+#include <linux/limits.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
@@ -8,12 +10,12 @@
 
 #include "sdhci-pltfm.h"
 
-#define BCM2153_SDIO_RATE	52000000
 #define BCM2153_SDIO_IP_IRQ	BIT(0)
 
 struct bcm2153_host {
-	void __iomem *clock;
+	struct clk *clock;
 	void __iomem *irq_mask;
+	bool clock_enabled;
 	u16 transfer_mode;
 	u16 block_size;
 };
@@ -26,6 +28,14 @@ static u16 bcm2153_readw(struct sdhci_host *host, int reg)
 static u8 bcm2153_readb(struct sdhci_host *host, int reg)
 {
 	return readl(host->ioaddr + (reg & ~3)) >> ((reg & 3) * 8);
+}
+
+static void bcm2153_disable_clock(struct bcm2153_host *priv)
+{
+	if (priv->clock_enabled) {
+		clk_disable(priv->clock);
+		priv->clock_enabled = false;
+	}
 }
 
 static void bcm2153_writew(struct sdhci_host *host, u16 val, int reg)
@@ -58,7 +68,7 @@ static void bcm2153_writew(struct sdhci_host *host, u16 val, int reg)
 		val &= ~(SDHCI_DIV_HI_MASK >> SDHCI_DIV_MASK_LEN
 			 << SDHCI_DIVIDER_HI_SHIFT);
 		if (!(val & SDHCI_CLOCK_INT_EN))
-			writel(0, priv->clock);
+			bcm2153_disable_clock(priv);
 	}
 	if ((reg & ~3) == SDHCI_INT_STATUS) {
 		writel((u32)val << shift, host->ioaddr + SDHCI_INT_STATUS);
@@ -87,23 +97,36 @@ static void bcm2153_set_clock(struct sdhci_host *host, unsigned int clock)
 {
 	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
 	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
-	u32 div;
+	unsigned int actual;
 	u16 clk;
+	int ret;
 
 	host->mmc->actual_clock = 0;
 	sdhci_writew(host, 0, SDHCI_CLOCK_CONTROL);
 	if (!clock)
 		return;
 
-	clk = sdhci_calc_clk(host, clock, &host->mmc->actual_clock);
-	div = (clk >> SDHCI_DIVIDER_SHIFT) & SDHCI_DIV_MASK;
-	div |= ((clk >> SDHCI_DIVIDER_HI_SHIFT) << SDHCI_DIV_MASK_LEN) &
-		SDHCI_DIV_HI_MASK;
-	writel(div ? 2 * div - 1 : 0, priv->clock + 4);
-	writel(1, priv->clock);
+	clk = sdhci_calc_clk(host, clock, &actual);
+	ret = clk_set_rate(priv->clock, actual);
+	if (ret)
+		goto error;
+	actual = clk_get_rate(priv->clock);
+	if (!actual || actual > clock) {
+		ret = -EINVAL;
+		goto error;
+	}
+	ret = clk_enable(priv->clock);
+	if (ret)
+		goto error;
+	priv->clock_enabled = true;
+	host->mmc->actual_clock = actual;
 	sdhci_enable_clk(host, clk & ~(SDHCI_DIV_MASK << SDHCI_DIVIDER_SHIFT) &
 			 ~(SDHCI_DIV_HI_MASK >> SDHCI_DIV_MASK_LEN <<
 			   SDHCI_DIVIDER_HI_SHIFT));
+	return;
+
+error:
+	pr_err("%s: failed to set SD clock: %d\n", mmc_hostname(host->mmc), ret);
 }
 
 static unsigned int bcm2153_get_max_clock(struct sdhci_host *host)
@@ -118,9 +141,9 @@ static void bcm2153_dump_vendor_regs(struct sdhci_host *host)
 	struct sdhci_pltfm_host *pltfm = sdhci_priv(host);
 	struct bcm2153_host *priv = sdhci_pltfm_priv(pltfm);
 
-	pr_err("%s: BCM2153 mask: %08x gate: %08x divider: %08x requested: %u reported: %u\n",
+	pr_err("%s: BCM2153 mask: %08x clock-enabled: %u requested: %u reported: %u\n",
 	       mmc_hostname(host->mmc), readl(priv->irq_mask),
-	       readl(priv->clock), readl(priv->clock + 4),
+	       priv->clock_enabled,
 	       host->clock, host->mmc->actual_clock);
 }
 
@@ -147,15 +170,17 @@ static const struct sdhci_pltfm_data bcm2153_data = {
 
 static int bcm2153_probe(struct platform_device *pdev)
 {
-	static const char * const names[] = { "host", "interrupt-mask", "clock" };
-	static const resource_size_t sizes[] = { 0x100, 4, 8 };
+	static const char * const names[] = { "host", "interrupt-mask" };
+	static const resource_size_t sizes[] = { 0x100, 4 };
 	struct sdhci_pltfm_host *pltfm;
 	struct bcm2153_host *priv;
 	struct sdhci_host *host;
 	struct pinctrl *pins;
 	struct pinctrl_state *pins_init, *pins_powered;
 	struct reset_control *reset;
+	struct clk *clock;
 	struct resource *res;
+	long max_rate;
 	unsigned int i;
 	int ret;
 
@@ -169,22 +194,24 @@ static int bcm2153_probe(struct platform_device *pdev)
 	if (IS_ERR(reset))
 		return dev_err_probe(&pdev->dev, PTR_ERR(reset),
 				     "failed to get external reset\n");
+	clock = devm_clk_get_prepared(&pdev->dev, NULL);
+	if (IS_ERR(clock))
+		return dev_err_probe(&pdev->dev, PTR_ERR(clock), "failed to get SD clock\n");
+	max_rate = clk_round_rate(clock, ULONG_MAX);
+	if (max_rate <= 0)
+		return max_rate ? max_rate : -EINVAL;
 
 	host = sdhci_pltfm_init(pdev, &bcm2153_data, sizeof(*priv));
 	if (IS_ERR(host))
 		return PTR_ERR(host);
 	pltfm = sdhci_priv(host);
 	priv = sdhci_pltfm_priv(pltfm);
+	priv->clock = clock;
 	priv->irq_mask = devm_platform_ioremap_resource_byname(pdev, "interrupt-mask");
 	if (IS_ERR(priv->irq_mask))
 		return PTR_ERR(priv->irq_mask);
-	priv->clock = devm_platform_ioremap_resource_byname(pdev, "clock");
-	if (IS_ERR(priv->clock))
-		return PTR_ERR(priv->clock);
-
 	sdhci_get_property(pdev);
-	if (pltfm->clock != BCM2153_SDIO_RATE)
-		return -EINVAL;
+	pltfm->clock = max_rate;
 	ret = mmc_of_parse(host->mmc);
 	if (ret)
 		return ret;
@@ -230,10 +257,14 @@ static int bcm2153_probe(struct platform_device *pdev)
 	ret = reset_control_reset(reset);
 	if (ret)
 		goto disable_vqmmc;
+	ret = clk_enable(priv->clock);
+	if (ret)
+		goto disable_vqmmc;
+	priv->clock_enabled = true;
 
 	ret = sdhci_setup_host(host);
 	if (ret) {
-		writel(0, priv->clock);
+		bcm2153_disable_clock(priv);
 		goto disable_vqmmc;
 	}
 	if (host->clk_mul) {
@@ -248,7 +279,7 @@ static int bcm2153_probe(struct platform_device *pdev)
 
 cleanup_host:
 	sdhci_cleanup_host(host);
-	writel(0, priv->clock);
+	bcm2153_disable_clock(priv);
 disable_vqmmc:
 	mmc_regulator_disable_vqmmc(host->mmc);
 disable_vmmc:
@@ -264,7 +295,7 @@ static void bcm2153_remove(struct platform_device *pdev)
 
 	sdhci_pltfm_remove(pdev);
 	writel(readl(priv->irq_mask) & ~BCM2153_SDIO_IP_IRQ, priv->irq_mask);
-	writel(0, priv->clock);
+	bcm2153_disable_clock(priv);
 	mmc_regulator_disable_vqmmc(host->mmc);
 	mmc_regulator_set_ocr(host->mmc, host->mmc->supply.vmmc, 0);
 }

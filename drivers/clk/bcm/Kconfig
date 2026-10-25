@@ -1,5 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+config CLK_BCM2153_SDIO
+	tristate "Broadcom BCM2153 SDIO clock"
+	depends on ARCH_BCM2153 || COMPILE_TEST
+	depends on COMMON_CLK && OF
+	default ARCH_BCM2153
+	help
+	  Enable common clock framework control of the BCM2153 SDIO output
+	  gate and divider. Firmware must retain the nominal input clock.
+	  This driver does not initialize the upstream source or program PLLs.
+	  The SDHCI host consumes the resulting gateable, divided clock.
+
 config CLK_BCM2711_DVP
 	tristate "Broadcom BCM2711 DVP support"
 	depends on ARCH_BCM2835 ||COMPILE_TEST

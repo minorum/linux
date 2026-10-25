@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+obj-$(CONFIG_CLK_BCM2153_SDIO)	+= clk-bcm2153-sdio.o
 obj-$(CONFIG_CLK_BCM_63XX)	+= clk-bcm63xx.o
 obj-$(CONFIG_CLK_BCM_63XX_GATE)	+= clk-bcm63xx-gate.o
 obj-$(CONFIG_CLK_BCM63268_TIMER) += clk-bcm63268-timer.o
