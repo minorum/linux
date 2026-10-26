@@ -176,6 +176,7 @@ config MFD_ATMEL_SMC
 config MFD_BCM59035
 	tristate "Broadcom BCM59035 PMIC"
 	depends on I2C
+	select IRQ_DOMAIN
 	select MFD_CORE
 	select REGMAP
 	help
