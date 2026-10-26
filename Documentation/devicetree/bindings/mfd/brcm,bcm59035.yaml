@@ -16,6 +16,9 @@ properties:
   reg:
     maxItems: 1
 
+  system-power-controller:
+    type: boolean
+
   regulators:
     type: object
     additionalProperties: false
