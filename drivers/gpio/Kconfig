@@ -217,9 +217,9 @@ config GPIO_RASPBERRYPI_EXP
 config GPIO_BCM2153
 	tristate "Broadcom BCM2153 GPIO"
 	depends on OF && (ARM || COMPILE_TEST)
+	select GPIOLIB_IRQCHIP
 	help
-	  GPIO input/output support for BCM2153, including GT-S5620 panel
-	  reset and microSD card detection. Interrupts are not implemented.
+	  GPIO input/output and edge interrupt support for BCM2153.
 
 config GPIO_BCM_KONA
 	bool "Broadcom Kona GPIO"
