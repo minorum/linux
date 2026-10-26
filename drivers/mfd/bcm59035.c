@@ -51,6 +51,16 @@ static bool bcm59035_precious_reg(struct device *dev, unsigned int reg)
 	return reg >= 0x01 && reg <= 0x0a;
 }
 
+static bool bcm59035_readable_reg(struct device *dev, unsigned int reg)
+{
+	return reg == 0x1b || reg == BCM59035_HOSTACT || reg == 0xb5;
+}
+
+static bool bcm59035_writeable_reg(struct device *dev, unsigned int reg)
+{
+	return reg == 0x1b || reg == BCM59035_HOSTACT;
+}
+
 static const struct regmap_config bcm59035_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
@@ -59,6 +69,8 @@ static const struct regmap_config bcm59035_regmap_config = {
 	.reg_read = bcm59035_reg_read,
 	.reg_write = bcm59035_reg_write,
 	.precious_reg = bcm59035_precious_reg,
+	.readable_reg = bcm59035_readable_reg,
+	.writeable_reg = bcm59035_writeable_reg,
 };
 
 static const struct mfd_cell bcm59035_cells[] = {
