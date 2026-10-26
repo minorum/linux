@@ -31,7 +31,6 @@ static int bcm59035_read(struct bcm59035 *pmu, u8 reg)
 	ret = regmap_read(pmu->regmap, reg, &value);
 	if (!ret)
 		return value;
-	pmu->failed = true;
 	return ret;
 }
 
@@ -76,8 +75,10 @@ static int bcm59035_enable(struct regulator_dev *rdev)
 	dev_dbg(rdev_get_dev(rdev), "HCLDO2 mode 0x11 written\n");
 	msleep(1000);
 	ret = bcm59035_read(pmu, BCM59035_H2);
-	if (ret < 0)
+	if (ret < 0) {
+		pmu->failed = true;
 		return ret;
+	}
 	if (ret != 0x11) {
 		pmu->failed = true;
 		return -EIO;
