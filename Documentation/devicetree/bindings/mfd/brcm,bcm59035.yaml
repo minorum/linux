@@ -16,6 +16,17 @@ properties:
   reg:
     maxItems: 1
 
+  interrupts:
+    maxItems: 1
+
+  interrupt-controller: true
+
+  "#interrupt-cells":
+    const: 1
+    description: |
+      Interrupt number, calculated as eight times the zero-based status
+      register index plus the bit number within that register.
+
   system-power-controller:
     type: boolean
 
@@ -32,5 +43,8 @@ properties:
 required:
   - compatible
   - reg
+  - interrupts
+  - interrupt-controller
+  - '#interrupt-cells'
 
 additionalProperties: false
