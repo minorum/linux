@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/delay.h>
-#include <linux/i2c.h>
 #include <linux/module.h>
-#include <linux/of.h>
+#include <linux/platform_device.h>
+#include <linux/regmap.h>
 #include <linux/regulator/driver.h>
 
 #define BCM59035_H2	0x1b
@@ -11,7 +11,7 @@
 #define BCM59035_HCLDO	0xb5
 
 struct bcm59035 {
-	struct i2c_client *client;
+	struct regmap *regmap;
 	struct regulator_desc desc;
 	bool failed;
 };
@@ -23,22 +23,16 @@ static const int bcm59035_hc2_voltages[] = {
 
 static int bcm59035_read(struct bcm59035 *pmu, u8 reg)
 {
-	u8 value;
-	struct i2c_msg msgs[] = {
-		{ .addr = pmu->client->addr, .flags = I2C_M_STOP,
-		  .len = 1, .buf = &reg },
-		{ .addr = pmu->client->addr, .flags = I2C_M_RD,
-		  .len = 1, .buf = &value },
-	};
+	unsigned int value;
 	int ret;
 
 	if (pmu->failed)
 		return -ESHUTDOWN;
-	ret = i2c_transfer(pmu->client->adapter, msgs, 2);
-	if (ret == 2)
+	ret = regmap_read(pmu->regmap, reg, &value);
+	if (!ret)
 		return value;
 	pmu->failed = true;
-	return ret < 0 ? ret : -EIO;
+	return ret;
 }
 
 static int bcm59035_is_enabled(struct regulator_dev *rdev)
@@ -68,22 +62,18 @@ static int bcm59035_is_enabled(struct regulator_dev *rdev)
 static int bcm59035_enable(struct regulator_dev *rdev)
 {
 	struct bcm59035 *pmu = rdev_get_drvdata(rdev);
-	u8 bytes[] = { BCM59035_H2, 0x11 };
-	struct i2c_msg msg = {
-		.addr = pmu->client->addr, .len = sizeof(bytes), .buf = bytes,
-	};
 	int ret;
 
 	ret = bcm59035_is_enabled(rdev);
 	if (ret)
 		return ret < 0 ? ret : 0;
-	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0xaa observed\n");
-	ret = i2c_transfer(pmu->client->adapter, &msg, 1);
-	if (ret != 1) {
+	dev_dbg(rdev_get_dev(rdev), "HCLDO2 mode 0xaa observed\n");
+	ret = regmap_write(pmu->regmap, BCM59035_H2, 0x11);
+	if (ret) {
 		pmu->failed = true;
-		return ret < 0 ? ret : -EIO;
+		return ret;
 	}
-	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0x11 written\n");
+	dev_dbg(rdev_get_dev(rdev), "HCLDO2 mode 0x11 written\n");
 	msleep(1000);
 	ret = bcm59035_read(pmu, BCM59035_H2);
 	if (ret < 0)
@@ -92,7 +82,7 @@ static int bcm59035_enable(struct regulator_dev *rdev)
 		pmu->failed = true;
 		return -EIO;
 	}
-	dev_dbg(&pmu->client->dev, "HCLDO2 mode 0x11 verified\n");
+	dev_dbg(rdev_get_dev(rdev), "HCLDO2 mode 0x11 verified\n");
 	return 0;
 }
 
@@ -119,24 +109,25 @@ static const struct regulator_ops bcm59035_ops = {
 	.list_voltage = regulator_list_voltage_linear,
 };
 
-static int bcm59035_probe(struct i2c_client *client)
+static int bcm59035_probe(struct platform_device *pdev)
 {
-	struct regulator_config config = { .dev = &client->dev };
+	struct device *dev = &pdev->dev;
+	struct regulator_config config = { .dev = dev->parent };
 	struct regulator_dev *rdev;
 	struct bcm59035 *pmu;
 	int ret;
 
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
-		return -EOPNOTSUPP;
-	pmu = devm_kzalloc(&client->dev, sizeof(*pmu), GFP_KERNEL);
+	pmu = devm_kzalloc(dev, sizeof(*pmu), GFP_KERNEL);
 	if (!pmu)
 		return -ENOMEM;
-	pmu->client = client;
+	pmu->regmap = dev_get_regmap(dev->parent, NULL);
+	if (!pmu->regmap)
+		return -ENODEV;
 	ret = bcm59035_read(pmu, BCM59035_HOSTACT);
 	if (ret < 0)
 		return ret;
 	if (ret)
-		return dev_err_probe(&client->dev, -EOPNOTSUPP, "unsupported HOSTACT\n");
+		return dev_err_probe(dev, -EOPNOTSUPP, "unsupported HOSTACT\n");
 	ret = bcm59035_read(pmu, BCM59035_HCLDO);
 	if (ret < 0)
 		return ret;
@@ -149,27 +140,21 @@ static int bcm59035_probe(struct i2c_client *client)
 	pmu->desc.n_voltages = 1;
 	pmu->desc.min_uV = bcm59035_hc2_voltages[(ret >> 4) & 7];
 	config.driver_data = pmu;
-	rdev = devm_regulator_register(&client->dev, &pmu->desc, &config);
+	rdev = devm_regulator_register(dev, &pmu->desc, &config);
 	if (IS_ERR(rdev))
 		return PTR_ERR(rdev);
-	dev_info(&client->dev, "HCLDO2 retains %u uV\n", pmu->desc.min_uV);
+	dev_info(dev, "HCLDO2 retains %u uV\n", pmu->desc.min_uV);
 	return 0;
 }
 
-static const struct of_device_id bcm59035_match[] = {
-	{ .compatible = "brcm,bcm59035" },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, bcm59035_match);
-
-static struct i2c_driver bcm59035_driver = {
+static struct platform_driver bcm59035_driver = {
 	.probe = bcm59035_probe,
 	.driver = {
 		.name = "bcm59035-regulator",
-		.of_match_table = bcm59035_match,
 	},
 };
-module_i2c_driver(bcm59035_driver);
+module_platform_driver(bcm59035_driver);
 
+MODULE_ALIAS("platform:bcm59035-regulator");
 MODULE_DESCRIPTION("Broadcom BCM59035 retained-voltage HCLDO2");
 MODULE_LICENSE("GPL");

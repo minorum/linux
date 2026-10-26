@@ -5167,8 +5167,10 @@ F:	arch/arm/mach-bcm/bcm2153.c
 F:	drivers/clk/bcm/clk-bcm2153-sdio.c
 F:	drivers/clocksource/timer-bcm2153.c
 F:	drivers/irqchip/irq-bcm2153.c
+F:	drivers/mfd/bcm59035.c
 F:	drivers/mmc/host/sdhci-bcm2153.c
 F:	drivers/phy/broadcom/phy-bcm2153-usb.c
+F:	drivers/regulator/bcm59035-regulator.c
 F:	drivers/reset/reset-bcm2153-sdio.c
 
 BROADCOM BCM2711/BCM2835 ARM ARCHITECTURE

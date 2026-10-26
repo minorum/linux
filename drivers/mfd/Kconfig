@@ -173,6 +173,17 @@ config MFD_ATMEL_SMC
 	bool
 	select MFD_SYSCON
 
+config MFD_BCM59035
+	tristate "Broadcom BCM59035 PMIC"
+	depends on I2C
+	select MFD_CORE
+	select REGMAP
+	help
+	  Support the Broadcom BCM59035 power management IC over I2C.
+	  This provides shared register access for its child devices,
+	  including the voltage regulators.
+	  Say Y here to enable the BCM59035 function drivers.
+
 config MFD_BCM590XX
 	tristate "Broadcom BCM590xx PMUs"
 	select MFD_CORE
