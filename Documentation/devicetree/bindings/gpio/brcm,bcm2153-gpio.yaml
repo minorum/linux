@@ -23,19 +23,35 @@ properties:
 
   gpio-reserved-ranges: true
 
+  interrupts:
+    maxItems: 1
+
+  interrupt-controller: true
+
+  "#interrupt-cells":
+    const: 2
+
 required:
   - compatible
   - reg
   - gpio-controller
   - '#gpio-cells'
+  - interrupts
+  - interrupt-controller
+  - '#interrupt-cells'
 
 additionalProperties: false
 
 examples:
   - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
     gpio@88ce000 {
         compatible = "brcm,bcm2153-gpio";
-        reg = <0x088ce000 0x50>;
+        reg = <0x088ce000 0x58>;
+        interrupts = <6 IRQ_TYPE_EDGE_RISING>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
         gpio-controller;
         #gpio-cells = <2>;
     };
