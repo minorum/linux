@@ -94,6 +94,10 @@
 	pmic@8 {
 		compatible = "brcm,bcm59035";
 		reg = <0x08>;
+		interrupt-parent = <&gpio>;
+		interrupts = <15 IRQ_TYPE_EDGE_FALLING>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
 		system-power-controller;
 
 		regulators {
