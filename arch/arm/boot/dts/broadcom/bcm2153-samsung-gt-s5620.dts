@@ -83,7 +83,7 @@
 };
 
 &gpio {
-	gpio-reserved-ranges = <0 24>, <25 27>, <53 11>;
+	gpio-reserved-ranges = <0 15>, <16 8>, <25 27>, <53 11>;
 	status = "okay";
 };
 

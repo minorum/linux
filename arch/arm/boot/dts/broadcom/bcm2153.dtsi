@@ -114,7 +114,10 @@
 
 		gpio: gpio@88ce000 {
 			compatible = "brcm,bcm2153-gpio";
-			reg = <0x088ce000 0x50>;
+			reg = <0x088ce000 0x58>;
+			interrupts = <6 IRQ_TYPE_EDGE_RISING>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
