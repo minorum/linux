@@ -94,6 +94,7 @@
 	pmic@8 {
 		compatible = "brcm,bcm59035";
 		reg = <0x08>;
+		system-power-controller;
 
 		regulators {
 			hcldo2: hcldo2 {
