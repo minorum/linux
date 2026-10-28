@@ -39,6 +39,7 @@ static void __init mediatek_timer_init(void)
 static const char * const mediatek_board_dt_compat[] = {
 	"mediatek,mt2701",
 	"mediatek,mt6572",
+	"mediatek,mt6577",
 	"mediatek,mt6582",
 	"mediatek,mt6589",
 	"mediatek,mt6592",
@@ -49,7 +50,7 @@ static const char * const mediatek_board_dt_compat[] = {
 	NULL,
 };
 
-DT_MACHINE_START(MEDIATEK_DT, "Mediatek Cortex-A7 (Device Tree)")
+DT_MACHINE_START(MEDIATEK_DT, "Mediatek (Device Tree)")
 	.dt_compat	= mediatek_board_dt_compat,
 	.init_time	= mediatek_timer_init,
 MACHINE_END

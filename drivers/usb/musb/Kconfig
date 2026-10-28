@@ -105,6 +105,12 @@ config USB_MUSB_JZ4740
 	depends on USB_MUSB_GADGET
 	select USB_ROLE_SWITCH
 
+config USB_MUSB_MT6577_RAM
+	tristate "MT6577 RAM-stage peripheral"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on OF && USB_MUSB_GADGET
+	depends on MUSB_PIO_ONLY
+
 config USB_MUSB_MEDIATEK
 	tristate "MediaTek platforms"
 	depends on ARCH_MEDIATEK || COMPILE_TEST

@@ -33,6 +33,9 @@ properties:
               - lenovo,a369i
           - const: mediatek,mt6572
       - items:
+          - const: modecom,freetab8001
+          - const: mediatek,mt6577
+      - items:
           - enum:
               - mediatek,mt6580-evbp1
           - const: mediatek,mt6580
