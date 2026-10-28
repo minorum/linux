@@ -5,6 +5,7 @@
  */
 #include <linux/cpu.h>
 #include <linux/delay.h>
+#include <linux/efi.h>
 #include <linux/reboot.h>
 
 #include <asm/cacheflush.h>
@@ -135,6 +136,9 @@ void machine_restart(char *cmd)
 {
 	local_irq_disable();
 	smp_send_stop();
+
+	if (efi_enabled(EFI_RUNTIME_SERVICES))
+		efi_reboot(reboot_mode, NULL);
 
 	do_kernel_restart(cmd);
 
