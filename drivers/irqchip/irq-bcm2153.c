@@ -147,7 +147,7 @@ static struct irq_chip bcm2153_irq_chip = {
 	.irq_unmask = bcm2153_irq_unmask,
 	.irq_ack = bcm2153_irq_ack,
 	.irq_set_type = bcm2153_irq_set_type,
-	.flags = IRQCHIP_SET_TYPE_MASKED,
+	.flags = IRQCHIP_SET_TYPE_MASKED | IRQCHIP_SKIP_SET_WAKE,
 };
 
 static struct bcm2153_irq bcm2153_intc;
