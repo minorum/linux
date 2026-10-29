@@ -3,6 +3,7 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/clock/mediatek,mt6577-clk.h>
 
 / {
 	model = "MODECOM FreeTAB 8001";
@@ -44,6 +45,12 @@
 		clock-frequency = <13000000>;
 	};
 
+	clk26m: clock-26m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
 	msdc_clock: clock-msdc {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -55,6 +62,43 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		infracfg: clock-controller@c0001000 {
+			compatible = "mediatek,mt6577-infracfg";
+			reg = <0xc0001000 0x1000>;
+			clocks = <&clk26m>, <&apmixedsys CLK_MT6577_MAINPLL>;
+			clock-names = "clk26m", "mainpll";
+			#clock-cells = <1>;
+		};
+
+		apmixedsys: clock-controller@c0007000 {
+			compatible = "mediatek,mt6577-apmixedsys";
+			reg = <0xc0007000 0x1000>;
+			clocks = <&clk26m>;
+			clock-names = "clk26m";
+			#clock-cells = <1>;
+		};
+
+		pericfg: clock-controller@c1000000 {
+			compatible = "mediatek,mt6577-pericfg";
+			reg = <0xc1000000 0x1000>;
+			clocks = <&infracfg CLK_MT6577_AXI>;
+			clock-names = "axi";
+			#clock-cells = <1>;
+		};
+
+		pwm: pwm@c1008000 {
+			compatible = "mediatek,mt6577-pwm";
+			reg = <0xc1008000 0x210>;
+			#pwm-cells = <2>;
+			clocks = <&infracfg CLK_MT6577_AXI>, <&pericfg CLK_MT6577_PWM456>,
+				 <&pericfg CLK_MT6577_PWM1>, <&pericfg CLK_MT6577_PWM2>,
+				 <&pericfg CLK_MT6577_PWM3>, <&pericfg CLK_MT6577_PWM456>,
+				 <&pericfg CLK_MT6577_PWM456>, <&pericfg CLK_MT6577_PWM456>,
+				 <&pericfg CLK_MT6577_PWM7>;
+			clock-names = "top", "main", "pwm1", "pwm2", "pwm3",
+				      "pwm4", "pwm5", "pwm6", "pwm7";
+		};
 
 		pio: pinctrl@c0005000 {
 			compatible = "mediatek,mt6577-pinctrl";

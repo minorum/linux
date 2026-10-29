@@ -11,12 +11,26 @@ maintainers:
 
 allOf:
   - $ref: pwm.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6577-pwm
+    then:
+      properties:
+        clocks:
+          minItems: 9
+          maxItems: 9
+        clock-names:
+          minItems: 9
+          maxItems: 9
 
 properties:
   compatible:
     oneOf:
       - enum:
           - mediatek,mt2712-pwm
+          - mediatek,mt6577-pwm
           - mediatek,mt6795-pwm
           - mediatek,mt6991-pwm
           - mediatek,mt7622-pwm

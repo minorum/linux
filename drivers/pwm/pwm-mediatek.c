@@ -42,6 +42,8 @@ struct pwm_mediatek_of_data {
 	unsigned int num_pwms;
 	bool clksel_fixup;
 	bool pwm45_fixup;
+	bool needs_wave_init;
+	u8 valid_pwms;
 	u16 pwm_ck_26m_sel_reg;
 	unsigned int chanreg_base;
 	unsigned int chanreg_width;
@@ -70,6 +72,15 @@ static inline struct pwm_mediatek_chip *
 to_pwm_mediatek_chip(struct pwm_chip *chip)
 {
 	return pwmchip_get_drvdata(chip);
+}
+
+static int pwm_mediatek_request(struct pwm_chip *chip, struct pwm_device *pwm)
+{
+	struct pwm_mediatek_chip *pc = to_pwm_mediatek_chip(chip);
+
+	if (pc->soc->valid_pwms && !(pc->soc->valid_pwms & BIT(pwm->hwpwm)))
+		return -EOPNOTSUPP;
+	return 0;
 }
 
 static int pwm_mediatek_clk_enable(struct pwm_mediatek_chip *pc,
@@ -294,6 +305,16 @@ static int pwm_mediatek_read_waveform(struct pwm_chip *chip,
 	enable = readl(pc->regs) & BIT(pwm->hwpwm);
 
 	if (enable) {
+		u32 con = pwm_mediatek_readl(pc, pwm->hwpwm, PWMCON);
+
+		if (pc->soc->needs_wave_init &&
+		    (!(con & PWMCON_OLD_PWM_MODE) || (con & PWMCON_CLKSEL) ||
+		     pwm_mediatek_readl(pc, pwm->hwpwm, PWMGDUR) ||
+		     pwm_mediatek_readl(pc, pwm->hwpwm, PWMWAVENUM))) {
+			pwm_mediatek_clk_disable(pc, pwm->hwpwm);
+			return -EOPNOTSUPP;
+		}
+
 		if (pc->soc->pwm45_fixup && pwm->hwpwm > 2) {
 			/*
 			 * PWM[4,5] has distinct offset for PWMDWIDTH and PWMTHRES
@@ -303,7 +324,7 @@ static int pwm_mediatek_read_waveform(struct pwm_chip *chip,
 			reg_thres = PWM45THRES_FIXUP;
 		}
 
-		clkdiv = FIELD_GET(PWMCON_CLKDIV, pwm_mediatek_readl(pc, pwm->hwpwm, PWMCON));
+		clkdiv = FIELD_GET(PWMCON_CLKDIV, con);
 		cnt_period = FIELD_GET(PWMDWIDTH_PERIOD, pwm_mediatek_readl(pc, pwm->hwpwm, reg_width));
 		cnt_duty = FIELD_GET(PWMTHRES_DUTY, pwm_mediatek_readl(pc, pwm->hwpwm, reg_thres));
 
@@ -342,6 +363,9 @@ static int pwm_mediatek_write_waveform(struct pwm_chip *chip,
 		u32 reg_width = PWMDWIDTH, reg_thres = PWMTHRES;
 		u32 con_val = PWMCON_OLD_PWM_MODE | wfhw->con;
 
+		if (pc->soc->needs_wave_init)
+			writel(ctrl & ~BIT(pwm->hwpwm), pc->regs);
+
 		if (pc->soc->pwm45_fixup && pwm->hwpwm > 2) {
 			/*
 			 * PWM[4,5] has distinct offset for PWMDWIDTH and PWMTHRES
@@ -361,7 +385,8 @@ static int pwm_mediatek_write_waveform(struct pwm_chip *chip,
 				goto out;
 
 			ctrl |= BIT(pwm->hwpwm);
-			writel(ctrl, pc->regs);
+			if (!pc->soc->needs_wave_init)
+				writel(ctrl, pc->regs);
 		}
 
 		/* Make sure we use the bus clock and not the 26MHz clock */
@@ -375,6 +400,11 @@ static int pwm_mediatek_write_waveform(struct pwm_chip *chip,
 		pwm_mediatek_writel(pc, pwm->hwpwm, PWMCON, con_val);
 		pwm_mediatek_writel(pc, pwm->hwpwm, reg_width, wfhw->width);
 		pwm_mediatek_writel(pc, pwm->hwpwm, reg_thres, wfhw->thres);
+		if (pc->soc->needs_wave_init) {
+			pwm_mediatek_writel(pc, pwm->hwpwm, PWMGDUR, 0);
+			pwm_mediatek_writel(pc, pwm->hwpwm, PWMWAVENUM, 0);
+			writel(ctrl, pc->regs);
+		}
 	} else {
 		if (ctrl & BIT(pwm->hwpwm)) {
 			ctrl &= ~BIT(pwm->hwpwm);
@@ -391,6 +421,7 @@ out:
 }
 
 static const struct pwm_ops pwm_mediatek_ops = {
+	.request = pwm_mediatek_request,
 	.sizeof_wfhw = sizeof(struct pwm_mediatek_waveform),
 	.round_waveform_tohw = pwm_mediatek_round_waveform_tohw,
 	.round_waveform_fromhw = pwm_mediatek_round_waveform_fromhw,
@@ -501,6 +532,14 @@ static int pwm_mediatek_probe(struct platform_device *pdev)
 
 	return 0;
 }
+
+static const struct pwm_mediatek_of_data mt6577_pwm_data = {
+	.num_pwms = 7,
+	.needs_wave_init = true,
+	.valid_pwms = BIT(0) | BIT(1) | BIT(2) | BIT(6),
+	.chanreg_base = 0x10,
+	.chanreg_width = 0x40,
+};
 
 static const struct pwm_mediatek_of_data mt2712_pwm_data = {
 	.num_pwms = 8,
@@ -614,6 +653,7 @@ static const struct pwm_mediatek_of_data mt6991_pwm_data = {
 };
 
 static const struct of_device_id pwm_mediatek_of_match[] = {
+	{ .compatible = "mediatek,mt6577-pwm", .data = &mt6577_pwm_data },
 	{ .compatible = "mediatek,mt2712-pwm", .data = &mt2712_pwm_data },
 	{ .compatible = "mediatek,mt6795-pwm", .data = &mt6795_pwm_data },
 	{ .compatible = "mediatek,mt6991-pwm", .data = &mt6991_pwm_data },
