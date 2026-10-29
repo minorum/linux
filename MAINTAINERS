@@ -5167,6 +5167,7 @@ F:	arch/arm/boot/dts/broadcom/bcm2153*
 F:	arch/arm/mach-bcm/bcm2153.c
 F:	drivers/clk/bcm/clk-bcm2153-sdio.c
 F:	drivers/clocksource/timer-bcm2153.c
+F:	drivers/iio/adc/bcm2153-adc.c
 F:	drivers/input/misc/bcm59035-onkey.c
 F:	drivers/irqchip/irq-bcm2153.c
 F:	drivers/mfd/bcm59035.c

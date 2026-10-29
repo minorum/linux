@@ -132,6 +132,13 @@
 			status = "disabled";
 		};
 
+		adc: adc@8830020 {
+			compatible = "brcm,bcm2153-auxadc";
+			reg = <0x08830020 0x0a>;
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
 		gpt: timer@8830100 {
 			compatible = "brcm,bcm2153-gpt";
 			reg = <0x08830100 0x60>;
