@@ -5,6 +5,8 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
+#include <linux/pm_wakeirq.h>
+#include <linux/pm_wakeup.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 
@@ -26,6 +28,7 @@ static irqreturn_t bcm59035_onkey_irq(int irq, void *data)
 
 	mutex_lock(&onkey->lock);
 	if (irq == onkey->press_irq) {
+		pm_wakeup_event(onkey->input->dev.parent, 0);
 		ret = regmap_read(onkey->regmap, BCM59035_ENV2, &state);
 		if (ret) {
 			dev_err_ratelimited(&onkey->input->dev,
@@ -102,7 +105,10 @@ static int bcm59035_onkey_probe(struct platform_device *pdev)
 	ret = bcm59035_onkey_sync(onkey);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read button state\n");
-	return 0;
+	ret = devm_device_init_wakeup(dev);
+	if (ret)
+		return ret;
+	return devm_pm_set_wake_irq(dev, onkey->press_irq);
 }
 
 static struct platform_driver bcm59035_onkey_driver = {
