@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/gpio/driver.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip/chained_irq.h>
@@ -190,12 +191,21 @@ static int bcm2153_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
+static int bcm2153_gpio_irq_set_wake(struct irq_data *data, unsigned int on)
+{
+	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
+	struct bcm2153_gpio *gpio = gpiochip_get_data(chip);
+
+	return irq_set_irq_wake(gpio->parent_irq, on);
+}
+
 static const struct irq_chip bcm2153_gpio_irq_chip = {
 	.name = "bcm2153-gpio",
 	.irq_ack = bcm2153_gpio_irq_ack,
 	.irq_mask = bcm2153_gpio_irq_mask,
 	.irq_unmask = bcm2153_gpio_irq_unmask,
 	.irq_set_type = bcm2153_gpio_irq_set_type,
+	.irq_set_wake = bcm2153_gpio_irq_set_wake,
 	.flags = IRQCHIP_IMMUTABLE | IRQCHIP_SET_TYPE_MASKED,
 	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
