@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/mediatek,mt6577-mmsys.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6577 multimedia clock gates
+
+maintainers:
+  - Michal Andrzejczak <mit.mis@gmail.com>
+
+description:
+  MMSYS provides the clock gates for the DPI engine and SMI memory fabric.
+
+properties:
+  compatible:
+    items:
+      - const: mediatek,mt6577-mmsys
+      - const: syscon
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: Register bus clock
+      - description: DPI engine source clock
+      - description: SMI fabric source clock
+      - description: SMI EMI source clock
+
+  clock-names:
+    items:
+      - const: bus
+      - const: dpi
+      - const: smi
+      - const: emi
+
+  '#clock-cells':
+    const: 1
+
+  power-domains:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - '#clock-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@c2080000 {
+        compatible = "mediatek,mt6577-mmsys", "syscon";
+        reg = <0xc2080000 0x1000>;
+        clocks = <&mm_bus>, <&dpi_clk>, <&smi_clk>, <&emi_clk>;
+        clock-names = "bus", "dpi", "smi", "emi";
+        #clock-cells = <1>;
+    };

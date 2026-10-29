@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/mediatek,mt6577-mipi-tx.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6577 MIPI TX PLL
+
+maintainers:
+  - Michal Andrzejczak <mit.mis@gmail.com>
+
+description:
+  The MIPI TX block contains the PLL used as the DPI pixel-clock source.
+
+properties:
+  compatible:
+    const: mediatek,mt6577-mipi-tx
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: 26 MHz reference clock
+
+  '#clock-cells':
+    const: 0
+
+  mediatek,mmsys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: MMSYS configuration controller
+
+  mediatek,apmixedsys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Analog clock configuration controller
+
+  mediatek,infracfg:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Infrastructure controller providing MIPI isolation and TX enable
+
+  power-domains:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - '#clock-cells'
+  - mediatek,mmsys
+  - mediatek,apmixedsys
+  - mediatek,infracfg
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@c20a3800 {
+        compatible = "mediatek,mt6577-mipi-tx";
+        reg = <0xc20a3800 0x34>;
+        clocks = <&clk26m>;
+        #clock-cells = <0>;
+        mediatek,mmsys = <&mmsys>;
+        mediatek,apmixedsys = <&apmixedsys>;
+        mediatek,infracfg = <&infracfg>;
+    };

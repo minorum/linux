@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
+#ifndef _DT_BINDINGS_CLOCK_MT6577_MMSYS_H
+#define _DT_BINDINGS_CLOCK_MT6577_MMSYS_H
+
+#define CLK_MT6577_MM_DPI		0
+#define CLK_MT6577_MM_LARB1	1
+#define CLK_MT6577_MM_LARB1_EMI	2
+#define CLK_MT6577_MM_NR_CLK	3
+
+#endif
