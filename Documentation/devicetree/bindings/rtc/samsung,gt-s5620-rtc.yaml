@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/rtc/maxim,max8991-rtc.yaml#
+$id: http://devicetree.org/schemas/rtc/samsung,gt-s5620-rtc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Samsung GT-S5620 standalone RTC interface
@@ -12,15 +12,14 @@ maintainers:
 description:
   The Samsung GT-S5620 has an observed eight-byte BCD calendar interface at
   I2C address 0x68, starting at register 0. Its silicon ownership is unresolved.
-  The compatible is a retained local identifier for the board-validated
-  standalone read-only driver, not an established MAX8991 compatibility claim.
+  The compatible describes this board-specific interface.
 
 allOf:
   - $ref: rtc.yaml#
 
 properties:
   compatible:
-    const: maxim,max8991-rtc
+    const: samsung,gt-s5620-rtc
 
   reg:
     const: 0x68
@@ -38,7 +37,7 @@ examples:
         #size-cells = <0>;
 
         rtc@68 {
-            compatible = "maxim,max8991-rtc";
+            compatible = "samsung,gt-s5620-rtc";
             reg = <0x68>;
         };
     };
