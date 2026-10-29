@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/modecom,freetab8001-display.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MODECOM FreeTAB 8001 display assembly
+
+maintainers:
+  - Michal Andrzejczak <mit.mis@gmail.com>
+
+description:
+  The fitted 1024x768 display assembly accepts parallel RGB888 and uses six
+  board control signals with a fixed power sequence. The exact panel and
+  intervening display component models are unknown.
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: modecom,freetab8001-display
+
+  modecom,control-gpios:
+    description:
+      Active-high board controls in firmware power-up order, routed to SoC
+      GPIOs 100, 66, 12, 49, 84 and 52 respectively. Their individual
+      electrical roles are not identified. The first signal remains high
+      during the power-down sequence.
+    minItems: 6
+    maxItems: 6
+
+  backlight: true
+  port: true
+
+required:
+  - compatible
+  - modecom,control-gpios
+  - backlight
+  - port
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    panel {
+        compatible = "modecom,freetab8001-display";
+        modecom,control-gpios = <&gpio 100 GPIO_ACTIVE_HIGH>,
+                                <&gpio 66 GPIO_ACTIVE_HIGH>,
+                                <&gpio 12 GPIO_ACTIVE_HIGH>,
+                                <&gpio 49 GPIO_ACTIVE_HIGH>,
+                                <&gpio 84 GPIO_ACTIVE_HIGH>,
+                                <&gpio 52 GPIO_ACTIVE_HIGH>;
+        backlight = <&backlight>;
+
+        port {
+            panel_in: endpoint {
+                remote-endpoint = <&dpi_out>;
+            };
+        };
+    };
