@@ -1,4 +1,18 @@
 # SPDX-License-Identifier: GPL-2.0-only
+config DRM_MEDIATEK_MT6577
+	tristate "MediaTek MT6577 DPI display controller"
+	depends on DRM && OF
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	select DRM_BRIDGE_CONNECTOR
+	select DRM_CLIENT_SELECTION
+	select DRM_DISPLAY_HELPER
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	select DRM_PANEL_BRIDGE
+	select MFD_SYSCON
+	help
+	  Native KMS support for the MT6577 DPI framebuffer-fetch engine.
+
 config DRM_MEDIATEK
 	tristate "DRM Support for Mediatek SoCs"
 	depends on DRM

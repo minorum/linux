@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+obj-$(CONFIG_DRM_MEDIATEK_MT6577) += mt6577_dpi.o
 
 mediatek-drm-y := mtk_crtc.o \
 		  mtk_ddp_comp.o \
