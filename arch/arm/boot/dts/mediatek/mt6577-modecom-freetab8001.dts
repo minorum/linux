@@ -4,6 +4,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/clock/mediatek,mt6577-clk.h>
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "MODECOM FreeTAB 8001";
@@ -55,6 +56,11 @@
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <197000000>;
+	};
+
+	backlight {
+		compatible = "gpio-backlight";
+		gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
 	};
 
 	soc {
