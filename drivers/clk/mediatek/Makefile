@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_COMMON_CLK_MEDIATEK) += clk-mtk.o clk-pll.o clk-gate.o clk-apmixed.o clk-cpumux.o reset.o clk-mux.o
 obj-$(CONFIG_COMMON_CLK_MEDIATEK_FHCTL) += clk-fhctl.o clk-pllfh.o
+obj-$(CONFIG_COMMON_CLK_MT6577) += clk-mt6577.o
 obj-$(CONFIG_COMMON_CLK_MT6577_MIPI) += clk-mt6577-mipi.o
 obj-$(CONFIG_COMMON_CLK_MT6577_MMSYS) += clk-mt6577-mm.o
 

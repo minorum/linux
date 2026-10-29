@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
+#ifndef _DT_BINDINGS_CLOCK_MT6577_H
+#define _DT_BINDINGS_CLOCK_MT6577_H
+
+#define CLK_MT6577_MAINPLL	0
+#define CLK_MT6577_AXI		0
+
+#define CLK_MT6577_PWM_REF	0
+#define CLK_MT6577_PWM1		1
+#define CLK_MT6577_PWM2		2
+#define CLK_MT6577_PWM3		3
+#define CLK_MT6577_PWM456		4
+#define CLK_MT6577_PWM7		5
+#define CLK_MT6577_PERI_NR_CLK	6
+
+#endif

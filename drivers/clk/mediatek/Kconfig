@@ -11,6 +11,14 @@ config COMMON_CLK_MEDIATEK
 	help
 	  MediaTek SoCs' clock support.
 
+config COMMON_CLK_MT6577
+	bool "MediaTek MT6577 bus and PWM clocks"
+	depends on OF
+	select COMMON_CLK_MEDIATEK
+	select MFD_SYSCON
+	help
+	  Read the inherited MAINPLL and AXI configuration and provide PWM clocks.
+
 config COMMON_CLK_MT6577_MIPI
 	tristate "MediaTek MT6577 MIPI TX PLL"
 	depends on OF
