@@ -9,10 +9,12 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
+#include <linux/slab.h>
 
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_bridge_connector.h>
 #include <drm/drm_drv.h>
@@ -60,6 +62,46 @@ struct mt6577_dpi {
 };
 
 #define to_mt6577_dpi(p) container_of(p, struct mt6577_dpi, pipe)
+
+struct mt6577_crtc_state {
+	struct drm_crtc_state base;
+	u32 bus_flags;
+};
+
+#define to_mt6577_crtc_state(s) container_of(s, struct mt6577_crtc_state, base)
+
+static void mt6577_dpi_destroy_crtc_state(struct drm_simple_display_pipe *pipe,
+					  struct drm_crtc_state *crtc_state)
+{
+	struct mt6577_crtc_state *state = to_mt6577_crtc_state(crtc_state);
+
+	__drm_atomic_helper_crtc_destroy_state(crtc_state);
+	kfree(state);
+}
+
+static void mt6577_dpi_reset_crtc(struct drm_simple_display_pipe *pipe)
+{
+	struct mt6577_crtc_state *state;
+
+	if (pipe->crtc.state)
+		mt6577_dpi_destroy_crtc_state(pipe, pipe->crtc.state);
+	state = kzalloc_obj(*state);
+	__drm_atomic_helper_crtc_reset(&pipe->crtc, state ? &state->base : NULL);
+}
+
+static struct drm_crtc_state *
+mt6577_dpi_duplicate_crtc_state(struct drm_simple_display_pipe *pipe)
+{
+	struct mt6577_crtc_state *state;
+
+	if (!pipe->crtc.state)
+		return NULL;
+	state = kmemdup(to_mt6577_crtc_state(pipe->crtc.state), sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return NULL;
+	__drm_atomic_helper_crtc_duplicate_state(&pipe->crtc, &state->base);
+	return &state->base;
+}
 
 static int mt6577_dpi_clock(struct mt6577_dpi *dpi, unsigned long rate,
 			    unsigned long *pll_rate)
@@ -126,6 +168,7 @@ static int mt6577_dpi_check(struct drm_simple_display_pipe *pipe,
 {
 	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
 	struct drm_bridge_state *bridge;
+	struct mt6577_crtc_state *state = to_mt6577_crtc_state(crtc);
 
 	if (!crtc->active)
 		return 0;
@@ -135,6 +178,10 @@ static int mt6577_dpi_check(struct drm_simple_display_pipe *pipe,
 	if (bridge && bridge->input_bus_cfg.format != MEDIA_BUS_FMT_RGB888_1X24 &&
 	    bridge->input_bus_cfg.format != MEDIA_BUS_FMT_FIXED)
 		return -EINVAL;
+	if (bridge)
+		state->bus_flags = bridge->input_bus_cfg.flags;
+	else if (dpi->bridge->timings)
+		state->bus_flags = dpi->bridge->timings->input_bus_flags;
 	if (!plane->fb)
 		return 0;
 	if (plane->fb->pitches[0] > U16_MAX || plane->fb->pitches[0] % 8 ||
@@ -195,9 +242,8 @@ static void mt6577_dpi_enable(struct drm_simple_display_pipe *pipe,
 {
 	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
 	const struct drm_display_mode *m = &crtc->adjusted_mode;
-	struct drm_bridge_state *bridge_state;
 	unsigned long pll_rate;
-	u32 hsync, vsync, clock, bus_flags = 0;
+	u32 hsync, vsync, clock, bus_flags = to_mt6577_crtc_state(crtc)->bus_flags;
 	int div, ret;
 
 	div = mt6577_dpi_clock(dpi, m->clock * 1000UL, &pll_rate);
@@ -222,11 +268,6 @@ static void mt6577_dpi_enable(struct drm_simple_display_pipe *pipe,
 	if (ret)
 		goto disable_engine;
 
-	bridge_state = drm_atomic_get_new_bridge_state(crtc->state, dpi->bridge);
-	if (bridge_state)
-		bus_flags = bridge_state->input_bus_cfg.flags;
-	else if (dpi->bridge->timings)
-		bus_flags = dpi->bridge->timings->input_bus_flags;
 	clock = (div - 1) | ((div / 2) << 8);
 	if (bus_flags & DRM_BUS_FLAG_PIXDATA_DRIVE_NEGEDGE)
 		clock |= BIT(31);
@@ -327,6 +368,9 @@ static irqreturn_t mt6577_dpi_irq(int irq, void *data)
 }
 
 static const struct drm_simple_display_pipe_funcs mt6577_dpi_pipe_funcs = {
+	.reset_crtc = mt6577_dpi_reset_crtc,
+	.duplicate_crtc_state = mt6577_dpi_duplicate_crtc_state,
+	.destroy_crtc_state = mt6577_dpi_destroy_crtc_state,
 	.mode_valid = mt6577_dpi_mode_valid,
 	.check = mt6577_dpi_check,
 	.enable = mt6577_dpi_enable,
