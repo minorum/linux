@@ -44,6 +44,12 @@
 		clock-frequency = <13000000>;
 	};
 
+	msdc_clock: clock-msdc {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <197000000>;
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -82,6 +88,16 @@
 			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_LOW>;
 			interrupt-names = "mc";
 			dr_mode = "peripheral";
+		};
+
+		mmc@c1220000 {
+			compatible = "mediatek,mt6577-mmc-ram";
+			reg = <0xc1220000 0x1000>;
+			clocks = <&msdc_clock>;
+			clock-names = "source";
+			bus-width = <4>;
+			max-frequency = <12000000>;
+			non-removable;
 		};
 	};
 };
