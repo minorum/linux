@@ -110,7 +110,7 @@ struct bcm59035_irq {
 static void bcm59035_irq_schedule_retry(struct bcm59035_irq *irq)
 {
 	if (!irq->stopping)
-		mod_delayed_work(system_wq, &irq->retry,
+		mod_delayed_work(system_freezable_wq, &irq->retry,
 				 msecs_to_jiffies(BCM59035_IRQ_RETRY_MS));
 }
 
@@ -258,12 +258,20 @@ static void bcm59035_irq_quiesce(void *data)
 	mutex_unlock(&irq->lock);
 }
 
+static int bcm59035_irq_set_wake(struct irq_data *data, unsigned int on)
+{
+	struct bcm59035_irq *irq = irq_data_get_irq_chip_data(data);
+
+	return irq_set_irq_wake(irq->parent_irq, on);
+}
+
 static const struct irq_chip bcm59035_irq_chip = {
 	.name = "bcm59035",
 	.irq_bus_lock = bcm59035_irq_bus_lock,
 	.irq_bus_sync_unlock = bcm59035_irq_bus_sync_unlock,
 	.irq_mask = bcm59035_irq_mask,
 	.irq_unmask = bcm59035_irq_unmask,
+	.irq_set_wake = bcm59035_irq_set_wake,
 };
 
 static int bcm59035_irq_map(struct irq_domain *domain, unsigned int virq,
