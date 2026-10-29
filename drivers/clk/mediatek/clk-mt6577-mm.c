@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <dt-bindings/clock/mediatek,mt6577-mmsys.h>
-#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -22,12 +21,15 @@ static const struct mtk_gate_regs mt6577_mm2_regs = {
 };
 
 static const struct mtk_gate mt6577_mm_gates[] = {
-	GATE_MTK(CLK_MT6577_MM_DPI, "mt6577_mm_dpi", NULL,
-		 &mt6577_mm2_regs, 4, &mtk_clk_gate_ops_setclr),
-	GATE_MTK(CLK_MT6577_MM_LARB1, "mt6577_mm_larb1", NULL,
-		 &mt6577_mm2_regs, 7, &mtk_clk_gate_ops_setclr),
-	GATE_MTK(CLK_MT6577_MM_LARB1_EMI, "mt6577_mm_larb1_emi", NULL,
-		 &mt6577_mm0_regs, 7, &mtk_clk_gate_ops_setclr),
+	GATE_MTK_FLAGS(CLK_MT6577_MM_DPI, "mt6577_mm_dpi", NULL,
+		       &mt6577_mm2_regs, 4, &mtk_clk_gate_ops_setclr,
+		       CLK_IGNORE_UNUSED),
+	GATE_MTK_FLAGS(CLK_MT6577_MM_LARB1, "mt6577_mm_larb1", NULL,
+		       &mt6577_mm2_regs, 7, &mtk_clk_gate_ops_setclr,
+		       CLK_IGNORE_UNUSED),
+	GATE_MTK_FLAGS(CLK_MT6577_MM_LARB1_EMI, "mt6577_mm_larb1_emi", NULL,
+		       &mt6577_mm0_regs, 7, &mtk_clk_gate_ops_setclr,
+		       CLK_IGNORE_UNUSED),
 };
 
 struct mt6577_mm {
@@ -49,23 +51,14 @@ static void mt6577_mm_unregister(void *data)
 
 static int mt6577_mm_probe(struct platform_device *pdev)
 {
-	static const char * const parents[] = { "dpi", "smi", "emi" };
 	struct device *dev = &pdev->dev;
 	struct mt6577_mm *mm;
-	struct clk *parent;
-	int i, ret;
+	int ret;
 
 	mm = devm_kzalloc(dev, sizeof(*mm), GFP_KERNEL);
 	if (!mm)
 		return -ENOMEM;
 	memcpy(mm->gates, mt6577_mm_gates, sizeof(mm->gates));
-	for (i = 0; i < ARRAY_SIZE(parents); i++) {
-		parent = devm_clk_get(dev, parents[i]);
-		if (IS_ERR(parent))
-			return dev_err_probe(dev, PTR_ERR(parent),
-					     "Missing %s parent clock\n", parents[i]);
-		mm->gates[i].parent_name = __clk_get_name(parent);
-	}
 	mm->data = mtk_alloc_clk_data(ARRAY_SIZE(mm->gates));
 	if (!mm->data)
 		return -ENOMEM;
