@@ -16219,6 +16219,12 @@ S:	Supported
 F:	Documentation/devicetree/bindings/power/supply/maxim,max77976.yaml
 F:	drivers/power/supply/max77976_charger.c
 
+MAXIM MAX8991 RTC DRIVER
+M:	minorum <mit.mis@gmail.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/rtc/maxim,max8991-rtc.yaml
+F:	drivers/rtc/rtc-max8991.c
+
 MAXIM MUIC CHARGER DRIVERS FOR EXYNOS BASED BOARDS
 M:	Krzysztof Kozlowski <krzk@kernel.org>
 S:	Maintained
