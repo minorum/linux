@@ -80,8 +80,37 @@ static int gt_s5620_read_time(struct device *dev, struct rtc_time *tm)
 	return -EAGAIN;
 }
 
+static int gt_s5620_set_time(struct device *dev, struct rtc_time *tm)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct rtc_time calendar;
+	u8 data[GT_S5620_TIME_SIZE + 1];
+	int year;
+	int ret;
+
+	ret = rtc_valid_tm(tm);
+	if (ret)
+		return ret;
+	if (tm->tm_year > 8099)
+		return -EINVAL;
+	year = tm->tm_year + 1900;
+	rtc_time64_to_tm(rtc_tm_to_time64(tm), &calendar);
+	data[0] = GT_S5620_TIME_REG;
+	data[1] = bin2bcd(tm->tm_sec);
+	data[2] = bin2bcd(tm->tm_min);
+	data[3] = bin2bcd(tm->tm_hour);
+	data[4] = calendar.tm_wday + 1;
+	data[5] = bin2bcd(tm->tm_mday);
+	data[6] = bin2bcd(tm->tm_mon + 1);
+	data[7] = bin2bcd(year % 100);
+	data[8] = bin2bcd(year / 100);
+	ret = i2c_master_send(client, data, sizeof(data));
+	return ret == sizeof(data) ? 0 : ret < 0 ? ret : -EIO;
+}
+
 static const struct rtc_class_ops gt_s5620_rtc_ops = {
 	.read_time = gt_s5620_read_time,
+	.set_time = gt_s5620_set_time,
 };
 
 static int gt_s5620_probe(struct i2c_client *client)
@@ -121,5 +150,5 @@ static struct i2c_driver gt_s5620_driver = {
 };
 module_i2c_driver(gt_s5620_driver);
 
-MODULE_DESCRIPTION("Samsung GT-S5620 read-only RTC driver");
+MODULE_DESCRIPTION("Samsung GT-S5620 RTC driver");
 MODULE_LICENSE("GPL");
