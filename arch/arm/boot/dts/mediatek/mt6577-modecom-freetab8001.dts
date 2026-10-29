@@ -56,6 +56,13 @@
 		#size-cells = <1>;
 		ranges;
 
+		pio: pinctrl@c0005000 {
+			compatible = "mediatek,mt6577-pinctrl";
+			reg = <0xc0005000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
 		gic: interrupt-controller@c000b000 {
 			compatible = "arm,cortex-a9-gic";
 			reg = <0xc000b000 0x1000>, <0xc000a100 0x100>;
