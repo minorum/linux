@@ -55,11 +55,17 @@ static int freetab_prepare(struct drm_panel *panel)
 		ret = gpiod_direction_output(ctx->controls->desc[i], 1);
 		if (ret) {
 			freetab_power_down(ctx, BIT(i) - 1);
+			dev_err(panel->dev, "Control %u failed: %d\n", i, ret);
 			return ret;
 		}
 		fsleep(delays[i] * 1000);
 	}
 	return 0;
+}
+
+static int freetab_enable(struct drm_panel *panel)
+{
+	return panel->prepared ? 0 : -EIO;
 }
 
 static int freetab_unprepare(struct drm_panel *panel)
@@ -93,6 +99,7 @@ static int freetab_get_modes(struct drm_panel *panel,
 
 static const struct drm_panel_funcs freetab_funcs = {
 	.prepare = freetab_prepare,
+	.enable = freetab_enable,
 	.unprepare = freetab_unprepare,
 	.get_modes = freetab_get_modes,
 };
@@ -120,20 +127,11 @@ static int freetab_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static void freetab_shutdown(struct platform_device *pdev)
-{
-	struct freetab_panel *ctx = platform_get_drvdata(pdev);
-
-	drm_panel_disable(&ctx->panel);
-	drm_panel_unprepare(&ctx->panel);
-}
-
 static void freetab_remove(struct platform_device *pdev)
 {
 	struct freetab_panel *ctx = platform_get_drvdata(pdev);
 
 	drm_panel_remove(&ctx->panel);
-	freetab_shutdown(pdev);
 }
 
 static const struct of_device_id freetab_of_match[] = {
@@ -145,7 +143,6 @@ MODULE_DEVICE_TABLE(of, freetab_of_match);
 static struct platform_driver freetab_driver = {
 	.probe = freetab_probe,
 	.remove = freetab_remove,
-	.shutdown = freetab_shutdown,
 	.driver = {
 		.name = "panel-modecom-freetab8001",
 		.of_match_table = freetab_of_match,
