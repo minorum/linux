@@ -4,6 +4,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/clock/mediatek,mt6577-clk.h>
+#include <dt-bindings/clock/mediatek,mt6577-mmsys.h>
 #include <dt-bindings/gpio/gpio.h>
 
 / {
@@ -58,9 +59,26 @@
 		clock-frequency = <197000000>;
 	};
 
-	backlight {
+	backlight: backlight {
 		compatible = "gpio-backlight";
 		gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
+	};
+
+	panel {
+		compatible = "modecom,freetab8001-display";
+		modecom,control-gpios = <&pio 100 GPIO_ACTIVE_HIGH>,
+					<&pio 66 GPIO_ACTIVE_HIGH>,
+					<&pio 12 GPIO_ACTIVE_HIGH>,
+					<&pio 49 GPIO_ACTIVE_HIGH>,
+					<&pio 84 GPIO_ACTIVE_HIGH>,
+					<&pio 52 GPIO_ACTIVE_HIGH>;
+		backlight = <&backlight>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dpi_out>;
+			};
+		};
 	};
 
 	soc {
@@ -68,6 +86,39 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		mmsys: clock-controller@c2080000 {
+			compatible = "mediatek,mt6577-mmsys", "syscon";
+			reg = <0xc2080000 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		mipi_tx: clock-controller@c20a3800 {
+			compatible = "mediatek,mt6577-mipi-tx";
+			reg = <0xc20a3800 0x34>;
+			clocks = <&clk26m>;
+			#clock-cells = <0>;
+			mediatek,mmsys = <&mmsys>;
+			mediatek,apmixedsys = <&apmixedsys>;
+			mediatek,infracfg = <&infracfg>;
+		};
+
+		display-controller@c208c000 {
+			compatible = "mediatek,mt6577-dpi";
+			reg = <0xc208c000 0xb8>;
+			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&mmsys CLK_MT6577_MM_DPI>,
+				 <&mmsys CLK_MT6577_MM_LARB1>,
+				 <&mmsys CLK_MT6577_MM_LARB1_EMI>, <&mipi_tx>;
+			clock-names = "engine", "larb", "larb-emi", "pll";
+			mediatek,mmsys = <&mmsys>;
+
+			port {
+				dpi_out: endpoint {
+					remote-endpoint = <&panel_in>;
+				};
+			};
+		};
 
 		infracfg: clock-controller@c0001000 {
 			compatible = "mediatek,mt6577-infracfg";
