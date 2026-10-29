@@ -5156,6 +5156,7 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/arm/bcm/brcm,bcm2153.yaml
 F:	Documentation/devicetree/bindings/clock/brcm,bcm2153-sdio-clock.yaml
 F:	Documentation/devicetree/bindings/i2c/brcm,bcm2153-i2c.yaml
+F:	Documentation/devicetree/bindings/iio/adc/brcm,bcm2153-auxadc.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/brcm,bcm2153-intc.yaml
 F:	Documentation/devicetree/bindings/mfd/brcm,bcm59035.yaml
 F:	Documentation/devicetree/bindings/mmc/brcm,bcm2153-sdhci.yaml
