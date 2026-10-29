@@ -92,7 +92,7 @@
 	clock-frequency = <100000>;
 
 	rtc@68 {
-		compatible = "maxim,max8991-rtc";
+		compatible = "samsung,gt-s5620-rtc";
 		reg = <0x68>;
 	};
 

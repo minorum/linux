@@ -363,14 +363,16 @@ config RTC_DRV_MAX8925
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-max8925.
 
-config RTC_DRV_MAX8991
-	tristate "Maxim MAX8991 read-only RTC"
+config RTC_DRV_GT_S5620
+	tristate "Samsung GT-S5620 read-only RTC"
 	help
-	  Read the calendar of the MAX8991 power-management chip through
-	  its separate I2C RTC interface. Time and alarm writes are disabled.
+	  Read the standalone I2C calendar interface on the Samsung GT-S5620.
+	  The interface is identified by the board, not by a known RTC chip.
+	  Only calendar reads are supported; time and alarm writes are disabled.
+	  Say Y to expose the retained calendar through the RTC class.
 
 	  This driver can also be built as a module. If so, the module
-	  will be called rtc-max8991.
+	  will be called rtc-gt-s5620.
 
 config RTC_DRV_MAX8998
 	tristate "Maxim MAX8998"

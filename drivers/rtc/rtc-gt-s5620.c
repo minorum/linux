@@ -7,18 +7,18 @@
 #include <linux/rtc.h>
 #include <linux/string.h>
 
-#define MAX8991_TIME_REG	0x00
-#define MAX8991_TIME_SIZE	8
-#define MAX8991_READ_TRIES	4
+#define GT_S5620_TIME_REG	0x00
+#define GT_S5620_TIME_SIZE	8
+#define GT_S5620_READ_TRIES	4
 
-static int max8991_decode(const u8 *data, struct rtc_time *tm)
+static int gt_s5620_decode(const u8 *data, struct rtc_time *tm)
 {
 	unsigned int i;
 	int ret;
 
 	if (data[2] & BIT(7))
 		return -EOPNOTSUPP;
-	for (i = 0; i < MAX8991_TIME_SIZE; i++) {
+	for (i = 0; i < GT_S5620_TIME_SIZE; i++) {
 		if (i == 3)
 			continue;
 		if ((data[i] & 0x0f) > 9 || (data[i] >> 4) > 9)
@@ -38,14 +38,14 @@ static int max8991_decode(const u8 *data, struct rtc_time *tm)
 	return 0;
 }
 
-static int max8991_read_calendar(struct i2c_client *client, u8 *data)
+static int gt_s5620_read_calendar(struct i2c_client *client, u8 *data)
 {
-	u8 address = MAX8991_TIME_REG;
+	u8 address = GT_S5620_TIME_REG;
 	struct i2c_msg msgs[] = {
 		{ .addr = client->addr,
 		  .len = 1, .buf = &address },
 		{ .addr = client->addr, .flags = I2C_M_RD,
-		  .len = MAX8991_TIME_SIZE, .buf = data },
+		  .len = GT_S5620_TIME_SIZE, .buf = data },
 	};
 	int ret;
 
@@ -57,34 +57,34 @@ static int max8991_read_calendar(struct i2c_client *client, u8 *data)
 	return ret == 1 ? 0 : ret < 0 ? ret : -EIO;
 }
 
-static int max8991_read_time(struct device *dev, struct rtc_time *tm)
+static int gt_s5620_read_time(struct device *dev, struct rtc_time *tm)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	u8 first[MAX8991_TIME_SIZE], second[MAX8991_TIME_SIZE];
+	u8 first[GT_S5620_TIME_SIZE], second[GT_S5620_TIME_SIZE];
 	u64 start = ktime_get_ns();
 	unsigned int attempt;
 	int ret;
 
-	for (attempt = 0; attempt < MAX8991_READ_TRIES; attempt++) {
-		ret = max8991_read_calendar(client, first);
+	for (attempt = 0; attempt < GT_S5620_READ_TRIES; attempt++) {
+		ret = gt_s5620_read_calendar(client, first);
 		if (ret)
 			return ret;
-		ret = max8991_read_calendar(client, second);
+		ret = gt_s5620_read_calendar(client, second);
 		if (ret)
 			return ret;
 		if (ktime_get_ns() - start >= NSEC_PER_SEC)
 			return -EAGAIN;
 		if (!memcmp(first, second, sizeof(first)))
-			return max8991_decode(second, tm);
+			return gt_s5620_decode(second, tm);
 	}
 	return -EAGAIN;
 }
 
-static const struct rtc_class_ops max8991_rtc_ops = {
-	.read_time = max8991_read_time,
+static const struct rtc_class_ops gt_s5620_rtc_ops = {
+	.read_time = gt_s5620_read_time,
 };
 
-static int max8991_probe(struct i2c_client *client)
+static int gt_s5620_probe(struct i2c_client *client)
 {
 	struct rtc_device *rtc;
 
@@ -93,33 +93,33 @@ static int max8991_probe(struct i2c_client *client)
 	rtc = devm_rtc_allocate_device(&client->dev);
 	if (IS_ERR(rtc))
 		return PTR_ERR(rtc);
-	rtc->ops = &max8991_rtc_ops;
+	rtc->ops = &gt_s5620_rtc_ops;
 	rtc->range_max = RTC_TIMESTAMP_END_9999;
 	clear_bit(RTC_FEATURE_UPDATE_INTERRUPT, rtc->features);
 	return devm_rtc_register_device(rtc);
 }
 
-static const struct of_device_id max8991_of_match[] = {
-	{ .compatible = "maxim,max8991-rtc" },
+static const struct of_device_id gt_s5620_of_match[] = {
+	{ .compatible = "samsung,gt-s5620-rtc" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, max8991_of_match);
+MODULE_DEVICE_TABLE(of, gt_s5620_of_match);
 
-static const struct i2c_device_id max8991_id[] = {
-	{ "max8991-rtc" },
+static const struct i2c_device_id gt_s5620_id[] = {
+	{ "gt-s5620-rtc" },
 	{ }
 };
-MODULE_DEVICE_TABLE(i2c, max8991_id);
+MODULE_DEVICE_TABLE(i2c, gt_s5620_id);
 
-static struct i2c_driver max8991_driver = {
+static struct i2c_driver gt_s5620_driver = {
 	.driver = {
-		.name = "max8991-rtc",
-		.of_match_table = max8991_of_match,
+		.name = "gt-s5620-rtc",
+		.of_match_table = gt_s5620_of_match,
 	},
-	.probe = max8991_probe,
-	.id_table = max8991_id,
+	.probe = gt_s5620_probe,
+	.id_table = gt_s5620_id,
 };
-module_i2c_driver(max8991_driver);
+module_i2c_driver(gt_s5620_driver);
 
-MODULE_DESCRIPTION("Maxim MAX8991 read-only RTC driver");
+MODULE_DESCRIPTION("Samsung GT-S5620 read-only RTC driver");
 MODULE_LICENSE("GPL");
