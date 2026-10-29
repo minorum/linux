@@ -4,14 +4,16 @@
 $id: http://devicetree.org/schemas/rtc/maxim,max8991-rtc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Maxim MAX8991 Real Time Clock
+title: Samsung GT-S5620 standalone RTC interface
 
 maintainers:
   - minorum <mit.mis@gmail.com>
 
 description:
-  The MAX8991 power-management IC exposes its calendar through a separate
-  I2C slave interface at address 0x68.
+  The Samsung GT-S5620 has an observed eight-byte BCD calendar interface at
+  I2C address 0x68, starting at register 0. Its silicon ownership is unresolved.
+  The compatible is a retained local identifier for the board-validated
+  standalone read-only driver, not an established MAX8991 compatibility claim.
 
 allOf:
   - $ref: rtc.yaml#
