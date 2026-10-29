@@ -148,6 +148,15 @@ config INPUT_BBNSM_PWRKEY
 	  To compile this driver as a module, choose M here; the
 	  module will be called bbnsm_pwrkey.
 
+config INPUT_BCM59035_ONKEY
+	tristate "Broadcom BCM59035 power button"
+	depends on MFD_BCM59035
+	help
+	  Say Y here to enable the power button on Broadcom BCM59035 PMICs.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called bcm59035-onkey.
+
 config INPUT_BMA150
 	tristate "BMA150/SMB380 acceleration sensor support"
 	depends on I2C

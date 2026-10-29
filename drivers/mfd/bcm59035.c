@@ -3,6 +3,7 @@
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/ioport.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
 #include <linux/mfd/core.h>
@@ -17,6 +18,7 @@
 
 #define BCM59035_HOSTACT		0x51
 #define BCM59035_HOSTDICOFF	0x04
+#define BCM59035_ENV2		0x4d
 
 static int bcm59035_reg_read(void *context, unsigned int reg,
 			     unsigned int *value)
@@ -60,7 +62,7 @@ static bool bcm59035_precious_reg(struct device *dev, unsigned int reg)
 static bool bcm59035_readable_reg(struct device *dev, unsigned int reg)
 {
 	return (reg >= 0x01 && reg <= 0x14) || reg == 0x1b ||
-	       reg == BCM59035_HOSTACT || reg == 0xb5;
+	       reg == BCM59035_HOSTACT || reg == 0xb5 || reg == BCM59035_ENV2;
 }
 
 static bool bcm59035_writeable_reg(struct device *dev, unsigned int reg)
@@ -342,8 +344,18 @@ static int bcm59035_irq_init(struct i2c_client *client, struct regmap *regmap,
 	return 0;
 }
 
+static const struct resource bcm59035_onkey_resources[] = {
+	DEFINE_RES_IRQ_NAMED(1, "press"),
+	DEFINE_RES_IRQ_NAMED(0, "release"),
+};
+
 static const struct mfd_cell bcm59035_cells[] = {
 	{ .name = "bcm59035-regulator" },
+	{
+		.name = "bcm59035-onkey",
+		.resources = bcm59035_onkey_resources,
+		.num_resources = ARRAY_SIZE(bcm59035_onkey_resources),
+	},
 };
 
 static int bcm59035_power_off_prepare(struct sys_off_data *data)
