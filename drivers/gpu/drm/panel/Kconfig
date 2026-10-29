@@ -573,6 +573,13 @@ config DRM_PANEL_MANTIX_MLAF057WE51
 	  has a resolution of 720x1440 pixels, a built in backlight and touch
 	  controller.
 
+config DRM_PANEL_MODECOM_FREETAB8001
+	tristate "MODECOM FreeTAB 8001 display assembly"
+	depends on OF && GPIOLIB && BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here to enable the 1024x768 RGB display assembly used by the
+	  MODECOM FreeTAB 8001 tablet.
+
 config DRM_PANEL_MOTOROLA_MOT
 	tristate "Atrix 4G and Droid X2 540x960 DSI video mode panel"
 	depends on OF
