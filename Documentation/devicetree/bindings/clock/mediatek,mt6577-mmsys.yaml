@@ -11,6 +11,7 @@ maintainers:
 
 description:
   MMSYS provides the clock gates for the DPI engine and SMI memory fabric.
+  Upstream clock sources are configured by firmware. Gate rates are unknown.
 
 properties:
   compatible:
@@ -24,16 +25,10 @@ properties:
   clocks:
     items:
       - description: Register bus clock
-      - description: DPI engine source clock
-      - description: SMI fabric source clock
-      - description: SMI EMI source clock
 
   clock-names:
     items:
       - const: bus
-      - const: dpi
-      - const: smi
-      - const: emi
 
   '#clock-cells':
     const: 1
@@ -44,18 +39,18 @@ properties:
 required:
   - compatible
   - reg
-  - clocks
-  - clock-names
   - '#clock-cells'
 
 additionalProperties: false
+
+dependencies:
+  clocks: [clock-names]
+  clock-names: [clocks]
 
 examples:
   - |
     clock-controller@c2080000 {
         compatible = "mediatek,mt6577-mmsys", "syscon";
         reg = <0xc2080000 0x1000>;
-        clocks = <&mm_bus>, <&dpi_clk>, <&smi_clk>, <&emi_clk>;
-        clock-names = "bus", "dpi", "smi", "emi";
         #clock-cells = <1>;
     };
