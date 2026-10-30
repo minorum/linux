@@ -23,6 +23,12 @@ properties:
 
   power-supplies:
     maxItems: 1
+    description:
+      Input power supply. If this references a plain USB-B connector whose
+      parent has usb-role-switch, the PMIC USB-present detector is connected
+      to that connector's VBUS and controls its device or disconnected role.
+      The charger is the sole physical VBUS detector for that port. A default
+      USB role and another connector role controller must not be configured.
 
 required:
   - compatible
