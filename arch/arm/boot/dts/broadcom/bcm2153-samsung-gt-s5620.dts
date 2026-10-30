@@ -12,6 +12,9 @@
 		compatible = "simple-battery";
 		device-chemistry = "lithium-ion";
 		energy-full-design-microwatt-hours = <3700000>;
+		constant-charge-current-max-microamp = <500000>;
+		constant-charge-voltage-max-microvolt = <4200000>;
+		charge-term-current-microamp = <50000>;
 	};
 
 	battery-monitor {
@@ -150,6 +153,7 @@
 
 		charger: charger {
 			compatible = "brcm,bcm59035-charger";
+			monitored-battery = <&battery>;
 			status = "disabled";
 		};
 
