@@ -1210,4 +1210,11 @@ config MACSMC_POWER
 
 	  Say Y or M here if you have an Apple Silicon based Mac.
 
+config CHARGER_BCM59035
+	tristate "Broadcom BCM59035 charger presence monitor"
+	depends on MFD_BCM59035
+	help
+	  Monitor external power presence on the BCM59035 PMIC. Charging
+	  controls and active charging status are not supported yet.
+
 endif # POWER_SUPPLY

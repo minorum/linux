@@ -19,6 +19,7 @@
 #define BCM59035_HOSTACT		0x51
 #define BCM59035_HOSTDICOFF	0x04
 #define BCM59035_ENV2		0x4d
+#define BCM59035_ENV1		0x4c
 
 static int bcm59035_reg_read(void *context, unsigned int reg,
 			     unsigned int *value)
@@ -62,7 +63,8 @@ static bool bcm59035_precious_reg(struct device *dev, unsigned int reg)
 static bool bcm59035_readable_reg(struct device *dev, unsigned int reg)
 {
 	return (reg >= 0x01 && reg <= 0x14) || reg == 0x1b ||
-	       reg == BCM59035_HOSTACT || reg == 0xb5 || reg == BCM59035_ENV2;
+	       reg == BCM59035_HOSTACT || reg == 0xb5 ||
+	       reg == BCM59035_ENV1 || reg == BCM59035_ENV2;
 }
 
 static bool bcm59035_writeable_reg(struct device *dev, unsigned int reg)
@@ -359,6 +361,10 @@ static const struct resource bcm59035_onkey_resources[] = {
 
 static const struct mfd_cell bcm59035_cells[] = {
 	{ .name = "bcm59035-regulator" },
+	{
+		.name = "bcm59035-charger",
+		.of_compatible = "brcm,bcm59035-charger",
+	},
 	{
 		.name = "bcm59035-onkey",
 		.resources = bcm59035_onkey_resources,
