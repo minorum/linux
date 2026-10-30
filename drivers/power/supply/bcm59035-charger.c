@@ -26,6 +26,7 @@ struct bcm59035_charger {
 	struct delayed_work poll;
 	struct mutex lock; /* Control and readback */
 	int last_online;
+	int inhibit_error;
 	atomic_t events;
 	unsigned int faults;
 };
@@ -153,7 +154,7 @@ static int bcm59035_charger_read_property(struct power_supply *psy,
 	if (property == POWER_SUPPLY_PROP_HEALTH) {
 		unsigned int faults = READ_ONCE(charger->faults);
 
-		if ((faults & BCM59035_SNAPSHOT_ERROR) ||
+		if (charger->inhibit_error || (faults & BCM59035_SNAPSHOT_ERROR) ||
 		    ((faults & BCM59035_VOLTAGE_ERROR_MASK) && (faults & BCM59035_TIMER_ERROR)))
 			value->intval = POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
 		else if (faults & BCM59035_VOLTAGE_ERROR_MASK)
@@ -221,6 +222,7 @@ static int bcm59035_charger_set_property(struct power_supply *psy,
 		return -EINVAL;
 	mutex_lock(&charger->lock);
 	ret = bcm59035_charger_inhibit(charger);
+	charger->inhibit_error = ret;
 	mutex_unlock(&charger->lock);
 	power_supply_changed(psy);
 	return ret;
@@ -259,8 +261,18 @@ static void bcm59035_charger_poll(struct work_struct *work)
 						      struct bcm59035_charger, poll);
 	unsigned int events = atomic_xchg(&charger->events, 0);
 	int online = bcm59035_charger_read_online(charger);
+	bool changed = false;
 
-	if (online != charger->last_online || events) {
+	mutex_lock(&charger->lock);
+	if (online <= 0 || (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
+	    charger->inhibit_error) {
+		int ret = bcm59035_charger_inhibit(charger);
+
+		changed = ret != charger->inhibit_error;
+		charger->inhibit_error = ret;
+	}
+	mutex_unlock(&charger->lock);
+	if (online != charger->last_online || events || changed) {
 		charger->last_online = online;
 		power_supply_changed(charger->psy);
 	}
