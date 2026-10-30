@@ -173,6 +173,40 @@ static int bcm59035_charger_read_behaviour(struct bcm59035_charger *charger)
 	return POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
 }
 
+static int bcm59035_charger_read_budget(struct bcm59035_charger *charger)
+{
+	union power_supply_propval value;
+	int ret;
+
+	ret = power_supply_get_property_from_supplier(charger->psy,
+						      POWER_SUPPLY_PROP_ONLINE, &value);
+	if (ret)
+		return ret;
+	if (value.intval <= 0)
+		return -ENODEV;
+	ret = power_supply_get_property_from_supplier(charger->psy,
+						      POWER_SUPPLY_PROP_CURRENT_MAX, &value);
+	if (ret)
+		return ret;
+	return value.intval < 0 ? -EINVAL : value.intval;
+}
+
+static bool bcm59035_charger_profile_within_budget(struct bcm59035_charger *charger,
+						   int budget)
+{
+	int ret;
+
+	if (budget <= 0)
+		return false;
+	ret = bcm59035_charger_read_behaviour(charger);
+	if (ret >= 0)
+		return true;
+	if (ret != -ENODATA)
+		return false;
+	ret = bcm59035_charger_read_profile(charger, false);
+	return ret > 0 && ret <= budget;
+}
+
 static int bcm59035_charger_inhibit(struct bcm59035_charger *charger)
 {
 	int ret, usb_ret;
@@ -391,13 +425,15 @@ static void bcm59035_charger_poll(struct work_struct *work)
 	unsigned int events = atomic_xchg(&charger->events, 0);
 	int online = bcm59035_charger_read_online(charger);
 	int health = bcm59035_charger_read_battery_health(charger);
+	int budget = bcm59035_charger_read_budget(charger);
 	bool changed = false;
 
 	mutex_lock(&charger->lock);
 	changed = health != charger->battery_health;
 	charger->battery_health = health;
 	if (online <= 0 || (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
-	    charger->inhibit_error || health != POWER_SUPPLY_HEALTH_GOOD) {
+	    charger->inhibit_error || health != POWER_SUPPLY_HEALTH_GOOD ||
+	    !bcm59035_charger_profile_within_budget(charger, budget)) {
 		int ret = bcm59035_charger_inhibit(charger);
 
 		changed |= ret != charger->inhibit_error;
