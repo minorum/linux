@@ -8,6 +8,22 @@
 	model = "Samsung GT-S5620";
 	compatible = "samsung,gt-s5620", "brcm,bcm2153";
 
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion";
+		energy-full-design-microwatt-hours = <3700000>;
+	};
+
+	battery-monitor {
+		compatible = "samsung,gt-s5620-battery";
+		io-channels = <&adc 2>, <&adc 4>;
+		io-channel-names = "voltage", "temperature";
+		nvmem-cells = <&battery_cal_3v3>, <&battery_cal_4v2>;
+		nvmem-cell-names = "voltage-3v3", "voltage-4v2";
+		monitored-battery = <&battery>;
+		status = "disabled";
+	};
+
 	chosen {
 		linux,usable-memory-range = <0x81000000 0x06f00000>;
 	};
