@@ -10,9 +10,10 @@ maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
 
 description: |
-  Polling PIO eMMC host retaining power and electrical pad settings from
-  the preceding boot stage. ECO revision 4 digital timing is initialized by
-  the driver. This interface does not provide cold board power-up, DMA,
+  Polling PIO eMMC host retaining card power from the preceding boot stage.
+  The driver initializes ECO revision 4 digital timing and the pad defaults
+  qualified on the MODECOM FreeTAB 8001. This interface does not provide
+  cold board power-up, DMA,
   high-speed modes or system power management.
   The source clock provider owns the controller gate and describes the
   boot-selected source.
