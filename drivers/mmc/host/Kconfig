@@ -1049,7 +1049,8 @@ config MMC_MT6577_RAM
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	help
 	  Polling eMMC support with revision 4 digital controller initialization.
-	  Power and electrical pad settings must remain configured by firmware.
+	  Pad defaults match the MODECOM FreeTAB 8001. Card power must remain
+	  configured by firmware.
 
 config MMC_MTK
 	tristate "MediaTek SD/MMC Card Interface support"

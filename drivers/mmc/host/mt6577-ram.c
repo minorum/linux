@@ -56,6 +56,15 @@
 #define SDC_RESP0	0x40
 #define SDC_BLK_NUM	0x50
 #define MSDC_PATCH0	0xb0
+#define MSDC_PAD_CTRL0	0xe0
+#define MSDC_PAD_CTRL1	0xe4
+#define MSDC_PAD_CTRL2	0xe8
+#define PAD_DRVN		GENMASK(2, 0)
+#define PAD_DRVP		GENMASK(6, 4)
+#define PAD_PD		BIT(16)
+#define PAD_PU		BIT(17)
+#define PAD_SMT		BIT(18)
+#define PAD_IES		BIT(19)
 #define MSDC_PAD_TUNE	0xec
 #define MSDC_RDDLY0	0xf0
 #define MSDC_RDDLY1	0xf4
@@ -102,6 +111,11 @@ static int mt6577_init_hw(struct mt6577_host *host)
 	ret = mt6577_reset(host);
 	if (ret)
 		return ret;
+	val = PAD_SMT | PAD_IES | FIELD_PREP(PAD_DRVN, 4) |
+		FIELD_PREP(PAD_DRVP, 4);
+	writel(val | PAD_PD, host->base + MSDC_PAD_CTRL0);
+	writel(val | PAD_PU, host->base + MSDC_PAD_CTRL1);
+	writel(val | PAD_PU, host->base + MSDC_PAD_CTRL2);
 	writel(readl(host->base + MSDC_PS) & ~PS_CDEN, host->base + MSDC_PS);
 	writel(0, host->base + MSDC_PAD_TUNE);
 	writel(0, host->base + MSDC_IOCON);
@@ -365,5 +379,5 @@ static struct platform_driver mt6577_driver = {
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host with inherited electrical setup");
+MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host with inherited card power");
 MODULE_LICENSE("GPL");
