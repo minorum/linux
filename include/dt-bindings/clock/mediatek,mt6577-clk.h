@@ -14,6 +14,7 @@
 #define CLK_MT6577_PWM456		4
 #define CLK_MT6577_PWM7		5
 #define CLK_MT6577_MSDC0		6
-#define CLK_MT6577_PERI_NR_CLK	7
+#define CLK_MT6577_I2C_DUAL	7
+#define CLK_MT6577_PERI_NR_CLK	8
 
 #endif

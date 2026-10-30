@@ -161,6 +161,9 @@ static const struct mtk_gate mt6577_peri_gates[] = {
 		 &mt6577_peri_regs, 6, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT6577_MSDC0, "mt6577_msdc0", "mt6577_msdc0_sel",
 		 &mt6577_peri_regs, 15, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK_FLAGS(CLK_MT6577_I2C_DUAL, "mt6577_i2c_dual", NULL,
+		       &mt6577_peri_regs, 30, &mtk_clk_gate_ops_no_setclr,
+		       CLK_IS_CRITICAL),
 };
 
 struct mt6577_peri {
@@ -226,8 +229,13 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 	memcpy(peri->gates, mt6577_peri_gates, sizeof(peri->gates));
-	for (i = 0; i < ARRAY_SIZE(peri->gates) - 1; i++)
-		peri->gates[i].parent_name = clk_hw_get_name(reference);
+	for (i = 0; i < ARRAY_SIZE(peri->gates); i++) {
+		if (peri->gates[i].id >= CLK_MT6577_PWM1 &&
+		    peri->gates[i].id <= CLK_MT6577_PWM7)
+			peri->gates[i].parent_name = clk_hw_get_name(reference);
+		else if (peri->gates[i].id == CLK_MT6577_I2C_DUAL)
+			peri->gates[i].parent_name = __clk_get_name(inputs[0].clk);
+	}
 	ret = mtk_clk_register_gates(dev, dev->of_node, peri->gates,
 				     ARRAY_SIZE(peri->gates), peri->data);
 	if (ret)

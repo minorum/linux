@@ -186,6 +186,18 @@
 			clock-names = "system-clk";
 		};
 
+		i2c@c1014000 {
+			compatible = "mediatek,mt6577-i2c-dual";
+			reg = <0xc1014000 0xc0>;
+			interrupts = <GIC_SPI 73 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&pericfg CLK_MT6577_I2C_DUAL>;
+			clock-names = "main";
+			clock-frequency = <100000>;
+			mediatek,use-push-pull;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
 		usb@c1210000 {
 			compatible = "mediatek,mt6577-musb-ram";
 			reg = <0xc1210000 0x1000>;
