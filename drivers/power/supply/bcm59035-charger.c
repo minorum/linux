@@ -8,6 +8,7 @@
 #include <linux/workqueue.h>
 
 #define BCM59035_ENV1 0x4c
+#define BCM59035_MBCCTRL7 0x3c
 
 struct bcm59035_charger {
 	struct regmap *regmap;
@@ -32,7 +33,16 @@ static int bcm59035_charger_get_property(struct power_supply *psy,
 					 union power_supply_propval *value)
 {
 	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
-	int online;
+	unsigned int setting;
+	int online, ret;
+
+	if (property == POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT) {
+		ret = regmap_read(charger->regmap, BCM59035_MBCCTRL7, &setting);
+		if (ret)
+			return ret;
+		value->intval = 50000 + (setting & 0x0f) * 10000;
+		return 0;
+	}
 
 	if (property != POWER_SUPPLY_PROP_ONLINE &&
 	    property != POWER_SUPPLY_PROP_STATUS)
@@ -51,6 +61,7 @@ static int bcm59035_charger_get_property(struct power_supply *psy,
 static const enum power_supply_property bcm59035_charger_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT,
 };
 
 static const struct power_supply_desc bcm59035_charger_desc = {

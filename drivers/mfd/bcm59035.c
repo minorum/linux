@@ -64,7 +64,7 @@ static bool bcm59035_readable_reg(struct device *dev, unsigned int reg)
 {
 	return (reg >= 0x01 && reg <= 0x14) || reg == 0x1b ||
 	       reg == BCM59035_HOSTACT || reg == 0xb5 ||
-	       reg == BCM59035_ENV1 || reg == BCM59035_ENV2;
+	       reg == BCM59035_ENV1 || reg == BCM59035_ENV2 || reg == 0x3c;
 }
 
 static bool bcm59035_writeable_reg(struct device *dev, unsigned int reg)
