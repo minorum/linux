@@ -36,6 +36,7 @@ struct bcm59035_charger {
 	int inhibit_error;
 	int role_error;
 	bool inhibited;
+	bool ready;
 	int battery_health;
 	int max_current;
 	int max_voltage;
@@ -494,6 +495,16 @@ static int bcm59035_charger_init(struct power_supply *psy)
 	return 0;
 }
 
+static void bcm59035_charger_external_power_changed(struct power_supply *psy)
+{
+	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
+
+	mutex_lock(&charger->lock);
+	if (charger->ready)
+		mod_delayed_work(system_freezable_wq, &charger->poll, 0);
+	mutex_unlock(&charger->lock);
+}
+
 static const enum power_supply_property bcm59035_charger_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
@@ -511,6 +522,7 @@ static const struct power_supply_desc bcm59035_charger_desc = {
 	.num_properties = ARRAY_SIZE(bcm59035_charger_properties),
 	.get_property = bcm59035_charger_get_property,
 	.init = bcm59035_charger_init,
+	.external_power_changed = bcm59035_charger_external_power_changed,
 	.set_property = bcm59035_charger_set_property,
 	.property_is_writeable = bcm59035_charger_property_is_writeable,
 	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
@@ -572,6 +584,9 @@ static void bcm59035_charger_stop(void *data)
 {
 	struct bcm59035_charger *charger = data;
 
+	mutex_lock(&charger->lock);
+	charger->ready = false;
+	mutex_unlock(&charger->lock);
 	cancel_delayed_work_sync(&charger->poll);
 	if (charger->role_sw) {
 		int ret;
@@ -601,6 +616,7 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 	if (!charger)
 		return -ENOMEM;
 	mutex_init(&charger->lock);
+	INIT_DELAYED_WORK(&charger->poll, bcm59035_charger_poll);
 	charger->parent = dev->parent;
 	charger->regmap = dev_get_regmap(dev->parent, NULL);
 	if (!charger->regmap)
@@ -622,7 +638,6 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 	charger->psy = devm_power_supply_register(dev, &bcm59035_charger_desc, &config);
 	if (IS_ERR(charger->psy))
 		return PTR_ERR(charger->psy);
-	INIT_DELAYED_WORK(&charger->poll, bcm59035_charger_poll);
 	ret = devm_add_action_or_reset(dev, bcm59035_charger_stop, charger);
 	if (ret)
 		return ret;
@@ -635,7 +650,10 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 		if (ret)
 			return dev_err_probe(dev, ret, "Failed to request charger IRQ\n");
 	}
+	mutex_lock(&charger->lock);
+	charger->ready = true;
 	queue_delayed_work(system_freezable_wq, &charger->poll, 0);
+	mutex_unlock(&charger->lock);
 	return 0;
 }
 
