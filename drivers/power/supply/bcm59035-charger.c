@@ -30,6 +30,7 @@ struct bcm59035_charger {
 	struct mutex lock; /* Control and readback */
 	int last_online;
 	int inhibit_error;
+	bool inhibited;
 	int battery_health;
 	int max_current;
 	int max_voltage;
@@ -211,6 +212,7 @@ static int bcm59035_charger_inhibit(struct bcm59035_charger *charger)
 {
 	int ret, usb_ret;
 
+	charger->inhibited = false;
 	ret = regmap_update_bits(charger->regmap, 0x37, 0xc0, 0);
 	usb_ret = regmap_update_bits(charger->regmap, 0x3d, 0x40, 0);
 	if (ret)
@@ -218,6 +220,7 @@ static int bcm59035_charger_inhibit(struct bcm59035_charger *charger)
 	if (usb_ret)
 		return usb_ret;
 	ret = bcm59035_charger_read_behaviour(charger);
+	charger->inhibited = ret >= 0;
 	return ret == -ENODATA ? -EIO : ret < 0 ? ret : 0;
 }
 
@@ -277,11 +280,23 @@ static int bcm59035_charger_read_property(struct power_supply *psy,
 	online = bcm59035_charger_read_online(charger);
 	if (online < 0)
 		return online;
-	if (property == POWER_SUPPLY_PROP_ONLINE)
+	if (property == POWER_SUPPLY_PROP_ONLINE) {
 		value->intval = online;
-	else
+	} else {
+		if (online && charger->inhibited) {
+			ret = bcm59035_charger_read_behaviour(charger);
+			if (ret >= 0) {
+				value->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+				return 0;
+			}
+			charger->inhibited = false;
+			charger->inhibit_error = ret == -ENODATA ? -EIO : ret;
+			if (ret != -ENODATA)
+				return ret;
+		}
 		value->intval = online ? POWER_SUPPLY_STATUS_UNKNOWN :
 					POWER_SUPPLY_STATUS_DISCHARGING;
+	}
 	return 0;
 }
 
@@ -426,19 +441,22 @@ static void bcm59035_charger_poll(struct work_struct *work)
 	int online = bcm59035_charger_read_online(charger);
 	int health = bcm59035_charger_read_battery_health(charger);
 	int budget = bcm59035_charger_read_budget(charger);
-	bool changed = false;
+	bool inhibited, lost_inhibit, changed;
 
 	mutex_lock(&charger->lock);
+	inhibited = charger->inhibited;
+	lost_inhibit = inhibited && bcm59035_charger_read_behaviour(charger) < 0;
 	changed = health != charger->battery_health;
 	charger->battery_health = health;
 	if (online <= 0 || (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
-	    charger->inhibit_error || health != POWER_SUPPLY_HEALTH_GOOD ||
+	    charger->inhibit_error || lost_inhibit || health != POWER_SUPPLY_HEALTH_GOOD ||
 	    !bcm59035_charger_profile_within_budget(charger, budget)) {
 		int ret = bcm59035_charger_inhibit(charger);
 
 		changed |= ret != charger->inhibit_error;
 		charger->inhibit_error = ret;
 	}
+	changed |= inhibited != charger->inhibited || lost_inhibit;
 	mutex_unlock(&charger->lock);
 	if (online != charger->last_online || events || changed) {
 		charger->last_online = online;
