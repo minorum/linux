@@ -19,7 +19,7 @@ allOf:
       properties:
         dr_mode:
           const: peripheral
-        usb-role-switch: false
+        role-switch-default-mode: false
         port: false
       required:
         - dr_mode
@@ -27,7 +27,9 @@ allOf:
 properties:
   connector:
     $ref: /schemas/connector/usb-connector.yaml#
-    description: Dedicated peripheral USB-B connector.
+    description:
+      Dedicated peripheral USB-B connector. With usb-role-switch, an external
+      VBUS detector controls the device role through this connector.
     properties:
       compatible:
         const: usb-b-connector
@@ -190,9 +192,8 @@ properties:
 
   port:
     description:
-      Any connector to the data bus of this controller should be modelled
-      using the OF graph bindings specified, if the "usb-role-switch"
-      property is used.
+      Model the connector using OF graph bindings unless a dedicated USB-B
+      connector is a direct child of this controller.
     $ref: /schemas/graph.yaml#/properties/port
 
   tpl-support: true
