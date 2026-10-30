@@ -1044,12 +1044,12 @@ config MMC_BCM2835
 	  If unsure, say N.
 
 config MMC_MT6577_RAM
-	tristate "MediaTek MT6577 preinitialized eMMC PIO host"
+	tristate "MediaTek MT6577 eMMC PIO host"
 	depends on OF && COMMON_CLK
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	help
-	  Polling eMMC support retaining firmware clock gates, pads and tuning.
-	  The firmware must initialize the controller before Linux entry.
+	  Polling eMMC support with revision 4 digital controller initialization.
+	  Power and electrical pad settings must remain configured by firmware.
 
 config MMC_MTK
 	tristate "MediaTek SD/MMC Card Interface support"

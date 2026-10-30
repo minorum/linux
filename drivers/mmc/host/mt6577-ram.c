@@ -19,7 +19,10 @@
 #define CFG_CKSTB	BIT(7)
 #define CFG_CKDIV	GENMASK(15, 8)
 #define CFG_CKMOD	GENMASK(17, 16)
+#define MSDC_IOCON	0x04
+#define IOCON_DDLSEL	BIT(3)
 #define MSDC_PS		0x08
+#define PS_CDEN		BIT(0)
 #define PS_DAT0		BIT(16)
 #define MSDC_INT	0x0c
 #define INT_CMDRDY	BIT(8)
@@ -39,6 +42,8 @@
 #define SDC_CFG		0x30
 #define SDC_BUSWIDTH	GENMASK(17, 16)
 #define SDC_DTOC		GENMASK(31, 24)
+#define SDC_SDIO		BIT(19)
+#define SDC_SDIOIDE	BIT(20)
 #define SDC_CMD		0x34
 #define CMD_RESPONSE	GENMASK(9, 7)
 #define CMD_DATA_TYPE	GENMASK(12, 11)
@@ -50,6 +55,11 @@
 #define STS_CMDBUSY	BIT(1)
 #define SDC_RESP0	0x40
 #define SDC_BLK_NUM	0x50
+#define MSDC_PATCH0	0xb0
+#define MSDC_PAD_TUNE	0xec
+#define MSDC_RDDLY0	0xf0
+#define MSDC_RDDLY1	0xf4
+#define MSDC_ECO_VER	0x104
 #define FIFO_SIZE	128
 #define MAX_REQUEST	4096
 
@@ -73,9 +83,35 @@ static int mt6577_reset(struct mt6577_host *host)
 	writel(FIFO_CLR, host->base + MSDC_FIFOCS);
 	ret = readl_poll_timeout(host->base + MSDC_FIFOCS, val,
 				 !(val & FIFO_CLR), 1, 20000);
+	if (ret)
+		return ret;
 	writel(0, host->base + MSDC_INTEN);
 	writel(readl(host->base + MSDC_INT), host->base + MSDC_INT);
-	return ret;
+	return 0;
+}
+
+static int mt6577_init_hw(struct mt6577_host *host)
+{
+	u32 val;
+	int ret;
+
+	if (readl(host->base + MSDC_ECO_VER) != 4)
+		return -ENODEV;
+	val = readl(host->base + MSDC_CFG) & ~CFG_CKPDN;
+	writel(val | CFG_MODE | CFG_PIO, host->base + MSDC_CFG);
+	ret = mt6577_reset(host);
+	if (ret)
+		return ret;
+	writel(readl(host->base + MSDC_PS) & ~PS_CDEN, host->base + MSDC_PS);
+	writel(0, host->base + MSDC_PAD_TUNE);
+	writel(0, host->base + MSDC_IOCON);
+	writel(IOCON_DDLSEL, host->base + MSDC_IOCON);
+	writel(0, host->base + MSDC_RDDLY0);
+	writel(0, host->base + MSDC_RDDLY1);
+	writel(0x403c004f, host->base + MSDC_PATCH0);
+	val = readl(host->base + SDC_CFG) & ~(SDC_BUSWIDTH | SDC_SDIOIDE);
+	writel(val | SDC_SDIO, host->base + SDC_CFG);
+	return 0;
 }
 
 static int mt6577_command(struct mt6577_host *host, struct mmc_command *cmd,
@@ -297,9 +333,9 @@ static int mt6577_probe(struct platform_device *pdev)
 	if (!(mmc->caps & MMC_CAP_NONREMOVABLE) || mmc->caps & MMC_CAP_8_BIT_DATA)
 		return -EINVAL;
 	mmc->f_max = min(mmc->f_max, 12000000U);
-	ret = mt6577_reset(host);
+	ret = mt6577_init_hw(host);
 	if (ret)
-		return ret;
+		return dev_err_probe(&pdev->dev, ret, "Cannot initialize controller\n");
 	platform_set_drvdata(pdev, mmc);
 	return mmc_add_host(mmc);
 }
@@ -329,5 +365,5 @@ static struct platform_driver mt6577_driver = {
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 preinitialized eMMC PIO host");
+MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host with inherited electrical setup");
 MODULE_LICENSE("GPL");
