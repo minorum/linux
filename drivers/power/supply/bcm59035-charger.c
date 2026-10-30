@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/module.h>
+#include <linux/atomic.h>
+#include <linux/interrupt.h>
+#include <linux/mfd/bcm59035.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
@@ -9,13 +12,36 @@
 
 #define BCM59035_ENV1 0x4c
 #define BCM59035_MBCCTRL7 0x3c
+#define BCM59035_REMOVE_MASK 0x22
+#define BCM59035_VOLTAGE_ERROR_MASK 0x44
+#define BCM59035_TIMER_ERROR 0x80
+#define BCM59035_SNAPSHOT_ERROR 0x100
+#define BCM59035_FAULT_MASK 0x1c4
 
 struct bcm59035_charger {
 	struct regmap *regmap;
+	struct device *parent;
 	struct power_supply *psy;
 	struct delayed_work poll;
 	int last_online;
+	atomic_t events;
+	unsigned int faults;
 };
+
+static irqreturn_t bcm59035_charger_irq(int irq, void *data)
+{
+	struct bcm59035_charger *charger = data;
+	int pending = bcm59035_irq_get_pending(charger->parent, 1);
+	unsigned int faults = READ_ONCE(charger->faults);
+
+	if (pending >= 0 && (pending & BCM59035_REMOVE_MASK))
+		faults = 0;
+	faults |= pending < 0 ? BCM59035_SNAPSHOT_ERROR : pending & BCM59035_FAULT_MASK;
+	WRITE_ONCE(charger->faults, faults);
+	atomic_or(pending < 0 ? BCM59035_SNAPSHOT_ERROR : pending, &charger->events);
+	mod_delayed_work(system_freezable_wq, &charger->poll, 0);
+	return IRQ_HANDLED;
+}
 
 static int bcm59035_charger_read_online(struct bcm59035_charger *charger)
 {
@@ -85,6 +111,20 @@ static int bcm59035_charger_get_property(struct power_supply *psy,
 	unsigned int setting;
 	int online, ret;
 
+	if (property == POWER_SUPPLY_PROP_HEALTH) {
+		unsigned int faults = READ_ONCE(charger->faults);
+
+		if ((faults & BCM59035_SNAPSHOT_ERROR) ||
+		    ((faults & BCM59035_VOLTAGE_ERROR_MASK) && (faults & BCM59035_TIMER_ERROR)))
+			value->intval = POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
+		else if (faults & BCM59035_VOLTAGE_ERROR_MASK)
+			value->intval = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+		else if (faults & BCM59035_TIMER_ERROR)
+			value->intval = POWER_SUPPLY_HEALTH_SAFETY_TIMER_EXPIRE;
+		else
+			value->intval = POWER_SUPPLY_HEALTH_UNKNOWN;
+		return 0;
+	}
 	if (property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT ||
 	    property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE) {
 		bool voltage = property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE;
@@ -123,6 +163,7 @@ static const enum power_supply_property bcm59035_charger_properties[] = {
 	POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
+	POWER_SUPPLY_PROP_HEALTH,
 };
 
 static const struct power_supply_desc bcm59035_charger_desc = {
@@ -137,9 +178,10 @@ static void bcm59035_charger_poll(struct work_struct *work)
 {
 	struct bcm59035_charger *charger = container_of(to_delayed_work(work),
 						      struct bcm59035_charger, poll);
+	unsigned int events = atomic_xchg(&charger->events, 0);
 	int online = bcm59035_charger_read_online(charger);
 
-	if (online != charger->last_online) {
+	if (online != charger->last_online || events) {
 		charger->last_online = online;
 		power_supply_changed(charger->psy);
 	}
@@ -155,14 +197,20 @@ static void bcm59035_charger_stop(void *data)
 
 static int bcm59035_charger_probe(struct platform_device *pdev)
 {
+	static const char * const irq_names[] = {
+		"charger-insert", "charger-remove", "charger-error", "charge-complete",
+		"usb-insert", "usb-remove", "usb-error", "charge-error",
+	};
 	struct device *dev = &pdev->dev;
 	struct power_supply_config config = {};
 	struct bcm59035_charger *charger;
-	int ret;
+	unsigned int i;
+	int ret, irq;
 
 	charger = devm_kzalloc(dev, sizeof(*charger), GFP_KERNEL);
 	if (!charger)
 		return -ENOMEM;
+	charger->parent = dev->parent;
 	charger->regmap = dev_get_regmap(dev->parent, NULL);
 	if (!charger->regmap)
 		return -ENODEV;
@@ -179,6 +227,15 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 	ret = devm_add_action_or_reset(dev, bcm59035_charger_stop, charger);
 	if (ret)
 		return ret;
+	for (i = 0; i < ARRAY_SIZE(irq_names); i++) {
+		irq = platform_get_irq_byname(pdev, irq_names[i]);
+		if (irq < 0)
+			return dev_err_probe(dev, irq, "No charger IRQ\n");
+		ret = devm_request_threaded_irq(dev, irq, NULL, bcm59035_charger_irq,
+						IRQF_ONESHOT, dev_name(dev), charger);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to request charger IRQ\n");
+	}
 	queue_delayed_work(system_freezable_wq, &charger->poll, 2 * HZ);
 	return 0;
 }

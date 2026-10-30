@@ -6,6 +6,7 @@
 #include <linux/ioport.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
+#include <linux/mfd/bcm59035.h>
 #include <linux/mfd/core.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -106,10 +107,25 @@ struct bcm59035_irq {
 	struct mutex drain_lock; /* IRQ dispatch */
 	struct delayed_work retry;
 	u8 mask[BCM59035_IRQ_BANKS];
+	u8 pending[BCM59035_IRQ_BANKS];
 	unsigned long dirty;
 	int parent_irq;
 	bool stopping;
+	bool dispatching;
 };
+
+int bcm59035_irq_get_pending(struct device *dev, unsigned int bank)
+{
+	struct bcm59035_irq *irq = dev_get_drvdata(dev);
+
+	if (!irq)
+		return -ENODEV;
+	if (bank >= BCM59035_IRQ_BANKS || !irq->dispatching)
+		return -EINVAL;
+	lockdep_assert_held(&irq->drain_lock);
+	return irq->pending[bank];
+}
+EXPORT_SYMBOL_GPL(bcm59035_irq_get_pending);
 
 static void bcm59035_irq_schedule_retry(struct bcm59035_irq *irq)
 {
@@ -177,8 +193,9 @@ static void bcm59035_irq_process(struct bcm59035_irq *irq)
 
 	mutex_lock(&irq->drain_lock);
 	for (round = 0; round < BCM59035_IRQ_DRAIN_ROUNDS; round++) {
-		u8 pending[BCM59035_IRQ_BANKS] = {};
+		u8 *pending = irq->pending;
 
+		memset(pending, 0, sizeof(irq->pending));
 		active = false;
 		mutex_lock(&irq->lock);
 		if (irq->stopping) {
@@ -202,6 +219,7 @@ static void bcm59035_irq_process(struct bcm59035_irq *irq)
 		}
 		mutex_unlock(&irq->lock);
 
+		irq->dispatching = true;
 		for (bank = 0; bank < BCM59035_IRQ_BANKS; bank++) {
 			for (bit = 0; bit < 8; bit++) {
 				if (!(pending[bank] & BIT(bit)))
@@ -211,6 +229,7 @@ static void bcm59035_irq_process(struct bcm59035_irq *irq)
 					handle_nested_irq(virq);
 			}
 		}
+		irq->dispatching = false;
 		if (ret) {
 			retry = true;
 			break;
@@ -361,11 +380,24 @@ static const struct resource bcm59035_onkey_resources[] = {
 	DEFINE_RES_IRQ_NAMED(0, "release"),
 };
 
+static const struct resource bcm59035_charger_resources[] = {
+	DEFINE_RES_IRQ_NAMED(8, "charger-insert"),
+	DEFINE_RES_IRQ_NAMED(9, "charger-remove"),
+	DEFINE_RES_IRQ_NAMED(10, "charger-error"),
+	DEFINE_RES_IRQ_NAMED(11, "charge-complete"),
+	DEFINE_RES_IRQ_NAMED(12, "usb-insert"),
+	DEFINE_RES_IRQ_NAMED(13, "usb-remove"),
+	DEFINE_RES_IRQ_NAMED(14, "usb-error"),
+	DEFINE_RES_IRQ_NAMED(15, "charge-error"),
+};
+
 static const struct mfd_cell bcm59035_cells[] = {
 	{ .name = "bcm59035-regulator" },
 	{
 		.name = "bcm59035-charger",
 		.of_compatible = "brcm,bcm59035-charger",
+		.resources = bcm59035_charger_resources,
+		.num_resources = ARRAY_SIZE(bcm59035_charger_resources),
 	},
 	{
 		.name = "bcm59035-onkey",
