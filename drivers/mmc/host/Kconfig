@@ -1044,8 +1044,9 @@ config MMC_BCM2835
 	  If unsure, say N.
 
 config MMC_MT6577
-	tristate "MediaTek MT6577 eMMC PIO host"
+	tristate "MediaTek MT6577 eMMC host"
 	depends on OF && COMMON_CLK
+	depends on HAS_DMA
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	help
 	  Polling eMMC support with revision 4 digital controller initialization.

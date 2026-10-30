@@ -2,6 +2,7 @@
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 #include <linux/iopoll.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
@@ -55,6 +56,15 @@
 #define STS_CMDBUSY	BIT(1)
 #define SDC_RESP0	0x40
 #define SDC_BLK_NUM	0x50
+#define MSDC_DMA_SA	0x90
+#define MSDC_DMA_CTRL	0x98
+#define DMA_START	BIT(0)
+#define DMA_STOP		BIT(1)
+#define DMA_LASTBUF	BIT(10)
+#define DMA_BURST	GENMASK(14, 12)
+#define DMA_SIZE		GENMASK(31, 16)
+#define MSDC_DMA_CFG	0x9c
+#define DMA_ACTIVE	BIT(0)
 #define MSDC_PATCH0	0xb0
 #define MSDC_PAD_CTRL0	0xe0
 #define MSDC_PAD_CTRL1	0xe4
@@ -70,14 +80,28 @@
 #define MSDC_RDDLY1	0xf4
 #define MSDC_ECO_VER	0x104
 #define FIFO_SIZE	128
-#define MAX_REQUEST	4096
+#define MAX_REQUEST	32768
 
 struct mt6577_host {
 	void __iomem *base;
 	unsigned long rate;
 	u8 *buffer;
+	dma_addr_t dma_addr;
+	struct clk *clk;
+	bool clock_enabled;
+	bool dma_enabled;
 	int clock_error;
 };
+
+static void mt6577_disable_clock(void *arg)
+{
+	struct mt6577_host *host = arg;
+
+	if (host->clock_enabled) {
+		clk_disable_unprepare(host->clk);
+		host->clock_enabled = false;
+	}
+}
 
 static int mt6577_reset(struct mt6577_host *host)
 {
@@ -218,6 +242,41 @@ static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
 	}
 }
 
+static int mt6577_dma_transfer(struct mt6577_host *host, struct mmc_data *data)
+{
+	u32 val, ctrl;
+	int ret, stop;
+
+	writel(readl(host->base + MSDC_CFG) & ~CFG_PIO, host->base + MSDC_CFG);
+	writel(lower_32_bits(host->dma_addr), host->base + MSDC_DMA_SA);
+	ctrl = FIELD_PREP(DMA_SIZE, data->blocks * data->blksz) |
+	       FIELD_PREP(DMA_BURST, 6) | DMA_LASTBUF;
+	dma_wmb();
+	writel(ctrl | DMA_START, host->base + MSDC_DMA_CTRL);
+	ret = readl_poll_timeout(host->base + MSDC_INT, val,
+				 val & (INT_XFER_COMPL | INT_DATTMO | INT_DATCRCERR),
+				 1, 1000000);
+	if (val & INT_DATTMO)
+		ret = -ETIMEDOUT;
+	else if (val & INT_DATCRCERR)
+		ret = -EILSEQ;
+	writel(ctrl | DMA_STOP, host->base + MSDC_DMA_CTRL);
+	stop = readl_poll_timeout(host->base + MSDC_DMA_CFG, val,
+				  !(val & DMA_ACTIVE), 1, 20000);
+	if (stop) {
+		clk_disable_unprepare(host->clk);
+		host->clock_enabled = false;
+		host->clock_error = -EIO;
+		host->dma_enabled = false;
+		return stop;
+	}
+	dma_rmb();
+	writel(readl(host->base + MSDC_CFG) | CFG_PIO, host->base + MSDC_CFG);
+	if (ret)
+		host->dma_enabled = false;
+	return ret;
+}
+
 static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct mt6577_host *host = mmc_priv(mmc);
@@ -252,17 +311,20 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (mrq->sbc->error)
 			goto done;
 	}
+	if (data && host->dma_enabled)
+		writel(readl(host->base + MSDC_CFG) & ~CFG_PIO, host->base + MSDC_CFG);
 	mrq->cmd->error = mt6577_command(host, mrq->cmd, data);
 	if (mrq->cmd->error)
 		goto done;
 	if (data) {
-		data->error = mt6577_transfer(host, data);
+		data->error = host->dma_enabled ? mt6577_dma_transfer(host, data) :
+			      mt6577_transfer(host, data);
 		if (!data->error && data->flags & MMC_DATA_READ &&
 		    sg_copy_from_buffer(data->sg, data->sg_len, host->buffer, length) != length)
 			data->error = -EINVAL;
 		if (!data->error)
 			data->bytes_xfered = length;
-		if (mrq->stop)
+		if (mrq->stop && !host->clock_error)
 			mrq->stop->error = mt6577_command(host, mrq->stop, NULL);
 		if (!data->error && data->flags & MMC_DATA_WRITE)
 			data->error = readl_poll_timeout(host->base + MSDC_PS, ret,
@@ -277,6 +339,8 @@ static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	struct mt6577_host *host = mmc_priv(mmc);
 	u32 cfg, val, div;
 
+	if (!host->clock_enabled)
+		return;
 	val = readl(host->base + SDC_CFG) & ~SDC_BUSWIDTH;
 	if (ios->bus_width == MMC_BUS_WIDTH_4)
 		val |= FIELD_PREP(SDC_BUSWIDTH, 1);
@@ -311,7 +375,6 @@ static int mt6577_probe(struct platform_device *pdev)
 {
 	struct mmc_host *mmc;
 	struct mt6577_host *host;
-	struct clk *clk;
 	int ret;
 
 	mmc = devm_mmc_alloc_host(&pdev->dev, sizeof(*host));
@@ -321,13 +384,25 @@ static int mt6577_probe(struct platform_device *pdev)
 	host->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(host->base))
 		return PTR_ERR(host->base);
-	clk = devm_clk_get_enabled(&pdev->dev, "source");
-	if (IS_ERR(clk))
-		return dev_err_probe(&pdev->dev, PTR_ERR(clk), "Missing source clock\n");
-	host->rate = clk_get_rate(clk);
+	host->clk = devm_clk_get(&pdev->dev, "source");
+	if (IS_ERR(host->clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(host->clk), "Missing source clock\n");
+	ret = clk_prepare_enable(host->clk);
+	if (ret)
+		return ret;
+	host->clock_enabled = true;
+	ret = devm_add_action_or_reset(&pdev->dev, mt6577_disable_clock, host);
+	if (ret)
+		return ret;
+	host->rate = clk_get_rate(host->clk);
 	if (!host->rate)
 		return -EINVAL;
-	host->buffer = devm_kmalloc(&pdev->dev, MAX_REQUEST, GFP_KERNEL);
+	if (!dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32)))
+		host->buffer = dmam_alloc_coherent(&pdev->dev, MAX_REQUEST,
+						   &host->dma_addr, GFP_KERNEL);
+	host->dma_enabled = !!host->buffer;
+	if (!host->buffer)
+		host->buffer = devm_kmalloc(&pdev->dev, MAX_REQUEST, GFP_KERNEL);
 	if (!host->buffer)
 		return -ENOMEM;
 	mmc->ops = &mt6577_ops;
@@ -351,6 +426,7 @@ static int mt6577_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Cannot initialize controller\n");
 	platform_set_drvdata(pdev, mmc);
+	dev_info(&pdev->dev, "%s transfers\n", host->dma_enabled ? "DMA" : "PIO");
 	return mmc_add_host(mmc);
 }
 
@@ -360,7 +436,9 @@ static void mt6577_remove(struct platform_device *pdev)
 	struct mt6577_host *host = mmc_priv(mmc);
 
 	mmc_remove_host(mmc);
-	writel(0, host->base + MSDC_INTEN);
+	if (host->clock_enabled)
+		writel(0, host->base + MSDC_INTEN);
+	mt6577_disable_clock(host);
 }
 
 static const struct of_device_id mt6577_match[] = {
@@ -379,5 +457,5 @@ static struct platform_driver mt6577_driver = {
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host");
+MODULE_DESCRIPTION("MediaTek MT6577 eMMC host");
 MODULE_LICENSE("GPL");
