@@ -3,6 +3,7 @@
 #include <linux/atomic.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/bcm59035.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
@@ -23,6 +24,7 @@ struct bcm59035_charger {
 	struct device *parent;
 	struct power_supply *psy;
 	struct delayed_work poll;
+	struct mutex lock; /* Control and readback */
 	int last_online;
 	atomic_t events;
 	unsigned int faults;
@@ -103,14 +105,51 @@ static int bcm59035_charger_read_profile(struct bcm59035_charger *charger, bool 
 	return -EINVAL;
 }
 
-static int bcm59035_charger_get_property(struct power_supply *psy,
-					 enum power_supply_property property,
-					 union power_supply_propval *value)
+static int bcm59035_charger_read_behaviour(struct bcm59035_charger *charger)
+{
+	unsigned int wall, usb;
+	int ret;
+
+	ret = regmap_read(charger->regmap, 0x37, &wall);
+	if (ret)
+		return ret;
+	ret = regmap_read(charger->regmap, 0x3d, &usb);
+	if (ret)
+		return ret;
+	if ((wall & 0xc0) || (usb & 0x40))
+		return -ENODATA;
+	return POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+}
+
+static int bcm59035_charger_inhibit(struct bcm59035_charger *charger)
+{
+	int ret, usb_ret;
+
+	ret = regmap_update_bits(charger->regmap, 0x37, 0xc0, 0);
+	usb_ret = regmap_update_bits(charger->regmap, 0x3d, 0x40, 0);
+	if (ret)
+		return ret;
+	if (usb_ret)
+		return usb_ret;
+	ret = bcm59035_charger_read_behaviour(charger);
+	return ret == -ENODATA ? -EIO : ret < 0 ? ret : 0;
+}
+
+static int bcm59035_charger_read_property(struct power_supply *psy,
+					  enum power_supply_property property,
+					  union power_supply_propval *value)
 {
 	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
 	unsigned int setting;
 	int online, ret;
 
+	if (property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR) {
+		ret = bcm59035_charger_read_behaviour(charger);
+		if (ret < 0)
+			return ret;
+		value->intval = ret;
+		return 0;
+	}
 	if (property == POWER_SUPPLY_PROP_HEALTH) {
 		unsigned int faults = READ_ONCE(charger->faults);
 
@@ -157,6 +196,42 @@ static int bcm59035_charger_get_property(struct power_supply *psy,
 	return 0;
 }
 
+static int bcm59035_charger_get_property(struct power_supply *psy,
+					 enum power_supply_property property,
+					 union power_supply_propval *value)
+{
+	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
+	int ret;
+
+	mutex_lock(&charger->lock);
+	ret = bcm59035_charger_read_property(psy, property, value);
+	mutex_unlock(&charger->lock);
+	return ret;
+}
+
+static int bcm59035_charger_set_property(struct power_supply *psy,
+					 enum power_supply_property property,
+					 const union power_supply_propval *value)
+{
+	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
+	int ret;
+
+	if (property != POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR ||
+	    value->intval != POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
+		return -EINVAL;
+	mutex_lock(&charger->lock);
+	ret = bcm59035_charger_inhibit(charger);
+	mutex_unlock(&charger->lock);
+	power_supply_changed(psy);
+	return ret;
+}
+
+static int bcm59035_charger_property_is_writeable(struct power_supply *psy,
+						  enum power_supply_property property)
+{
+	return property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+}
+
 static const enum power_supply_property bcm59035_charger_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
@@ -164,6 +239,7 @@ static const enum power_supply_property bcm59035_charger_properties[] = {
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
 	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
 };
 
 static const struct power_supply_desc bcm59035_charger_desc = {
@@ -172,6 +248,9 @@ static const struct power_supply_desc bcm59035_charger_desc = {
 	.properties = bcm59035_charger_properties,
 	.num_properties = ARRAY_SIZE(bcm59035_charger_properties),
 	.get_property = bcm59035_charger_get_property,
+	.set_property = bcm59035_charger_set_property,
+	.property_is_writeable = bcm59035_charger_property_is_writeable,
+	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
 };
 
 static void bcm59035_charger_poll(struct work_struct *work)
@@ -210,6 +289,7 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 	charger = devm_kzalloc(dev, sizeof(*charger), GFP_KERNEL);
 	if (!charger)
 		return -ENOMEM;
+	mutex_init(&charger->lock);
 	charger->parent = dev->parent;
 	charger->regmap = dev_get_regmap(dev->parent, NULL);
 	if (!charger->regmap)
@@ -255,5 +335,5 @@ static struct platform_driver bcm59035_charger_driver = {
 };
 module_platform_driver(bcm59035_charger_driver);
 
-MODULE_DESCRIPTION("Broadcom BCM59035 charger presence monitor");
+MODULE_DESCRIPTION("Broadcom BCM59035 charger");
 MODULE_LICENSE("GPL");
