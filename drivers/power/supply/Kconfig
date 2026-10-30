@@ -45,6 +45,14 @@ config GENERIC_ADC_BATTERY
 	  Say Y here to enable support for the generic battery driver
 	  which uses IIO framework to read adc.
 
+config BATTERY_GT_S5620
+	tristate "Samsung GT-S5620 battery monitor"
+	depends on IIO && NVMEM
+	help
+	  Say Y here to read the battery voltage and temperature on the
+	  Samsung GT-S5620 using its ADC and retained voltage calibration.
+	  A charger status source enables coarse software capacity estimation.
+
 config IP5XXX_POWER
 	tristate "Injoinic IP5xxx power bank IC driver"
 	depends on I2C
