@@ -176,20 +176,31 @@ static int bcm59035_charger_read_behaviour(struct bcm59035_charger *charger)
 
 static int bcm59035_charger_read_budget(struct bcm59035_charger *charger)
 {
+	struct power_supply *supplier;
 	union power_supply_propval value;
 	int ret;
 
-	ret = power_supply_get_property_from_supplier(charger->psy,
-						      POWER_SUPPLY_PROP_ONLINE, &value);
-	if (ret)
-		return ret;
-	if (value.intval <= 0)
+	supplier = power_supply_get_by_reference(dev_fwnode(&charger->psy->dev),
+						 "power-supplies");
+	if (IS_ERR(supplier))
+		return PTR_ERR(supplier);
+	if (!supplier)
 		return -ENODEV;
-	ret = power_supply_get_property_from_supplier(charger->psy,
-						      POWER_SUPPLY_PROP_CURRENT_MAX, &value);
-	if (ret)
-		return ret;
-	return value.intval < 0 ? -EINVAL : value.intval;
+	if (power_supply_property_is_supported(supplier, POWER_SUPPLY_PROP_ONLINE)) {
+		ret = power_supply_get_property(supplier, POWER_SUPPLY_PROP_ONLINE, &value);
+		if (ret)
+			goto out;
+		if (value.intval <= 0) {
+			ret = -ENODEV;
+			goto out;
+		}
+	}
+	ret = power_supply_get_property(supplier, POWER_SUPPLY_PROP_CURRENT_MAX, &value);
+	if (!ret)
+		ret = value.intval < 0 ? -EINVAL : value.intval;
+out:
+	power_supply_put(supplier);
+	return ret;
 }
 
 static bool bcm59035_charger_profile_within_budget(struct bcm59035_charger *charger,
