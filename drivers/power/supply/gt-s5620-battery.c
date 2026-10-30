@@ -26,6 +26,7 @@ struct gt_s5620_battery {
 	u64 updated;
 	bool sampled;
 	int status;
+	int health;
 };
 
 static int gt_s5620_read_calibration(struct device *dev, const char *name,
@@ -63,6 +64,23 @@ static int gt_s5620_read_raw(struct iio_channel *channel, int *result)
 	return 0;
 }
 
+static int gt_s5620_read_health(struct gt_s5620_battery *battery)
+{
+	int raw, temperature, ret;
+
+	ret = gt_s5620_read_raw(battery->temperature, &raw);
+	if (ret)
+		return ret;
+	ret = gt_s5620_temperature(raw, &temperature);
+	if (ret)
+		return ret;
+	if (temperature <= -50)
+		return POWER_SUPPLY_HEALTH_COLD;
+	if (temperature >= 630)
+		return POWER_SUPPLY_HEALTH_OVERHEAT;
+	return POWER_SUPPLY_HEALTH_GOOD;
+}
+
 static void gt_s5620_poll(struct work_struct *work)
 {
 	struct gt_s5620_battery *battery = container_of(to_delayed_work(work),
@@ -70,7 +88,7 @@ static void gt_s5620_poll(struct work_struct *work)
 	struct gt_s5620_gauge old;
 	union power_supply_propval value;
 	int status = POWER_SUPPLY_STATUS_UNKNOWN;
-	int mode = -ENODATA, raw = 0, ret, error;
+	int mode = -ENODATA, raw = 0, ret, error, health;
 	bool changed;
 
 	if (battery->source) {
@@ -84,16 +102,18 @@ static void gt_s5620_poll(struct work_struct *work)
 			mode = status == POWER_SUPPLY_STATUS_CHARGING;
 		}
 	}
+	health = gt_s5620_read_health(battery);
 	error = gt_s5620_read_raw(battery->voltage, &raw);
 	mutex_lock(&battery->lock);
 	old = battery->gauge;
 	gt_s5620_gauge_update(&battery->gauge, error, raw, mode);
-	changed = !battery->sampled || battery->status != status ||
+	changed = !battery->sampled || battery->status != status || battery->health != health ||
 		old.average != battery->gauge.average ||
 		old.average_error != battery->gauge.average_error ||
 		old.capacity_error != battery->gauge.capacity_error ||
 		old.level != battery->gauge.level;
 	battery->status = status;
+	battery->health = health;
 	battery->updated = ktime_get_boottime_ns();
 	battery->sampled = true;
 	mutex_unlock(&battery->lock);
@@ -132,6 +152,12 @@ static int gt_s5620_get_property(struct power_supply *psy,
 		if (ret)
 			return ret;
 		return gt_s5620_temperature(raw, &value->intval);
+	case POWER_SUPPLY_PROP_HEALTH:
+		ret = gt_s5620_read_health(battery);
+		if (ret < 0)
+			return ret;
+		value->intval = ret;
+		return 0;
 	default:
 		break;
 	}
@@ -186,6 +212,7 @@ out:
 static const enum power_supply_property gt_s5620_properties[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_VOLTAGE_AVG,
 	POWER_SUPPLY_PROP_CAPACITY,
