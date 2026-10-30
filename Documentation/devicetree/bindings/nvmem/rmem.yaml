@@ -6,6 +6,11 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Reserved Memory Based nvmem Device
 
+description:
+  Reserved memory containing configuration retained by boot firmware. On
+  Samsung GT-S5620, the region contains two little-endian 16-bit battery
+  voltage calibration words from the dependent parameter table.
+
 maintainers:
   - Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
 
@@ -19,6 +24,7 @@ properties:
           - mobileye,eyeq5-bootloader-config
           - raspberrypi,bootloader-config
           - raspberrypi,bootloader-public-key
+          - samsung,gt-s5620-battery-calibration
       - const: nvmem-rmem
 
   reg:
