@@ -21,6 +21,9 @@ properties:
 
   monitored-battery: true
 
+  power-supplies:
+    maxItems: 1
+
 required:
   - compatible
 
