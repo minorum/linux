@@ -1043,14 +1043,14 @@ config MMC_BCM2835
 
 	  If unsure, say N.
 
-config MMC_MT6577_RAM
+config MMC_MT6577
 	tristate "MediaTek MT6577 eMMC PIO host"
 	depends on OF && COMMON_CLK
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	help
 	  Polling eMMC support with revision 4 digital controller initialization.
-	  Pad defaults match the MODECOM FreeTAB 8001. Card power must remain
-	  configured by firmware.
+	  Pad defaults match the MODECOM FreeTAB 8001. Card power is retained;
+	  supply switching and external card reset are not supported.
 
 config MMC_MTK
 	tristate "MediaTek SD/MMC Card Interface support"

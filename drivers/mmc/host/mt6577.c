@@ -364,7 +364,7 @@ static void mt6577_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id mt6577_match[] = {
-	{ .compatible = "mediatek,mt6577-mmc-ram" },
+	{ .compatible = "mediatek,mt6577-mmc" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, mt6577_match);
@@ -373,11 +373,11 @@ static struct platform_driver mt6577_driver = {
 	.probe = mt6577_probe,
 	.remove = mt6577_remove,
 	.driver = {
-		.name = "mt6577-mmc-ram",
+		.name = "mt6577-mmc",
 		.of_match_table = mt6577_match,
 	},
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host with inherited card power");
+MODULE_DESCRIPTION("MediaTek MT6577 eMMC PIO host");
 MODULE_LICENSE("GPL");
