@@ -125,7 +125,7 @@ int dwc2_gadget_supply_init(struct dwc2_hsotg *hsotg)
 		goto put_connector;
 	}
 	if (hsotg->dr_mode != USB_DR_MODE_PERIPHERAL ||
-	    device_property_present(dev, "usb-role-switch") ||
+	    device_property_present(dev, "role-switch-default-mode") ||
 	    fwnode_property_string_array_count(connector, "compatible") != 1 ||
 	    fwnode_property_match_string(connector, "compatible", "usb-b-connector") != 0 ||
 	    fwnode_property_present(connector, "id-gpios") ||
