@@ -11,7 +11,8 @@ maintainers:
 
 description:
   The peripheral controller provides the PWM functional reference and clock
-  gates. PWM channels4 through6 share one gate.
+  gates, and the MSDC0 source selector and gate. PWM channels4 through6 share
+  one gate. MSDC0 supports the 26MHz and nominal WPLL197MHz source selections.
 
 properties:
   compatible:
@@ -19,10 +20,12 @@ properties:
   reg:
     maxItems: 1
   clocks:
-    maxItems: 1
+    maxItems: 3
   clock-names:
     items:
       - const: axi
+      - const: clk26m
+      - const: wpll197
   '#clock-cells':
     const: 1
 
@@ -41,7 +44,8 @@ examples:
     clock-controller@c1000000 {
         compatible = "mediatek,mt6577-pericfg";
         reg = <0xc1000000 0x1000>;
-        clocks = <&infracfg CLK_MT6577_AXI>;
-        clock-names = "axi";
+        clocks = <&infracfg CLK_MT6577_AXI>, <&clk26m>,
+                 <&apmixedsys CLK_MT6577_WPLL197>;
+        clock-names = "axi", "clk26m", "wpll197";
         #clock-cells = <1>;
     };

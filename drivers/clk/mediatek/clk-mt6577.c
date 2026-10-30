@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <dt-bindings/clock/mediatek,mt6577-clk.h>
 #include <linux/bitfield.h>
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/delay.h>
+#include <linux/io.h>
 #include <linux/math64.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
@@ -39,6 +42,79 @@ static const struct clk_ops mt6577_mainpll_ops = {
 	.recalc_rate = mt6577_mainpll_rate,
 };
 
+struct mt6577_wpll {
+	struct clk_hw hw;
+	void __iomem *base;
+};
+
+static int mt6577_wpll_enable(struct clk_hw *hw)
+{
+	struct mt6577_wpll *clk = container_of(hw, struct mt6577_wpll, hw);
+	u16 value = readw(clk->base + 0x1c0);
+
+	writew(value | BIT(0) | BIT(1), clk->base + 0x1c0);
+	if (!(value & BIT(0)))
+		udelay(30);
+	return 0;
+}
+
+static int mt6577_wpll_is_enabled(struct clk_hw *hw)
+{
+	struct mt6577_wpll *clk = container_of(hw, struct mt6577_wpll, hw);
+
+	return (readw(clk->base + 0x1c0) & 3) == 3;
+}
+
+static unsigned long mt6577_wpll_rate(struct clk_hw *hw, unsigned long parent)
+{
+	return 197000000;
+}
+
+static const struct clk_ops mt6577_wpll_ops = {
+	.enable = mt6577_wpll_enable,
+	.is_enabled = mt6577_wpll_is_enabled,
+	.recalc_rate = mt6577_wpll_rate,
+};
+
+static struct clk_hw *mt6577_register_wpll(struct platform_device *pdev)
+{
+	const struct clk_parent_data parent = { .index = 0 };
+	const struct clk_init_data init = {
+		.name = "mt6577_wpll197",
+		.ops = &mt6577_wpll_ops,
+		.parent_data = &parent,
+		.num_parents = 1,
+		/* Shared firmware consumers */
+		.flags = CLK_IS_CRITICAL,
+	};
+	struct mt6577_wpll *clk;
+	int ret;
+
+	clk = devm_kzalloc(&pdev->dev, sizeof(*clk), GFP_KERNEL);
+	if (!clk)
+		return ERR_PTR(-ENOMEM);
+	clk->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(clk->base))
+		return ERR_CAST(clk->base);
+	clk->hw.init = &init;
+	ret = devm_clk_hw_register(&pdev->dev, &clk->hw);
+	return ret ? ERR_PTR(ret) : &clk->hw;
+}
+
+static u8 mt6577_msdc0_parent(struct clk_hw *hw)
+{
+	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	u32 mux;
+
+	if (regmap_read(clk->map, 0x0c, &mux))
+		return 2;
+	return min_t(u32, mux & 3, 2);
+}
+
+static const struct clk_ops mt6577_msdc0_ops = {
+	.get_parent = mt6577_msdc0_parent,
+};
+
 static u8 mt6577_axi_parent(struct clk_hw *hw)
 {
 	struct mt6577_root_clk *clk = to_mt6577_root(hw);
@@ -72,7 +148,7 @@ static const struct mtk_gate_regs mt6577_peri_regs = {
 	.clr_ofs = 0x10,
 };
 
-static const struct mtk_gate mt6577_pwm_gates[] = {
+static const struct mtk_gate mt6577_peri_gates[] = {
 	GATE_MTK(CLK_MT6577_PWM1, "mt6577_pwm1", NULL,
 		 &mt6577_peri_regs, 2, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT6577_PWM2, "mt6577_pwm2", NULL,
@@ -83,10 +159,12 @@ static const struct mtk_gate mt6577_pwm_gates[] = {
 		 &mt6577_peri_regs, 5, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT6577_PWM7, "mt6577_pwm7", NULL,
 		 &mt6577_peri_regs, 6, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT6577_MSDC0, "mt6577_msdc0", "mt6577_msdc0_sel",
+		 &mt6577_peri_regs, 15, &mtk_clk_gate_ops_no_setclr),
 };
 
 struct mt6577_peri {
-	struct mtk_gate gates[ARRAY_SIZE(mt6577_pwm_gates)];
+	struct mtk_gate gates[ARRAY_SIZE(mt6577_peri_gates)];
 	struct clk_hw_onecell_data *data;
 };
 
@@ -104,11 +182,26 @@ static void mt6577_unregister_gates(void *data)
 
 static int mt6577_peri_probe(struct platform_device *pdev)
 {
+	const struct clk_parent_data parents[] = { { .index = 1 }, { .index = 2 } };
+	const struct clk_init_data init = {
+		.name = "mt6577_msdc0_sel",
+		.ops = &mt6577_msdc0_ops,
+		.parent_data = parents,
+		.num_parents = ARRAY_SIZE(parents),
+		.flags = CLK_GET_RATE_NOCACHE,
+	};
 	struct device *dev = &pdev->dev;
+	struct clk_bulk_data *inputs;
 	struct mt6577_peri *peri;
+	struct mt6577_root_clk *mux;
 	struct clk_hw *reference;
 	int i, ret;
 
+	ret = devm_clk_bulk_get_all(dev, &inputs);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "Missing peripheral clock inputs\n");
+	if (ret != 3)
+		return -EINVAL;
 	peri = devm_kzalloc(dev, sizeof(*peri), GFP_KERNEL);
 	if (!peri)
 		return -ENOMEM;
@@ -122,8 +215,18 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 	if (IS_ERR(reference))
 		return PTR_ERR(reference);
 	peri->data->hws[CLK_MT6577_PWM_REF] = reference;
-	memcpy(peri->gates, mt6577_pwm_gates, sizeof(peri->gates));
-	for (i = 0; i < ARRAY_SIZE(peri->gates); i++)
+	mux = devm_kzalloc(dev, sizeof(*mux), GFP_KERNEL);
+	if (!mux)
+		return -ENOMEM;
+	mux->map = device_node_to_regmap(dev->of_node);
+	if (IS_ERR(mux->map))
+		return PTR_ERR(mux->map);
+	mux->hw.init = &init;
+	ret = devm_clk_hw_register(dev, &mux->hw);
+	if (ret)
+		return ret;
+	memcpy(peri->gates, mt6577_peri_gates, sizeof(peri->gates));
+	for (i = 0; i < ARRAY_SIZE(peri->gates) - 1; i++)
 		peri->gates[i].parent_name = clk_hw_get_name(reference);
 	ret = mtk_clk_register_gates(dev, dev->of_node, peri->gates,
 				     ARRAY_SIZE(peri->gates), peri->data);
@@ -164,6 +267,7 @@ static int mt6577_clk_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct clk_hw_onecell_data *provider;
 	struct mt6577_root_clk *clk;
+	unsigned int count = data == &mt6577_mainpll_data ? CLK_MT6577_APMIXED_NR_CLK : 1;
 	int ret;
 
 	if (!data->ops)
@@ -180,11 +284,16 @@ static int mt6577_clk_probe(struct platform_device *pdev)
 	ret = devm_clk_hw_register(dev, &clk->hw);
 	if (ret)
 		return ret;
-	provider = devm_kzalloc(dev, struct_size(provider, hws, 1), GFP_KERNEL);
+	provider = devm_kzalloc(dev, struct_size(provider, hws, count), GFP_KERNEL);
 	if (!provider)
 		return -ENOMEM;
-	provider->num = 1;
+	provider->num = count;
 	provider->hws[0] = &clk->hw;
+	if (count > 1) {
+		provider->hws[CLK_MT6577_WPLL197] = mt6577_register_wpll(pdev);
+		if (IS_ERR(provider->hws[CLK_MT6577_WPLL197]))
+			return PTR_ERR(provider->hws[CLK_MT6577_WPLL197]);
+	}
 	return devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, provider);
 }
 

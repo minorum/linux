@@ -53,12 +53,6 @@
 		clock-frequency = <26000000>;
 	};
 
-	msdc_clock: clock-msdc {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <197000000>;
-	};
-
 	backlight: backlight {
 		compatible = "gpio-backlight";
 		gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
@@ -123,8 +117,9 @@
 		infracfg: clock-controller@c0001000 {
 			compatible = "mediatek,mt6577-infracfg";
 			reg = <0xc0001000 0x1000>;
-			clocks = <&clk26m>, <&apmixedsys CLK_MT6577_MAINPLL>;
-			clock-names = "clk26m", "mainpll";
+			clocks = <&clk26m>, <&apmixedsys CLK_MT6577_MAINPLL>,
+				 <&apmixedsys CLK_MT6577_WPLL197>;
+			clock-names = "clk26m", "mainpll", "wpll";
 			#clock-cells = <1>;
 		};
 
@@ -139,8 +134,9 @@
 		pericfg: clock-controller@c1000000 {
 			compatible = "mediatek,mt6577-pericfg";
 			reg = <0xc1000000 0x1000>;
-			clocks = <&infracfg CLK_MT6577_AXI>;
-			clock-names = "axi";
+			clocks = <&infracfg CLK_MT6577_AXI>, <&clk26m>,
+				 <&apmixedsys CLK_MT6577_WPLL197>;
+			clock-names = "axi", "clk26m", "wpll197";
 			#clock-cells = <1>;
 		};
 
@@ -201,7 +197,7 @@
 		mmc@c1220000 {
 			compatible = "mediatek,mt6577-mmc-ram";
 			reg = <0xc1220000 0x1000>;
-			clocks = <&msdc_clock>;
+			clocks = <&pericfg CLK_MT6577_MSDC0>;
 			clock-names = "source";
 			bus-width = <4>;
 			max-frequency = <12000000>;

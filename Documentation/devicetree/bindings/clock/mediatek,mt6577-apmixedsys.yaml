@@ -9,7 +9,10 @@ title: MediaTek MT6577 analog clock controller
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
 
-description: The analog clock controller provides MAINPLL.
+description:
+  The analog clock controller provides MAINPLL and the nominal WPLL197MHz
+  output. WPLL rate programming is not supported. Its firmware configuration
+  is retained; shared firmware consumers require the WPLL output to remain on.
 
 properties:
   compatible:

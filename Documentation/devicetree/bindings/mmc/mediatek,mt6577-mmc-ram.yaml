@@ -10,10 +10,11 @@ maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
 
 description: |
-  Polling PIO eMMC host retaining clock gates, power, pads and tuning from
+  Polling PIO eMMC host retaining power, pads and tuning from
   the preceding boot stage. This interface does not provide cold
   initialization, DMA, high-speed modes or system power management.
-  The source clock frequency must describe the inherited mux selection.
+  The source clock provider owns the controller gate and describes the
+  boot-selected source.
 
 allOf:
   - $ref: mmc-controller.yaml#
