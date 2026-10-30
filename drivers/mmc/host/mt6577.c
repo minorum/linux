@@ -242,6 +242,8 @@ static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
 	}
 }
 
+static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios);
+
 static int mt6577_dma_transfer(struct mt6577_host *host, struct mmc_data *data)
 {
 	u32 val, ctrl;
@@ -282,6 +284,7 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct mt6577_host *host = mmc_priv(mmc);
 	struct mmc_data *data = mrq->data;
 	unsigned int length = 0;
+	bool dma = host->dma_enabled;
 	int ret;
 
 	if (host->clock_error) {
@@ -329,6 +332,12 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (!data->error && data->flags & MMC_DATA_WRITE)
 			data->error = readl_poll_timeout(host->base + MSDC_PS, ret,
 							 ret & PS_DAT0, 10, 1000000);
+		if (data->error && dma && host->clock_enabled) {
+			host->dma_enabled = false;
+			mt6577_set_ios(mmc, &mmc->ios);
+			dev_warn(mmc_dev(mmc), "DMA error %d, using PIO at %u Hz\n",
+				 data->error, mmc->actual_clock);
+		}
 	}
 done:
 	mmc_request_done(mmc, mrq);
@@ -337,7 +346,7 @@ done:
 static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct mt6577_host *host = mmc_priv(mmc);
-	u32 cfg, val, div;
+	u32 cfg, val, div, clock;
 
 	if (!host->clock_enabled)
 		return;
@@ -355,7 +364,8 @@ static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	mmc->actual_clock = 0;
 	if (!ios->clock)
 		return;
-	div = DIV_ROUND_UP(host->rate, 4 * ios->clock);
+	clock = host->dma_enabled ? ios->clock : min(ios->clock, 12000000U);
+	div = DIV_ROUND_UP(host->rate, 4 * clock);
 	if (!div || div > FIELD_MAX(CFG_CKDIV)) {
 		host->clock_error = -EINVAL;
 		return;
