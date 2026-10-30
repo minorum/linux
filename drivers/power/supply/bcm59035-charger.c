@@ -10,11 +10,14 @@
 #include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/usb/role.h>
 #include <linux/workqueue.h>
 
 #include "bcm59035-charger.h"
 
 #define BCM59035_ENV1 0x4c
+#define BCM59035_USB_PRESENT 0x04
+#define BCM59035_USB_REMOVE 0x20
 #define BCM59035_MBCCTRL7 0x3c
 #define BCM59035_REMOVE_MASK 0x22
 #define BCM59035_VOLTAGE_ERROR_MASK 0x44
@@ -26,10 +29,12 @@ struct bcm59035_charger {
 	struct regmap *regmap;
 	struct device *parent;
 	struct power_supply *psy;
+	struct usb_role_switch *role_sw;
 	struct delayed_work poll;
 	struct mutex lock; /* Control and readback */
 	int last_online;
 	int inhibit_error;
+	int role_error;
 	bool inhibited;
 	int battery_health;
 	int max_current;
@@ -115,6 +120,73 @@ static int bcm59035_charger_read_online(struct bcm59035_charger *charger)
 	if (ret)
 		return ret;
 	return !!(env1 & 0x06);
+}
+
+static int bcm59035_charger_read_usb(struct bcm59035_charger *charger)
+{
+	unsigned int env1;
+	int ret;
+
+	ret = regmap_read(charger->regmap, BCM59035_ENV1, &env1);
+	return ret ? ret : !!(env1 & BCM59035_USB_PRESENT);
+}
+
+static struct usb_role_switch *bcm59035_charger_get_role(struct device *dev)
+{
+	struct fwnode_handle *connector, *parent;
+	struct usb_role_switch *sw = NULL;
+
+	if (!device_property_present(dev, "power-supplies"))
+		return NULL;
+	connector = fwnode_find_reference(dev_fwnode(dev), "power-supplies", 0);
+	if (IS_ERR(connector))
+		return ERR_CAST(connector);
+	if (!fwnode_device_is_compatible(connector, "usb-b-connector") ||
+	    fwnode_property_string_array_count(connector, "compatible") != 1)
+		goto put_connector;
+	parent = fwnode_get_parent(connector);
+	if (!fwnode_property_present(parent, "usb-role-switch"))
+		goto put_parent;
+	if (fwnode_property_present(parent, "role-switch-default-mode") ||
+	    fwnode_property_present(connector, "id-gpios") ||
+	    fwnode_property_present(connector, "vbus-gpios")) {
+		sw = ERR_PTR(-EINVAL);
+		goto put_parent;
+	}
+	sw = fwnode_usb_role_switch_get(connector);
+	if (!sw)
+		sw = ERR_PTR(-ENODEV);
+put_parent:
+	fwnode_handle_put(parent);
+put_connector:
+	fwnode_handle_put(connector);
+	return sw;
+}
+
+static void bcm59035_charger_put_role(void *data)
+{
+	usb_role_switch_put(data);
+}
+
+static int bcm59035_charger_update_role(struct bcm59035_charger *charger,
+					int usb, unsigned int events)
+{
+	enum usb_role role = usb > 0 ? USB_ROLE_DEVICE : USB_ROLE_NONE;
+	int ret;
+
+	if (!charger->role_sw)
+		return 0;
+	if (events & BCM59035_USB_REMOVE) {
+		ret = usb_role_switch_set_role(charger->role_sw, USB_ROLE_NONE);
+		if (ret)
+			return ret;
+	}
+	if (usb_role_switch_get_role(charger->role_sw) != role) {
+		ret = usb_role_switch_set_role(charger->role_sw, role);
+		if (ret)
+			return ret;
+	}
+	return usb < 0 ? usb : 0;
 }
 
 static int bcm59035_charger_read_profile(struct bcm59035_charger *charger, bool voltage)
@@ -253,7 +325,7 @@ static int bcm59035_charger_read_property(struct power_supply *psy,
 	if (property == POWER_SUPPLY_PROP_HEALTH) {
 		unsigned int faults = READ_ONCE(charger->faults);
 
-		if (charger->inhibit_error || charger->battery_health < 0 ||
+		if (charger->inhibit_error || charger->role_error || charger->battery_health < 0 ||
 		    (faults & BCM59035_SNAPSHOT_ERROR) ||
 		    ((faults & BCM59035_VOLTAGE_ERROR_MASK) && (faults & BCM59035_TIMER_ERROR)))
 			value->intval = POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
@@ -452,6 +524,8 @@ static void bcm59035_charger_poll(struct work_struct *work)
 	int online = bcm59035_charger_read_online(charger);
 	int health = bcm59035_charger_read_battery_health(charger);
 	int budget = bcm59035_charger_read_budget(charger);
+	int usb = charger->role_sw ? bcm59035_charger_read_usb(charger) : 0;
+	int role_error;
 	bool inhibited, lost_inhibit, changed;
 
 	mutex_lock(&charger->lock);
@@ -459,7 +533,8 @@ static void bcm59035_charger_poll(struct work_struct *work)
 	lost_inhibit = inhibited && bcm59035_charger_read_behaviour(charger) < 0;
 	changed = health != charger->battery_health;
 	charger->battery_health = health;
-	if (online <= 0 || (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
+	if (online <= 0 || (charger->role_sw && usb <= 0) ||
+	    (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
 	    charger->inhibit_error || lost_inhibit || health != POWER_SUPPLY_HEALTH_GOOD ||
 	    !bcm59035_charger_profile_within_budget(charger, budget)) {
 		int ret = bcm59035_charger_inhibit(charger);
@@ -469,6 +544,23 @@ static void bcm59035_charger_poll(struct work_struct *work)
 	}
 	changed |= inhibited != charger->inhibited || lost_inhibit;
 	mutex_unlock(&charger->lock);
+	role_error = bcm59035_charger_update_role(charger, usb, events);
+	mutex_lock(&charger->lock);
+	changed |= role_error != charger->role_error;
+	charger->role_error = role_error;
+	if (role_error) {
+		int ret = bcm59035_charger_inhibit(charger);
+
+		changed |= ret != charger->inhibit_error;
+		charger->inhibit_error = ret;
+	}
+	mutex_unlock(&charger->lock);
+	if (role_error && charger->role_sw) {
+		int ret = usb_role_switch_set_role(charger->role_sw, USB_ROLE_NONE);
+
+		if (ret)
+			dev_err(charger->parent, "failed to clear USB role: %d\n", ret);
+	}
 	if (online != charger->last_online || events || changed) {
 		charger->last_online = online;
 		power_supply_changed(charger->psy);
@@ -481,6 +573,16 @@ static void bcm59035_charger_stop(void *data)
 	struct bcm59035_charger *charger = data;
 
 	cancel_delayed_work_sync(&charger->poll);
+	if (charger->role_sw) {
+		int ret;
+
+		mutex_lock(&charger->lock);
+		charger->inhibit_error = bcm59035_charger_inhibit(charger);
+		mutex_unlock(&charger->lock);
+		ret = usb_role_switch_set_role(charger->role_sw, USB_ROLE_NONE);
+		if (ret)
+			dev_err(charger->parent, "failed to clear USB role: %d\n", ret);
+	}
 }
 
 static int bcm59035_charger_probe(struct platform_device *pdev)
@@ -503,6 +605,14 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 	charger->regmap = dev_get_regmap(dev->parent, NULL);
 	if (!charger->regmap)
 		return -ENODEV;
+	charger->role_sw = bcm59035_charger_get_role(dev);
+	if (IS_ERR(charger->role_sw))
+		return dev_err_probe(dev, PTR_ERR(charger->role_sw), "failed to get USB role\n");
+	if (charger->role_sw) {
+		ret = devm_add_action_or_reset(dev, bcm59035_charger_put_role, charger->role_sw);
+		if (ret)
+			return ret;
+	}
 	ret = bcm59035_charger_read_online(charger);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to read charger presence\n");
@@ -525,7 +635,7 @@ static int bcm59035_charger_probe(struct platform_device *pdev)
 		if (ret)
 			return dev_err_probe(dev, ret, "Failed to request charger IRQ\n");
 	}
-	queue_delayed_work(system_freezable_wq, &charger->poll, 2 * HZ);
+	queue_delayed_work(system_freezable_wq, &charger->poll, 0);
 	return 0;
 }
 
