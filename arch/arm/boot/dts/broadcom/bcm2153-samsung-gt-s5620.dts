@@ -21,6 +21,7 @@
 		nvmem-cells = <&battery_cal_3v3>, <&battery_cal_4v2>;
 		nvmem-cell-names = "voltage-3v3", "voltage-4v2";
 		monitored-battery = <&battery>;
+		power-supplies = <&charger>;
 		status = "disabled";
 	};
 
@@ -146,6 +147,11 @@
 		interrupt-controller;
 		#interrupt-cells = <1>;
 		system-power-controller;
+
+		charger: charger {
+			compatible = "brcm,bcm59035-charger";
+			status = "disabled";
+		};
 
 		regulators {
 			hcldo2: hcldo2 {
