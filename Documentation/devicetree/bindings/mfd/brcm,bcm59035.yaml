@@ -30,6 +30,10 @@ properties:
   system-power-controller:
     type: boolean
 
+  charger:
+    type: object
+    $ref: /schemas/power/supply/brcm,bcm59035-charger.yaml#
+
   regulators:
     type: object
     additionalProperties: false
