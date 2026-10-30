@@ -21,30 +21,37 @@ struct bcm2153_adc {
 static int bcm2153_adc_sample(struct bcm2153_adc *adc, unsigned int channel,
 			      int *value)
 {
-	u16 result;
+	u16 result, saved_control;
 	int ret;
 
 	if (channel >= 8)
 		return -EINVAL;
 
 	mutex_lock(&adc->lock);
-	if (readw(adc->base + ADC_CONTROL) || readw(adc->base + ADC_COUNT)) {
+	saved_control = readw(adc->base + ADC_CONTROL);
+	if ((saved_control & ~7) || readw(adc->base + ADC_COUNT)) {
 		ret = -EBUSY;
 		goto unlock;
 	}
 	writew(channel, adc->base + ADC_CONTROL);
+	writew(0xf8 | channel, adc->base + ADC_CONTROL);
 	result = readw(adc->base + ADC_RESULT);
 	if (result & ADC_READY) {
 		ret = -EAGAIN;
 		goto stop;
 	}
-	writew(0xf8 | channel, adc->base + ADC_CONTROL);
 	ret = readw_poll_timeout(adc->base + ADC_RESULT, result,
 				 result & ADC_READY, 10, 50000);
 stop:
 	writew(0, adc->base + ADC_COUNT);
 	writew(0, adc->base + ADC_CONTROL);
-	if (readw(adc->base + ADC_CONTROL) || readw(adc->base + ADC_COUNT))
+	if (readw(adc->base + ADC_CONTROL) || readw(adc->base + ADC_COUNT)) {
+		ret = -EIO;
+		goto unlock;
+	}
+	writew(saved_control, adc->base + ADC_CONTROL);
+	if (readw(adc->base + ADC_CONTROL) != saved_control ||
+	    readw(adc->base + ADC_COUNT))
 		ret = -EIO;
 	if (!ret)
 		*value = result & 0xff;
