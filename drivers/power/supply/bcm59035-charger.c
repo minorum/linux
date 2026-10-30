@@ -7,6 +7,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
@@ -27,9 +28,62 @@ struct bcm59035_charger {
 	struct mutex lock; /* Control and readback */
 	int last_online;
 	int inhibit_error;
+	int battery_health;
 	atomic_t events;
 	unsigned int faults;
 };
+
+struct bcm59035_battery_check {
+	struct fwnode_handle *battery;
+	int health;
+	bool found;
+};
+
+static int bcm59035_charger_check_battery(struct power_supply *psy, void *data)
+{
+	struct bcm59035_battery_check *check = data;
+	struct fwnode_handle *node, *battery;
+	union power_supply_propval value;
+	bool match;
+	int ret;
+
+	if (psy->desc->type != POWER_SUPPLY_TYPE_BATTERY)
+		return 0;
+	node = dev_fwnode(&psy->dev);
+	if (!node && psy->dev.parent)
+		node = dev_fwnode(psy->dev.parent);
+	battery = fwnode_find_reference(node, "monitored-battery", 0);
+	if (IS_ERR(battery))
+		return 0;
+	match = battery == check->battery;
+	fwnode_handle_put(battery);
+	if (!match)
+		return 0;
+	if (check->found)
+		return -EEXIST;
+	check->found = true;
+	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_HEALTH, &value);
+	if (ret)
+		return ret;
+	check->health = value.intval;
+	return 0;
+}
+
+static int bcm59035_charger_read_battery_health(struct bcm59035_charger *charger)
+{
+	struct bcm59035_battery_check check = {};
+	int ret;
+
+	check.battery = fwnode_find_reference(dev_fwnode(&charger->psy->dev),
+					      "monitored-battery", 0);
+	if (IS_ERR(check.battery))
+		return PTR_ERR(check.battery);
+	ret = power_supply_for_each_psy(&check, bcm59035_charger_check_battery);
+	fwnode_handle_put(check.battery);
+	if (ret)
+		return ret;
+	return check.found ? check.health : -ENODEV;
+}
 
 static irqreturn_t bcm59035_charger_irq(int irq, void *data)
 {
@@ -154,13 +208,16 @@ static int bcm59035_charger_read_property(struct power_supply *psy,
 	if (property == POWER_SUPPLY_PROP_HEALTH) {
 		unsigned int faults = READ_ONCE(charger->faults);
 
-		if (charger->inhibit_error || (faults & BCM59035_SNAPSHOT_ERROR) ||
+		if (charger->inhibit_error || charger->battery_health < 0 ||
+		    (faults & BCM59035_SNAPSHOT_ERROR) ||
 		    ((faults & BCM59035_VOLTAGE_ERROR_MASK) && (faults & BCM59035_TIMER_ERROR)))
 			value->intval = POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
 		else if (faults & BCM59035_VOLTAGE_ERROR_MASK)
 			value->intval = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
 		else if (faults & BCM59035_TIMER_ERROR)
 			value->intval = POWER_SUPPLY_HEALTH_SAFETY_TIMER_EXPIRE;
+		else if (charger->battery_health != POWER_SUPPLY_HEALTH_GOOD)
+			value->intval = charger->battery_health;
 		else
 			value->intval = POWER_SUPPLY_HEALTH_UNKNOWN;
 		return 0;
@@ -261,14 +318,17 @@ static void bcm59035_charger_poll(struct work_struct *work)
 						      struct bcm59035_charger, poll);
 	unsigned int events = atomic_xchg(&charger->events, 0);
 	int online = bcm59035_charger_read_online(charger);
+	int health = bcm59035_charger_read_battery_health(charger);
 	bool changed = false;
 
 	mutex_lock(&charger->lock);
+	changed = health != charger->battery_health;
+	charger->battery_health = health;
 	if (online <= 0 || (events & (BCM59035_REMOVE_MASK | BCM59035_FAULT_MASK)) ||
-	    charger->inhibit_error) {
+	    charger->inhibit_error || health != POWER_SUPPLY_HEALTH_GOOD) {
 		int ret = bcm59035_charger_inhibit(charger);
 
-		changed = ret != charger->inhibit_error;
+		changed |= ret != charger->inhibit_error;
 		charger->inhibit_error = ret;
 	}
 	mutex_unlock(&charger->lock);
