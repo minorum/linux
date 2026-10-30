@@ -23,7 +23,33 @@
 		ranges;
 
 		modem@80000000 {
-			reg = <0x80000000 0x00f00000>;
+			reg = <0x80000000 0x000b1702>;
+			no-map;
+		};
+
+		calibration@800b1702 {
+			compatible = "samsung,gt-s5620-battery-calibration", "nvmem-rmem";
+			reg = <0x800b1702 4>;
+			no-map;
+			read-only;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				battery_cal_3v3: calibration@0 {
+					reg = <0 2>;
+				};
+
+				battery_cal_4v2: calibration@2 {
+					reg = <2 2>;
+				};
+			};
+		};
+
+		modem@800b1706 {
+			reg = <0x800b1706 0x00e4e8fa>;
 			no-map;
 		};
 
