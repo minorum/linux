@@ -912,6 +912,8 @@ extern int power_supply_is_system_supplied(void);
 static inline int power_supply_is_system_supplied(void) { return -ENOSYS; }
 #endif
 
+bool power_supply_property_is_supported(struct power_supply *psy,
+					enum power_supply_property psp);
 extern int power_supply_get_property(struct power_supply *psy,
 			    enum power_supply_property psp,
 			    union power_supply_propval *val);

@@ -1389,6 +1389,18 @@ bool power_supply_has_property(struct power_supply *psy,
 	return false;
 }
 
+bool power_supply_property_is_supported(struct power_supply *psy,
+					enum power_supply_property psp)
+{
+	bool supported;
+
+	down_read(&psy->extensions_sem);
+	supported = power_supply_has_property(psy, psp);
+	up_read(&psy->extensions_sem);
+	return supported;
+}
+EXPORT_SYMBOL_GPL(power_supply_property_is_supported);
+
 static int __power_supply_get_property(struct power_supply *psy, enum power_supply_property psp,
 				       union power_supply_propval *val, bool use_extensions)
 {
