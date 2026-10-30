@@ -12,12 +12,13 @@ maintainers:
 description: |
   Revision 4 polling eMMC controller with native clock-gate, controller
   reset, timing and electrical-pad initialization. The supported configuration
-  is nonremovable, up to 4 bits wide and limited to legacy operation at 12 MHz.
+  is nonremovable, up to 4 bits wide, with legacy and SDR high-speed operation
+  up to 52 MHz.
   Pad defaults use the drive encoding qualified on the MODECOM FreeTAB 8001.
   Card power is retained, matching the stock host-0 software policy. Supply
   switching and external card reset are not part of this interface. Active
   SoC pin routing remains configured by the platform. Basic DMA uses a
-  32-bit coherent bounce buffer, with PIO fallback. High-speed modes and
+  32-bit coherent bounce buffer, with PIO fallback. DDR, HS200, HS400 and
   system power management are not supported.
   The source clock provider owns the controller gate and describes the
   boot-selected source.
@@ -42,7 +43,18 @@ properties:
     enum: [1, 4]
 
   max-frequency:
-    maximum: 12000000
+    maximum: 52000000
+
+  cap-mmc-highspeed: true
+
+  mmc-ddr-1_2v: false
+  mmc-ddr-1_8v: false
+  mmc-ddr-3_3v: false
+  mmc-hs200-1_2v: false
+  mmc-hs200-1_8v: false
+  mmc-hs400-1_2v: false
+  mmc-hs400-1_8v: false
+  mmc-hs400-enhanced-strobe: false
 
   non-removable: true
 
