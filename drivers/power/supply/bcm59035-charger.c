@@ -12,6 +12,8 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
+#include "bcm59035-charger.h"
+
 #define BCM59035_ENV1 0x4c
 #define BCM59035_MBCCTRL7 0x3c
 #define BCM59035_REMOVE_MASK 0x22
@@ -29,6 +31,9 @@ struct bcm59035_charger {
 	int last_online;
 	int inhibit_error;
 	int battery_health;
+	int max_current;
+	int max_voltage;
+	int term_current;
 	atomic_t events;
 	unsigned int faults;
 };
@@ -147,17 +152,9 @@ static int bcm59035_charger_read_profile(struct bcm59035_charger *charger, bool 
 	}
 	if (changed)
 		return -EAGAIN;
-	if (!voltage) {
-		setting &= 0x1f;
-		return setting < 16 ? 50000 + setting * 10000 :
-				     250000 + (setting - 16) * 50000;
-	}
-	setting &= 0x0f;
-	if (setting < 7)
-		return 4200000 - setting * 50000;
-	if (setting < 12)
-		return 3200000 + (setting - 7) * 100000;
-	return -EINVAL;
+	if (!voltage)
+		return bcm59035_current_ua(setting);
+	return bcm59035_voltage_uv(setting);
 }
 
 static int bcm59035_charger_read_behaviour(struct bcm59035_charger *charger)
@@ -236,7 +233,7 @@ static int bcm59035_charger_read_property(struct power_supply *psy,
 		ret = regmap_read(charger->regmap, BCM59035_MBCCTRL7, &setting);
 		if (ret)
 			return ret;
-		value->intval = 50000 + (setting & 0x0f) * 10000;
+		value->intval = bcm59035_eoc_ua(setting);
 		return 0;
 	}
 
@@ -267,6 +264,57 @@ static int bcm59035_charger_get_property(struct power_supply *psy,
 	return ret;
 }
 
+static int bcm59035_charger_set_profile(struct bcm59035_charger *charger,
+					enum power_supply_property property, int value)
+{
+	unsigned int reg, mask, setting;
+	int code, limit, count, i, ret;
+
+	switch (property) {
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+		reg = 0x39;
+		mask = 0x1f;
+		count = 2;
+		limit = charger->max_current;
+		code = bcm59035_current_reg(value);
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+		reg = 0x38;
+		mask = 0x0f;
+		count = 2;
+		limit = charger->max_voltage;
+		code = bcm59035_voltage_reg(value);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT:
+		reg = 0x3c;
+		mask = 0x0f;
+		count = 1;
+		limit = charger->term_current;
+		code = bcm59035_eoc_reg(value);
+		break;
+	default:
+		return -EINVAL;
+	}
+	if (limit <= 0)
+		return -ENODATA;
+	if (code < 0 || value > limit)
+		return -EINVAL;
+	ret = bcm59035_charger_read_behaviour(charger);
+	if (ret < 0)
+		return ret == -ENODATA ? -EBUSY : ret;
+	for (i = 0; i < count; i++, reg += 2) {
+		ret = regmap_update_bits(charger->regmap, reg, mask, code);
+		if (ret)
+			return ret;
+		ret = regmap_read(charger->regmap, reg, &setting);
+		if (ret)
+			return ret;
+		if ((setting & mask) != (unsigned int)code)
+			return -EIO;
+	}
+	return 0;
+}
+
 static int bcm59035_charger_set_property(struct power_supply *psy,
 					 enum power_supply_property property,
 					 const union power_supply_propval *value)
@@ -274,12 +322,16 @@ static int bcm59035_charger_set_property(struct power_supply *psy,
 	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
 	int ret;
 
-	if (property != POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR ||
+	if (property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR &&
 	    value->intval != POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
 		return -EINVAL;
 	mutex_lock(&charger->lock);
-	ret = bcm59035_charger_inhibit(charger);
-	charger->inhibit_error = ret;
+	if (property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR) {
+		ret = bcm59035_charger_inhibit(charger);
+		charger->inhibit_error = ret;
+	} else {
+		ret = bcm59035_charger_set_profile(charger, property, value->intval);
+	}
 	mutex_unlock(&charger->lock);
 	power_supply_changed(psy);
 	return ret;
@@ -288,7 +340,26 @@ static int bcm59035_charger_set_property(struct power_supply *psy,
 static int bcm59035_charger_property_is_writeable(struct power_supply *psy,
 						  enum power_supply_property property)
 {
-	return property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+	return property == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR ||
+	       property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT ||
+	       property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE ||
+	       property == POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT;
+}
+
+static int bcm59035_charger_init(struct power_supply *psy)
+{
+	struct bcm59035_charger *charger = power_supply_get_drvdata(psy);
+	struct power_supply_battery_info *info;
+	int ret;
+
+	ret = power_supply_get_battery_info(psy, &info);
+	if (ret)
+		return ret == -ENOENT || ret == -ENODEV ? 0 : ret;
+	charger->max_current = info->constant_charge_current_max_ua;
+	charger->max_voltage = info->constant_charge_voltage_max_uv;
+	charger->term_current = info->charge_term_current_ua;
+	power_supply_put_battery_info(psy, info);
+	return 0;
 }
 
 static const enum power_supply_property bcm59035_charger_properties[] = {
@@ -307,6 +378,7 @@ static const struct power_supply_desc bcm59035_charger_desc = {
 	.properties = bcm59035_charger_properties,
 	.num_properties = ARRAY_SIZE(bcm59035_charger_properties),
 	.get_property = bcm59035_charger_get_property,
+	.init = bcm59035_charger_init,
 	.set_property = bcm59035_charger_set_property,
 	.property_is_writeable = bcm59035_charger_property_is_writeable,
 	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),

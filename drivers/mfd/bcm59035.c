@@ -73,7 +73,7 @@ static bool bcm59035_readable_reg(struct device *dev, unsigned int reg)
 static bool bcm59035_writeable_reg(struct device *dev, unsigned int reg)
 {
 	return (reg >= 0x0b && reg <= 0x14) || reg == 0x1b ||
-	       reg == BCM59035_HOSTACT || reg == 0x37 || reg == 0x3d;
+	       reg == BCM59035_HOSTACT || (reg >= 0x37 && reg <= 0x3d);
 }
 
 static const struct regmap_config bcm59035_regmap_config = {
