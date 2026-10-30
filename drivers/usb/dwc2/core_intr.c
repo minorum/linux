@@ -526,6 +526,8 @@ static void dwc2_handle_usb_suspend_intr(struct dwc2_hsotg *hsotg)
 		 * state is active
 		 */
 		dsts = dwc2_readl(hsotg, DSTS);
+		if (dsts & DSTS_SUSPSTS)
+			dwc2_gadget_supply_revoke(hsotg);
 		dev_dbg(hsotg->dev, "%s: DSTS=0x%0x\n", __func__, dsts);
 		dev_dbg(hsotg->dev,
 			"DSTS.Suspend Status=%d HWCFG4.Power Optimize=%d HWCFG4.Hibernation=%d\n",
@@ -645,6 +647,7 @@ static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
 		glpmcfg = dwc2_readl(hsotg, GLPMCFG);
 
 		if (glpmcfg & GLPMCFG_SLPSTS) {
+			dwc2_gadget_supply_revoke(hsotg);
 			/* Save the current state */
 			hsotg->lx_state = DWC2_L1;
 			dev_dbg(hsotg->dev,

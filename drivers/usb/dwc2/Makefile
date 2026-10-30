@@ -12,7 +12,7 @@ ifneq ($(filter y,$(CONFIG_USB_DWC2_HOST) $(CONFIG_USB_DWC2_DUAL_ROLE)),)
 endif
 
 ifneq ($(filter y,$(CONFIG_USB_DWC2_PERIPHERAL) $(CONFIG_USB_DWC2_DUAL_ROLE)),)
-	dwc2-y       			+= gadget.o
+	dwc2-y       			+= gadget.o gadget-supply.o
 endif
 
 ifneq ($(CONFIG_DEBUG_FS),)

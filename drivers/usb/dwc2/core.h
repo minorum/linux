@@ -1046,6 +1046,7 @@ struct dwc2_hregs_backup {
  * @fifo_map:		Each bit intend for concrete fifo. If that bit is set,
  *			then that fifo is used
  * @gadget:		Represents a usb gadget device
+ * @gadget_supply:	USB power supply
  * @connected:		Used in slave mode. True if device connected with host
  * @eps_in:		The IN endpoints being supplied to the gadget framework
  * @eps_out:		The OUT endpoints being supplied to the gadget framework
@@ -1220,6 +1221,7 @@ struct dwc2_hsotg {
 	struct dwc2_dma_desc *ctrl_out_desc;
 
 	struct usb_gadget gadget;
+	struct dwc2_gadget_supply *gadget_supply;
 	unsigned int enabled:1;
 	unsigned int connected:1;
 	unsigned int remote_wakeup_allowed:1;
@@ -1413,6 +1415,9 @@ void dwc2_dump_global_registers(struct dwc2_hsotg *hsotg);
 /* Gadget defines */
 #if IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) || \
 	IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)
+int dwc2_gadget_supply_init(struct dwc2_hsotg *hsotg);
+int dwc2_gadget_supply_draw(struct dwc2_hsotg *hsotg, unsigned int mA);
+void dwc2_gadget_supply_revoke(struct dwc2_hsotg *hsotg);
 int dwc2_hsotg_remove(struct dwc2_hsotg *hsotg);
 int dwc2_hsotg_suspend(struct dwc2_hsotg *dwc2);
 int dwc2_hsotg_resume(struct dwc2_hsotg *dwc2);
@@ -1449,6 +1454,8 @@ static inline void dwc2_clear_fifo_map(struct dwc2_hsotg *hsotg)
 #else
 static inline int dwc2_hsotg_remove(struct dwc2_hsotg *dwc2)
 { return 0; }
+static inline int dwc2_gadget_supply_init(struct dwc2_hsotg *hsotg)
+{ return 0; }
 static inline int dwc2_hsotg_suspend(struct dwc2_hsotg *dwc2)
 { return 0; }
 static inline int dwc2_hsotg_resume(struct dwc2_hsotg *dwc2)
@@ -1460,6 +1467,7 @@ static inline void dwc2_hsotg_core_init_disconnected(struct dwc2_hsotg *dwc2,
 static inline void dwc2_hsotg_core_disconnect(struct dwc2_hsotg *hsotg) {}
 static inline void dwc2_hsotg_core_connect(struct dwc2_hsotg *hsotg) {}
 static inline void dwc2_hsotg_disconnect(struct dwc2_hsotg *dwc2) {}
+static inline void dwc2_gadget_supply_revoke(struct dwc2_hsotg *hsotg) {}
 static inline int dwc2_hsotg_set_test_mode(struct dwc2_hsotg *hsotg,
 					   int testmode)
 { return 0; }

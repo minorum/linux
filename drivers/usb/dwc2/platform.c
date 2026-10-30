@@ -523,6 +523,11 @@ static int dwc2_driver_probe(struct platform_device *dev)
 
 	dev_dbg(hsotg->dev, "registering common handler for irq%d\n",
 		hsotg->irq);
+	if (hsotg->dr_mode != USB_DR_MODE_HOST) {
+		retval = dwc2_gadget_supply_init(hsotg);
+		if (retval)
+			goto error;
+	}
 	retval = devm_request_irq(hsotg->dev, hsotg->irq,
 				  dwc2_handle_common_intr, IRQF_SHARED,
 				  dev_name(hsotg->dev), hsotg);

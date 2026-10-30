@@ -3316,6 +3316,7 @@ void dwc2_hsotg_disconnect(struct dwc2_hsotg *hsotg)
 {
 	unsigned int ep;
 
+	dwc2_gadget_supply_revoke(hsotg);
 	if (!hsotg->connected)
 		return;
 
@@ -4604,6 +4605,7 @@ static int dwc2_hsotg_udc_stop(struct usb_gadget *gadget)
 	if (!hsotg)
 		return -ENODEV;
 
+	dwc2_gadget_supply_revoke(hsotg);
 	/* Exit clock gating when driver is stopped. */
 	if (hsotg->params.power_down == DWC2_POWER_DOWN_PARAM_NONE &&
 	    hsotg->bus_suspended && !hsotg->params.no_clock_gating) {
@@ -4766,9 +4768,7 @@ static int dwc2_hsotg_vbus_draw(struct usb_gadget *gadget, unsigned int mA)
 {
 	struct dwc2_hsotg *hsotg = to_hsotg(gadget);
 
-	if (IS_ERR_OR_NULL(hsotg->uphy))
-		return -ENOTSUPP;
-	return usb_phy_set_power(hsotg->uphy, mA);
+	return dwc2_gadget_supply_draw(hsotg, mA);
 }
 
 static void dwc2_gadget_set_speed(struct usb_gadget *g, enum usb_device_speed speed)
@@ -5101,6 +5101,7 @@ int dwc2_gadget_init(struct dwc2_hsotg *hsotg)
  */
 int dwc2_hsotg_remove(struct dwc2_hsotg *hsotg)
 {
+	dwc2_gadget_supply_revoke(hsotg);
 	usb_del_gadget_udc(&hsotg->gadget);
 	dwc2_hsotg_ep_free_request(&hsotg->eps_out[0]->ep, hsotg->ctrl_req);
 
@@ -5111,6 +5112,7 @@ int dwc2_hsotg_suspend(struct dwc2_hsotg *hsotg)
 {
 	unsigned long flags;
 
+	dwc2_gadget_supply_revoke(hsotg);
 	if (hsotg->lx_state != DWC2_L0)
 		return 0;
 
