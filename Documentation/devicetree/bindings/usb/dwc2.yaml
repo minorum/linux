@@ -12,8 +12,29 @@ maintainers:
 allOf:
   - $ref: usb-drd.yaml#
   - $ref: usb-hcd.yaml#
+  - if:
+      required:
+        - connector
+    then:
+      properties:
+        dr_mode:
+          const: peripheral
+        usb-role-switch: false
+        port: false
+      required:
+        - dr_mode
 
 properties:
+  connector:
+    $ref: /schemas/connector/usb-connector.yaml#
+    description: Dedicated peripheral USB-B connector.
+    properties:
+      compatible:
+        const: usb-b-connector
+      id-gpios: false
+      vbus-gpios: false
+      vbus-supply: false
+
   compatible:
     oneOf:
       - const: brcm,bcm2835-usb
@@ -203,6 +224,13 @@ examples:
         clock-names = "otg";
         phys = <&usbphy>;
         phy-names = "usb2-phy";
+        dr_mode = "peripheral";
+
+        connector {
+            compatible = "usb-b-connector";
+            type = "micro";
+            self-powered;
+        };
     };
 
 ...
