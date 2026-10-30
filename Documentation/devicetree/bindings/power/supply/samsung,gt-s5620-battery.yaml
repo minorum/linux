@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/samsung,gt-s5620-battery.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung GT-S5620 battery monitor
+
+maintainers:
+  - minorum <mit.mis@gmail.com>
+
+description:
+  Battery voltage and thermistor inputs connected to the BCM2153 auxiliary
+  ADC. Voltage calibration is retained by the boot firmware as two
+  little-endian 16-bit words corresponding to 3.3 V and 4.2 V. Values below
+  255 encode a single sample; larger values encode a sum of sixteen samples.
+
+allOf:
+  - $ref: power-supply.yaml#
+
+properties:
+  compatible:
+    const: samsung,gt-s5620-battery
+
+  io-channels:
+    items:
+      - description: Battery voltage
+      - description: Battery thermistor
+
+  io-channel-names:
+    items:
+      - const: voltage
+      - const: temperature
+
+  nvmem-cells:
+    items:
+      - description: Voltage calibration at 3.3 V
+      - description: Voltage calibration at 4.2 V
+
+  nvmem-cell-names:
+    items:
+      - const: voltage-3v3
+      - const: voltage-4v2
+
+  monitored-battery: true
+
+  power-supplies:
+    maxItems: 1
+    description: Charger providing status for software capacity estimation.
+
+required:
+  - compatible
+  - io-channels
+  - io-channel-names
+  - nvmem-cells
+  - nvmem-cell-names
+  - monitored-battery
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    battery-monitor {
+        compatible = "samsung,gt-s5620-battery";
+        io-channels = <&adc 2>, <&adc 4>;
+        io-channel-names = "voltage", "temperature";
+        nvmem-cells = <&battery_cal_3v3>, <&battery_cal_4v2>;
+        nvmem-cell-names = "voltage-3v3", "voltage-4v2";
+        monitored-battery = <&battery>;
+    };
