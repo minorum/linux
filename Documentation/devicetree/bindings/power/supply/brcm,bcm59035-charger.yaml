@@ -19,6 +19,8 @@ properties:
   compatible:
     const: brcm,bcm59035-charger
 
+  monitored-battery: true
+
 required:
   - compatible
 
