@@ -57,6 +57,12 @@ int dwc2_gadget_supply_draw(struct dwc2_hsotg *hsotg, unsigned int mA)
 	int ret, current_ua;
 
 	if (supply) {
+		if (mA && hsotg->role_sw &&
+		    (!READ_ONCE(hsotg->hw_accessible) ||
+		     dwc2_drd_get_role(hsotg) != USB_ROLE_DEVICE)) {
+			dwc2_gadget_supply_revoke(hsotg);
+			return -ESHUTDOWN;
+		}
 		if (mA > INT_MAX / 1000) {
 			dwc2_gadget_supply_revoke(hsotg);
 			return -EINVAL;
@@ -73,6 +79,10 @@ int dwc2_gadget_supply_draw(struct dwc2_hsotg *hsotg, unsigned int mA)
 		return ret;
 
 	spin_lock_irqsave(&supply->lock, flags);
+	if (!ret && mA && hsotg->role_sw &&
+	    (!READ_ONCE(hsotg->hw_accessible) ||
+	     dwc2_drd_get_role(hsotg) != USB_ROLE_DEVICE))
+		ret = -ESHUTDOWN;
 	if (sequence == supply->sequence) {
 		current_ua = ret ? 0 : mA * 1000;
 		changed = supply->current_ua != current_ua;

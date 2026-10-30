@@ -10,11 +10,13 @@
 
 #include <linux/acpi.h>
 #include <linux/device-id/pci.h>
+#include <linux/mutex.h>
 #include <linux/phy/phy.h>
 #include <linux/regulator/consumer.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/otg.h>
 #include <linux/usb/phy.h>
+#include <linux/usb/role.h>
 #include "hw.h"
 
 /*
@@ -865,8 +867,11 @@ struct dwc2_hregs_backup {
  *                      - USB_DR_MODE_HOST
  *                      - USB_DR_MODE_OTG
  * @role_sw:		usb_role_switch handle
+ * @role_sw_role:	Requested USB role
  * @role_sw_default_mode: default operation mode of controller while usb role
  *			is USB_ROLE_NONE
+ * @hw_accessible:	Role callbacks may access registers
+ * @role_lock:		Role and resource transitions
  * @hcd_enabled:	Host mode sub-driver initialization indicator.
  * @gadget_enabled:	Peripheral mode sub-driver initialization indicator.
  * @ll_hw_enabled:	Status of low-level hardware resources.
@@ -1065,7 +1070,10 @@ struct dwc2_hsotg {
 	enum usb_otg_state op_state;
 	enum usb_dr_mode dr_mode;
 	struct usb_role_switch *role_sw;
+	enum usb_role role_sw_role;
 	enum usb_dr_mode role_sw_default_mode;
+	bool hw_accessible;
+	struct mutex role_lock; /* Role and resource transitions */
 	unsigned int hcd_enabled:1;
 	unsigned int gadget_enabled:1;
 	unsigned int ll_hw_enabled:1;
@@ -1401,6 +1409,8 @@ static inline int dwc2_is_device_mode(struct dwc2_hsotg *hsotg)
 }
 
 int dwc2_drd_init(struct dwc2_hsotg *hsotg);
+enum usb_role dwc2_drd_get_role(struct dwc2_hsotg *hsotg);
+int dwc2_drd_apply_role(struct dwc2_hsotg *hsotg);
 void dwc2_drd_suspend(struct dwc2_hsotg *hsotg);
 void dwc2_drd_resume(struct dwc2_hsotg *hsotg);
 void dwc2_drd_exit(struct dwc2_hsotg *hsotg);

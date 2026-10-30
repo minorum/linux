@@ -154,10 +154,18 @@ err_dis_reg:
  */
 int dwc2_lowlevel_hw_enable(struct dwc2_hsotg *hsotg)
 {
-	int ret = __dwc2_lowlevel_hw_enable(hsotg);
+	unsigned long flags;
+	int ret;
 
-	if (ret == 0)
+	guard(mutex)(&hsotg->role_lock);
+	ret = __dwc2_lowlevel_hw_enable(hsotg);
+
+	if (ret == 0) {
+		spin_lock_irqsave(&hsotg->lock, flags);
 		hsotg->ll_hw_enabled = true;
+		WRITE_ONCE(hsotg->hw_accessible, true);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
+	}
 	return ret;
 }
 
@@ -196,7 +204,16 @@ static int __dwc2_lowlevel_hw_disable(struct dwc2_hsotg *hsotg)
  */
 int dwc2_lowlevel_hw_disable(struct dwc2_hsotg *hsotg)
 {
-	int ret = __dwc2_lowlevel_hw_disable(hsotg);
+	unsigned long flags;
+	int ret;
+
+	guard(mutex)(&hsotg->role_lock);
+
+	spin_lock_irqsave(&hsotg->lock, flags);
+	WRITE_ONCE(hsotg->hw_accessible, false);
+	dwc2_gadget_supply_revoke(hsotg);
+	spin_unlock_irqrestore(&hsotg->lock, flags);
+	ret = __dwc2_lowlevel_hw_disable(hsotg);
 
 	if (ret == 0)
 		hsotg->ll_hw_enabled = false;
@@ -471,6 +488,7 @@ static int dwc2_driver_probe(struct platform_device *dev)
 		return retval;
 
 	spin_lock_init(&hsotg->lock);
+	mutex_init(&hsotg->role_lock);
 
 	hsotg->vbus_supply = devm_regulator_get_optional(hsotg->dev, "vbus");
 	if (IS_ERR(hsotg->vbus_supply)) {
@@ -654,11 +672,19 @@ error:
 static int __maybe_unused dwc2_suspend(struct device *dev)
 {
 	struct dwc2_hsotg *dwc2 = dev_get_drvdata(dev);
+	unsigned long flags;
 	bool is_device_mode;
 	int ret = 0;
 
+	guard(mutex)(&dwc2->role_lock);
+
 	if (!dwc2->ll_hw_enabled)
 		return 0;
+
+	spin_lock_irqsave(&dwc2->lock, flags);
+	WRITE_ONCE(dwc2->hw_accessible, false);
+	dwc2_gadget_supply_revoke(dwc2);
+	spin_unlock_irqrestore(&dwc2->lock, flags);
 
 	is_device_mode = dwc2_is_device_mode(dwc2);
 	if (is_device_mode)
@@ -702,8 +728,12 @@ static int __maybe_unused dwc2_suspend(struct device *dev)
 	else
 		ret = dwc2_host_backup_critical_registers(dwc2);
 
-	if (ret)
+	if (ret) {
+		spin_lock_irqsave(&dwc2->lock, flags);
+		WRITE_ONCE(dwc2->hw_accessible, true);
+		spin_unlock_irqrestore(&dwc2->lock, flags);
 		return ret;
+	}
 
 	if (dwc2->ll_hw_enabled &&
 	    (is_device_mode || dwc2_host_can_poweroff_phy(dwc2))) {
@@ -735,7 +765,10 @@ static int dwc2_restore_critical_registers(struct dwc2_hsotg *hsotg)
 static int __maybe_unused dwc2_resume(struct device *dev)
 {
 	struct dwc2_hsotg *dwc2 = dev_get_drvdata(dev);
+	unsigned long flags;
 	int ret = 0;
+
+	guard(mutex)(&dwc2->role_lock);
 
 	if (!dwc2->ll_hw_enabled)
 		return 0;
@@ -794,6 +827,13 @@ static int __maybe_unused dwc2_resume(struct device *dev)
 	if (dwc2_is_device_mode(dwc2))
 		ret = dwc2_hsotg_resume(dwc2);
 
+	if (!ret) {
+		spin_lock_irqsave(&dwc2->lock, flags);
+		WRITE_ONCE(dwc2->hw_accessible, true);
+		if (dwc2->role_sw)
+			dwc2_drd_apply_role(dwc2);
+		spin_unlock_irqrestore(&dwc2->lock, flags);
+	}
 	return ret;
 }
 

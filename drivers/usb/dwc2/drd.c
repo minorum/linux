@@ -83,41 +83,9 @@ static int dwc2_ovr_bvalid(struct dwc2_hsotg *hsotg, bool valid)
 	return 0;
 }
 
-static int dwc2_drd_role_sw_set(struct usb_role_switch *sw, enum usb_role role)
+enum usb_role dwc2_drd_get_role(struct dwc2_hsotg *hsotg)
 {
-	struct dwc2_hsotg *hsotg = usb_role_switch_get_drvdata(sw);
-	unsigned long flags;
-	int already = 0;
-
-	/* Skip session not in line with dr_mode */
-	if ((role == USB_ROLE_DEVICE && hsotg->dr_mode == USB_DR_MODE_HOST) ||
-	    (role == USB_ROLE_HOST && hsotg->dr_mode == USB_DR_MODE_PERIPHERAL))
-		return -EINVAL;
-
-#if IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) || \
-	IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)
-	/* Skip session if core is in test mode */
-	if (role == USB_ROLE_NONE && hsotg->test_mode) {
-		dev_dbg(hsotg->dev, "Core is in test mode\n");
-		return -EBUSY;
-	}
-#endif
-
-	/*
-	 * In case of USB_DR_MODE_PERIPHERAL, clock is disabled at the end of
-	 * the probe and enabled on udc_start.
-	 * If role-switch set is called before the udc_start, we need to enable
-	 * the clock to read/write GOTGCTL and GUSBCFG registers to override
-	 * mode and sessions. It is the case if cable is plugged at boot.
-	 */
-	if (!hsotg->ll_hw_enabled && hsotg->clk) {
-		int ret = clk_prepare_enable(hsotg->clk);
-
-		if (ret)
-			return ret;
-	}
-
-	spin_lock_irqsave(&hsotg->lock, flags);
+	enum usb_role role = READ_ONCE(hsotg->role_sw_role);
 
 	if (role == USB_ROLE_NONE) {
 		/* default operation mode when usb role is USB_ROLE_NONE */
@@ -126,6 +94,13 @@ static int dwc2_drd_role_sw_set(struct usb_role_switch *sw, enum usb_role role)
 		else if (hsotg->role_sw_default_mode == USB_DR_MODE_PERIPHERAL)
 			role = USB_ROLE_DEVICE;
 	}
+	return role;
+}
+
+int dwc2_drd_apply_role(struct dwc2_hsotg *hsotg)
+{
+	enum usb_role role = dwc2_drd_get_role(hsotg);
+	int already = 0;
 
 	if ((IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) ||
 	     IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)) &&
@@ -146,22 +121,50 @@ static int dwc2_drd_role_sw_set(struct usb_role_switch *sw, enum usb_role role)
 		}
 	} else {
 		if (dwc2_is_device_mode(hsotg)) {
-			if (!dwc2_ovr_bvalid(hsotg, false))
-				/* This set DCTL.SFTDISCON bit */
-				dwc2_hsotg_core_disconnect(hsotg);
+			dwc2_ovr_bvalid(hsotg, false);
+			dwc2_hsotg_core_disconnect(hsotg);
+			dwc2_hsotg_disconnect(hsotg);
 		} else {
 			dwc2_ovr_avalid(hsotg, false);
 		}
 	}
+	return already;
+}
+
+static int dwc2_drd_role_sw_set(struct usb_role_switch *sw, enum usb_role role)
+{
+	struct dwc2_hsotg *hsotg = usb_role_switch_get_drvdata(sw);
+	unsigned long flags;
+	int already;
+
+	guard(mutex)(&hsotg->role_lock);
+
+	if ((role == USB_ROLE_DEVICE && hsotg->dr_mode == USB_DR_MODE_HOST) ||
+	    (role == USB_ROLE_HOST && hsotg->dr_mode == USB_DR_MODE_PERIPHERAL))
+		return -EINVAL;
+
+#if IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) || \
+	IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)
+	if (role == USB_ROLE_NONE && hsotg->test_mode)
+		return -EBUSY;
+#endif
+	spin_lock_irqsave(&hsotg->lock, flags);
+	WRITE_ONCE(hsotg->role_sw_role, role);
+	if (dwc2_drd_get_role(hsotg) != USB_ROLE_DEVICE)
+		dwc2_gadget_supply_revoke(hsotg);
+	if (!hsotg->hw_accessible) {
+		dwc2_gadget_supply_revoke(hsotg);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
+		return 0;
+	}
+	already = dwc2_drd_apply_role(hsotg);
+	role = dwc2_drd_get_role(hsotg);
 
 	spin_unlock_irqrestore(&hsotg->lock, flags);
 
 	if (!already && hsotg->dr_mode == USB_DR_MODE_OTG)
 		/* This will raise a Connector ID Status Change Interrupt */
 		dwc2_force_mode(hsotg, role == USB_ROLE_HOST);
-
-	if (!hsotg->ll_hw_enabled && hsotg->clk)
-		clk_disable_unprepare(hsotg->clk);
 
 	dev_dbg(hsotg->dev, "%s-session valid\n",
 		role == USB_ROLE_NONE ? "No" :
@@ -217,24 +220,14 @@ void dwc2_drd_suspend(struct dwc2_hsotg *hsotg)
 void dwc2_drd_resume(struct dwc2_hsotg *hsotg)
 {
 	u32 gintsts, gintmsk;
+	unsigned long flags;
 	enum usb_role role;
 
 	if (hsotg->role_sw) {
-		/* get last known role (as the get ops isn't implemented by this driver) */
-		role = usb_role_switch_get_role(hsotg->role_sw);
-
-		if (role == USB_ROLE_NONE) {
-			if (hsotg->role_sw_default_mode == USB_DR_MODE_HOST)
-				role = USB_ROLE_HOST;
-			else if (hsotg->role_sw_default_mode == USB_DR_MODE_PERIPHERAL)
-				role = USB_ROLE_DEVICE;
-		}
-
-		/* restore last role that may have been lost */
-		if (role == USB_ROLE_HOST)
-			dwc2_ovr_avalid(hsotg, true);
-		else if (role == USB_ROLE_DEVICE)
-			dwc2_ovr_bvalid(hsotg, true);
+		spin_lock_irqsave(&hsotg->lock, flags);
+		dwc2_drd_apply_role(hsotg);
+		role = dwc2_drd_get_role(hsotg);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
 
 		dwc2_force_mode(hsotg, role == USB_ROLE_HOST);
 

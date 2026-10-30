@@ -3601,7 +3601,9 @@ void dwc2_hsotg_core_disconnect(struct dwc2_hsotg *hsotg)
 void dwc2_hsotg_core_connect(struct dwc2_hsotg *hsotg)
 {
 	/* remove the soft-disconnect and let's go */
-	if (!hsotg->role_sw || (dwc2_readl(hsotg, GOTGCTL) & GOTGCTL_BSESVLD))
+	if (!hsotg->role_sw ||
+	    (dwc2_drd_get_role(hsotg) == USB_ROLE_DEVICE &&
+	     (dwc2_readl(hsotg, GOTGCTL) & GOTGCTL_BSESVLD)))
 		dwc2_clear_bit(hsotg, DCTL, DCTL_SFTDISCON);
 }
 
@@ -4578,6 +4580,8 @@ static int dwc2_hsotg_udc_start(struct usb_gadget *gadget,
 	}
 
 	hsotg->enabled = 0;
+	if (hsotg->role_sw)
+		dwc2_drd_apply_role(hsotg);
 	spin_unlock_irqrestore(&hsotg->lock, flags);
 
 	gadget->sg_supported = using_desc_dma(hsotg);
