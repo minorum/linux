@@ -890,6 +890,13 @@ config REGULATOR_MT6311
 	  This driver supports the control of different power rails of device
 	  through regulator interface.
 
+config REGULATOR_MT6329
+	tristate "MediaTek MT6329 VUSB and VMC regulators"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Support the VUSB and VMC regulators of the MT6329 PMIC.
+
 config REGULATOR_MT6315
 	tristate "MediaTek MT6315 PMIC"
 	depends on SPMI

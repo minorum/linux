@@ -196,6 +196,30 @@
 			mediatek,use-push-pull;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			pmic@60 {
+				compatible = "mediatek,mt6329";
+				reg = <0x60>;
+
+				regulators {
+					vusb: vusb {
+						regulator-name = "mt6329-vusb";
+						regulator-min-microvolt = <3300000>;
+						regulator-max-microvolt = <3300000>;
+						regulator-boot-on;
+						/* shortcut: PHY consumer pending, retain supply */
+						regulator-always-on;
+					};
+
+					vmc: vmc {
+						regulator-name = "mt6329-vmc";
+						regulator-min-microvolt = <3300000>;
+						regulator-max-microvolt = <3300000>;
+						regulator-boot-on;
+						regulator-always-on;
+					};
+				};
+			};
 		};
 
 		usb@c1210000 {
