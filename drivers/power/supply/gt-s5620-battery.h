@@ -247,6 +247,10 @@ static inline void gt_s5620_gauge_update(struct gt_s5620_gauge *state,
 		state->capacity_error = mode;
 		return;
 	}
+	if (ret == -EAGAIN && state->samples < 6) {
+		state->capacity_error = -EAGAIN;
+		return;
+	}
 	gt_s5620_level(state->filter.sum, mode == 1, state->thresholds, 85,
 		       &state->level, &state->level_initialized);
 	if (state->samples < 6)
