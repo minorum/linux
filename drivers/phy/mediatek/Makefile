@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+obj-$(CONFIG_PHY_MT6577_USB)		+= phy-mt6577-usb.o
 #
 # Makefile for the phy drivers.
 #

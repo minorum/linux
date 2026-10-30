@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/delay.h>
+#include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/phy/phy.h>
 
 #include "musb_core.h"
 
 #define MT6577_SWRST 0x74
 #define MT6577_L1INTM 0xa4
+
+struct mt6577_glue {
+	struct clk *bus;
+	struct phy *phy;
+};
 
 static u8 mt6577_clearb(void __iomem *base, u32 offset)
 {
@@ -52,7 +59,21 @@ static irqreturn_t mt6577_interrupt(int irq, void *data)
 
 static int mt6577_init(struct musb *musb)
 {
-	/* shortcut: inherited PHY calibration, replace for cold boot */
+	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	int ret;
+
+	ret = clk_prepare_enable(glue->bus);
+	if (ret)
+		return ret;
+	ret = phy_set_mode(glue->phy, PHY_MODE_USB_DEVICE);
+	if (ret)
+		goto disable_clock;
+	ret = phy_init(glue->phy);
+	if (ret)
+		goto disable_clock;
+	ret = phy_power_on(glue->phy);
+	if (ret)
+		goto exit_phy;
 	musb_writeb(musb->mregs, MUSB_POWER, 0);
 	msleep(20);
 	musb_writew(musb->mregs, MT6577_SWRST,
@@ -61,11 +82,32 @@ static int mt6577_init(struct musb *musb)
 	musb->dyn_fifo = true;
 	musb->isr = mt6577_interrupt;
 	return 0;
+exit_phy:
+	phy_exit(glue->phy);
+disable_clock:
+	clk_disable_unprepare(glue->bus);
+	return ret;
+}
+
+static int mt6577_exit(struct musb *musb)
+{
+	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	int ret;
+
+	musb_writel(musb->mregs, MT6577_L1INTM, 0);
+	musb_writeb(musb->mregs, MUSB_POWER, 0);
+	ret = phy_power_off(glue->phy);
+	if (ret)
+		return ret;
+	phy_exit(glue->phy);
+	clk_disable_unprepare(glue->bus);
+	return 0;
 }
 
 static const struct musb_platform_ops mt6577_ops = {
 	.quirks = MUSB_INDEXED_EP,
 	.init = mt6577_init,
+	.exit = mt6577_exit,
 	.clearb = mt6577_clearb,
 	.clearw = mt6577_clearw,
 };
@@ -110,7 +152,18 @@ static int mt6577_probe(struct platform_device *pdev)
 		.of_node_reused = true,
 	};
 	struct platform_device *musb;
+	struct mt6577_glue *glue;
 
+	glue = devm_kzalloc(&pdev->dev, sizeof(*glue), GFP_KERNEL);
+	if (!glue)
+		return -ENOMEM;
+	glue->bus = devm_clk_get(&pdev->dev, "bus");
+	if (IS_ERR(glue->bus))
+		return dev_err_probe(&pdev->dev, PTR_ERR(glue->bus), "Missing bus clock\n");
+	glue->phy = devm_phy_get(&pdev->dev, "usb2-phy");
+	if (IS_ERR(glue->phy))
+		return dev_err_probe(&pdev->dev, PTR_ERR(glue->phy), "Missing USB PHY\n");
+	platform_set_drvdata(pdev, glue);
 	musb = platform_device_register_full(&info);
 	if (IS_ERR(musb))
 		return PTR_ERR(musb);
@@ -118,7 +171,7 @@ static int mt6577_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id mt6577_match[] = {
-	{ .compatible = "mediatek,mt6577-musb-ram" },
+	{ .compatible = "mediatek,mt6577-musb" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, mt6577_match);
@@ -126,11 +179,11 @@ MODULE_DEVICE_TABLE(of, mt6577_match);
 static struct platform_driver mt6577_driver = {
 	.probe = mt6577_probe,
 	.driver = {
-		.name = "mt6577-musb-ram",
+		.name = "mt6577-musb",
 		.of_match_table = mt6577_match,
 	},
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MT6577 RAM-stage MUSB glue");
+MODULE_DESCRIPTION("MediaTek MT6577 MUSB glue");
 MODULE_LICENSE("GPL");

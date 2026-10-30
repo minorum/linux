@@ -135,8 +135,9 @@
 			compatible = "mediatek,mt6577-pericfg";
 			reg = <0xc1000000 0x1000>;
 			clocks = <&infracfg CLK_MT6577_AXI>, <&clk26m>,
-				 <&apmixedsys CLK_MT6577_WPLL197>;
-			clock-names = "axi", "clk26m", "wpll197";
+				 <&apmixedsys CLK_MT6577_WPLL197>,
+				 <&apmixedsys CLK_MT6577_WPLL61>;
+			clock-names = "axi", "clk26m", "wpll197", "wpll61";
 			#clock-cells = <1>;
 		};
 
@@ -207,8 +208,6 @@
 						regulator-min-microvolt = <3300000>;
 						regulator-max-microvolt = <3300000>;
 						regulator-boot-on;
-						/* shortcut: PHY consumer pending, retain supply */
-						regulator-always-on;
 					};
 
 					vmc: vmc {
@@ -222,11 +221,24 @@
 			};
 		};
 
+		usb_phy: phy@c1260800 {
+			compatible = "mediatek,mt6577-usb-phy";
+			reg = <0xc1260800 0x800>;
+			clocks = <&apmixedsys CLK_MT6577_UPLL>, <&pericfg CLK_MT6577_USB>;
+			clock-names = "upll", "bus";
+			vusb33-supply = <&vusb>;
+			#phy-cells = <0>;
+		};
+
 		usb@c1210000 {
-			compatible = "mediatek,mt6577-musb-ram";
+			compatible = "mediatek,mt6577-musb";
 			reg = <0xc1210000 0x1000>;
 			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_LOW>;
 			interrupt-names = "mc";
+			clocks = <&pericfg CLK_MT6577_USB>;
+			clock-names = "bus";
+			phys = <&usb_phy>;
+			phy-names = "usb2-phy";
 			dr_mode = "peripheral";
 		};
 
