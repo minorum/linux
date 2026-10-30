@@ -10,14 +10,15 @@ maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
 
 description: |
-  Revision 4 polling PIO eMMC controller with native clock-gate, controller
+  Revision 4 polling eMMC controller with native clock-gate, controller
   reset, timing and electrical-pad initialization. The supported configuration
   is nonremovable, up to 4 bits wide and limited to legacy operation at 12 MHz.
   Pad defaults use the drive encoding qualified on the MODECOM FreeTAB 8001.
   Card power is retained, matching the stock host-0 software policy. Supply
   switching and external card reset are not part of this interface. Active
-  SoC pin routing remains configured by the platform. DMA, high-speed modes
-  and system power management are not supported.
+  SoC pin routing remains configured by the platform. Basic DMA uses a
+  32-bit coherent bounce buffer, with PIO fallback. High-speed modes and
+  system power management are not supported.
   The source clock provider owns the controller gate and describes the
   boot-selected source.
 
