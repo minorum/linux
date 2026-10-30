@@ -248,7 +248,8 @@
 			clocks = <&pericfg CLK_MT6577_MSDC0>;
 			clock-names = "source";
 			bus-width = <4>;
-			max-frequency = <12000000>;
+			max-frequency = <52000000>;
+			cap-mmc-highspeed;
 			non-removable;
 		};
 	};

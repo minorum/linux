@@ -341,6 +341,11 @@ static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	if (!host->clock_enabled)
 		return;
+	if ((ios->timing != MMC_TIMING_LEGACY && ios->timing != MMC_TIMING_MMC_HS) ||
+	    ios->signal_voltage != MMC_SIGNAL_VOLTAGE_330) {
+		host->clock_error = -EINVAL;
+		return;
+	}
 	val = readl(host->base + SDC_CFG) & ~SDC_BUSWIDTH;
 	if (ios->bus_width == MMC_BUS_WIDTH_4)
 		val |= FIELD_PREP(SDC_BUSWIDTH, 1);
@@ -407,7 +412,7 @@ static int mt6577_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	mmc->ops = &mt6577_ops;
 	mmc->f_min = DIV_ROUND_UP(host->rate, 4 * 255);
-	mmc->f_max = 12000000;
+	mmc->f_max = 52000000;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
 	mmc->caps2 = MMC_CAP2_NO_SD | MMC_CAP2_NO_SDIO;
 	mmc->max_segs = 16;
@@ -421,7 +426,7 @@ static int mt6577_probe(struct platform_device *pdev)
 		return ret;
 	if (!(mmc->caps & MMC_CAP_NONREMOVABLE) || mmc->caps & MMC_CAP_8_BIT_DATA)
 		return -EINVAL;
-	mmc->f_max = min(mmc->f_max, 12000000U);
+	mmc->f_max = min(mmc->f_max, 52000000U);
 	ret = mt6577_init_hw(host);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Cannot initialize controller\n");
