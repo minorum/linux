@@ -3758,6 +3758,7 @@ irq_retry:
 
 		/* Report disconnection if it is not already done. */
 		dwc2_hsotg_disconnect(hsotg);
+		hsotg->lx_state = DWC2_L0;
 
 		/* Reset device address to zero */
 		dwc2_clear_bit(hsotg, DCFG, DCFG_DEVADDR_MASK);
