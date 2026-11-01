@@ -102,11 +102,17 @@ static int ncp1851_kick(struct ncp1851 *chip)
 
 static int ncp1851_inhibit(struct ncp1851 *chip)
 {
+	unsigned int value;
 	int ret;
 
 	ret = ncp1851_ctrl1(chip, false, false);
 	if (ret)
 		return ret;
+	ret = regmap_read(chip->regmap, NCP1851_CTRL1, &value);
+	if (ret)
+		return ret;
+	if (value & NCP1851_CHGEN)
+		return -EIO;
 	return regmap_update_bits(chip->regmap, NCP1851_CTRL2, BIT(7), BIT(7));
 }
 
@@ -207,6 +213,19 @@ static bool ncp1851_configured(struct ncp1851 *chip, int input)
 	       !(chip->regs[NCP1851_CTRL1] & 0xb0);
 }
 
+static int ncp1851_verify_config(struct ncp1851 *chip, int input, bool enabled)
+{
+	int ret;
+
+	ret = ncp1851_read_regs(chip);
+	if (ret)
+		return ret;
+	if (!ncp1851_configured(chip, input) ||
+	    !!(chip->regs[NCP1851_CTRL1] & NCP1851_CHGEN) != enabled)
+		return -EIO;
+	return 0;
+}
+
 static int ncp1851_update(struct ncp1851 *chip)
 {
 	int ret, mv, input, health;
@@ -258,6 +277,11 @@ static int ncp1851_update(struct ncp1851 *chip)
 		ret = ncp1851_configure(chip, input);
 		if (ret)
 			goto fail;
+		ret = ncp1851_verify_config(chip, input, false);
+		if (ret)
+			goto fail;
+		if (ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD)
+			goto check_health;
 	}
 	restart = chip->cycle_pending;
 	chip->cycle_pending = false;
@@ -267,9 +291,10 @@ static int ncp1851_update(struct ncp1851 *chip)
 	ret = ncp1851_kick(chip);
 	if (ret)
 		goto fail;
-	ret = ncp1851_read_regs(chip);
+	ret = ncp1851_verify_config(chip, input, true);
 	if (ret)
 		goto fail;
+check_health:
 	chip->health = ncp1851_health(chip);
 	if (chip->health != POWER_SUPPLY_HEALTH_GOOD) {
 		ret = ncp1851_inhibit(chip);
