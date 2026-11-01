@@ -16713,6 +16713,13 @@ S:	Maintained
 F:	drivers/iio/adc/mt6323-auxadc.c
 F:	include/dt-bindings/iio/adc/mediatek,mt6323-auxadc.h
 
+MEDIATEK MT6329 PMIC SUPPORT
+M:	Michal Andrzejczak <mit.mis@gmail.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/mfd/mediatek,mt6329.yaml
+F:	drivers/regulator/mt6329-regulator.c
+F:	include/dt-bindings/iio/adc/mediatek,mt6329-auxadc.h
+
 MEDIATEK MT6397 PMIC AUXADC DRIVER
 M:	Ryan Brue <ryanbrue.dev@gmail.com>
 L:	linux-iio@vger.kernel.org
