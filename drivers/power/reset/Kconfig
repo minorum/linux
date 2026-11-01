@@ -199,14 +199,18 @@ config POWER_RESET_LTC2952
 	  down via the LTC2952. Bindings are made in the device tree.
 
 config POWER_RESET_MT6323
-	bool "MediaTek MT6323 power-off driver"
-	depends on MFD_MT6397
+	bool "MediaTek MT6323 and MT6577 RTC power-off driver"
+	depends on MFD_MT6397 || ARCH_MEDIATEK || COMPILE_TEST
+	depends on HAS_IOMEM
+	select REGMAP_MMIO
 	help
 	  The power-off driver is responsible for externally shutdown down
 	  the power of a remote MediaTek SoC MT6323 is connected to through
 	  controlling a tiny circuit BBPU inside MT6323 RTC.
 
-	  Say Y if you have a board where MT6323 could be found.
+	  It also supports the MMIO RTC power controller on MT6577.
+
+	  Say Y if you have a board with MT6323 or MT6577.
 
 config POWER_RESET_QNAP
 	bool "QNAP power-off driver"
