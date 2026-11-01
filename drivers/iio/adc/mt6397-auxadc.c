@@ -12,10 +12,12 @@
 #include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
+#include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/math.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/time.h>
@@ -23,7 +25,23 @@
 
 #include <linux/mfd/mt6397/core.h>
 
+#include <dt-bindings/iio/adc/mediatek,mt6329-auxadc.h>
 #include <dt-bindings/iio/adc/mediatek,mt6397-auxadc.h>
+
+#define MT6329_AUXADC_CON0		0xe8
+#define MT6329_AUXADC_START		BIT(0)
+#define MT6329_AUXADC_TRIM_COMP		BIT(1)
+#define MT6329_AUXADC_CHSEL		GENMASK(7, 4)
+#define MT6329_AUXADC_CON1		0xe9
+#define MT6329_AUXADC_POWER		BIT(0)
+#define MT6329_AUXADC_BUFFER		BIT(1)
+#define MT6329_AUXADC_SAMPLES		GENMASK(7, 4)
+#define MT6329_AUXADC_RESULT(n)		(0xda + 2 * (n))
+#define MT6329_AUXADC_READY		BIT(7)
+#define MT6329_AUXADC_HIGH		GENMASK(1, 0)
+#define MT6329_AUXADC_TDET		0x38
+#define MT6329_AUXADC_TDET_EN		BIT(5)
+#define MT6329_AUXADC_SETTLE_US		(50 * USEC_PER_MSEC)
 
 /* The ready bit is in the raw result register, the value in the trimmed one. */
 #define MT6397_AUXADC_ADC(n)			(0x0514 + 2 * (n))
@@ -81,6 +99,9 @@
 
 struct mt6397_auxadc {
 	struct regmap *regmap;
+	bool mt6329;
+	int gain;
+	int offset;
 	/*
 	 * A read is a multi-register sequence: analog setup, then a channel
 	 * select and an edge-triggered start per conversion. Interleaving two
@@ -114,6 +135,72 @@ static const struct iio_chan_spec mt6397_auxadc_channels[] = {
 				      BIT(IIO_CHAN_INFO_SCALE),
 	},
 };
+
+static const struct iio_chan_spec mt6329_auxadc_channels[] = {
+	{
+		.type = IIO_VOLTAGE,
+		.indexed = 1,
+		.channel = MT6329_AUXADC_ISENSE,
+		.address = 1,
+		.datasheet_name = "isense",
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+				      BIT(IIO_CHAN_INFO_SCALE) |
+				      BIT(IIO_CHAN_INFO_PROCESSED),
+	}, {
+		.type = IIO_VOLTAGE,
+		.indexed = 1,
+		.channel = MT6329_AUXADC_BAT_TEMP,
+		.address = 3,
+		.datasheet_name = "bat_temp",
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+				      BIT(IIO_CHAN_INFO_SCALE) |
+				      BIT(IIO_CHAN_INFO_PROCESSED),
+	},
+};
+
+static int mt6329_auxadc_read_once(struct mt6397_auxadc *adc,
+				   const struct iio_chan_spec *chan, int *val)
+{
+	struct regmap *map = adc->regmap;
+	unsigned int low, high;
+	int ret;
+
+	ret = regmap_clear_bits(map, MT6329_AUXADC_CON0, MT6329_AUXADC_START);
+	if (ret)
+		return ret;
+	ret = regmap_set_bits(map, MT6329_AUXADC_CON0, MT6329_AUXADC_START);
+	if (ret)
+		return ret;
+	fsleep(MT6397_AUXADC_START_US);
+	ret = regmap_read_poll_timeout(map, MT6329_AUXADC_RESULT(chan->address) + 1,
+				       high, high & MT6329_AUXADC_READY,
+				       100, 100 * USEC_PER_MSEC);
+	if (ret)
+		return ret;
+	ret = regmap_read(map, MT6329_AUXADC_RESULT(chan->address), &low);
+	if (ret)
+		return ret;
+	ret = regmap_read(map, MT6329_AUXADC_RESULT(chan->address) + 1, &high);
+	if (ret)
+		return ret;
+	if (!(high & MT6329_AUXADC_READY))
+		return -EIO;
+	*val = low | FIELD_GET(MT6329_AUXADC_HIGH, high) << 8;
+
+	return 0;
+}
+
+static int mt6329_auxadc_calibrate(struct mt6397_auxadc *adc,
+				   const struct iio_chan_spec *chan, int raw)
+{
+	int corrected = raw + raw * adc->gain / 1024 + adc->offset;
+	int fullscale = chan->address == 1 ? 4800 : 1200;
+
+	if (corrected < 0)
+		return -ERANGE;
+
+	return corrected * fullscale / 1024;
+}
 
 static int mt6397_auxadc_read_once(struct mt6397_auxadc *adc,
 				   const struct iio_chan_spec *chan, int *val)
@@ -234,7 +321,10 @@ static int mt6397_auxadc_read_burst(struct mt6397_auxadc *adc,
 	int ret;
 
 	for (unsigned int i = 0; i < MT6397_AUXADC_SAMPLES; i++) {
-		ret = mt6397_auxadc_read_once(adc, chan, &sample);
+		if (adc->mt6329)
+			ret = mt6329_auxadc_read_once(adc, chan, &sample);
+		else
+			ret = mt6397_auxadc_read_once(adc, chan, &sample);
 		if (ret)
 			return ret;
 
@@ -244,6 +334,68 @@ static int mt6397_auxadc_read_burst(struct mt6397_auxadc *adc,
 	*val = DIV_ROUND_CLOSEST(sum, MT6397_AUXADC_SAMPLES);
 
 	return 0;
+}
+
+static int mt6329_auxadc_read(struct mt6397_auxadc *adc,
+			      const struct iio_chan_spec *chan, int *val)
+{
+	struct regmap *map = adc->regmap;
+	unsigned int control, config, bias = 0;
+	bool temperature = chan->address == 3;
+	int ret, cleanup, err;
+
+	ret = regmap_read(map, MT6329_AUXADC_CON0, &control);
+	if (ret)
+		return ret;
+	if (control & MT6329_AUXADC_START)
+		return -EBUSY;
+	ret = regmap_read(map, MT6329_AUXADC_CON1, &config);
+	if (ret)
+		return ret;
+	if (temperature) {
+		ret = regmap_read(map, MT6329_AUXADC_TDET, &bias);
+		if (ret)
+			return ret;
+	}
+	ret = regmap_update_bits(map, MT6329_AUXADC_CON0,
+				 MT6329_AUXADC_CHSEL | MT6329_AUXADC_TRIM_COMP,
+				 FIELD_PREP(MT6329_AUXADC_CHSEL, chan->address) |
+				 MT6329_AUXADC_TRIM_COMP);
+	if (ret)
+		goto restore;
+	ret = regmap_update_bits(map, MT6329_AUXADC_CON1,
+				 MT6329_AUXADC_SAMPLES | MT6329_AUXADC_POWER |
+				 MT6329_AUXADC_BUFFER,
+				 FIELD_PREP(MT6329_AUXADC_SAMPLES, temperature ? 15 : 1) |
+				 MT6329_AUXADC_POWER |
+				 (temperature ? MT6329_AUXADC_BUFFER :
+				  config & MT6329_AUXADC_BUFFER));
+	if (ret)
+		goto restore;
+	if (temperature) {
+		ret = regmap_set_bits(map, MT6329_AUXADC_TDET, MT6329_AUXADC_TDET_EN);
+		if (ret)
+			goto restore;
+		fsleep(MT6329_AUXADC_SETTLE_US);
+	}
+	ret = mt6397_auxadc_read_burst(adc, chan, val);
+
+restore:
+	cleanup = regmap_clear_bits(map, MT6329_AUXADC_CON0, MT6329_AUXADC_START);
+	if (temperature) {
+		err = regmap_update_bits(map, MT6329_AUXADC_TDET, MT6329_AUXADC_TDET_EN,
+					 bias & MT6329_AUXADC_TDET_EN);
+		if (!cleanup)
+			cleanup = err;
+	}
+	err = regmap_write(map, MT6329_AUXADC_CON1, config);
+	if (!cleanup)
+		cleanup = err;
+	err = regmap_write(map, MT6329_AUXADC_CON0, control);
+	if (!cleanup)
+		cleanup = err;
+
+	return ret ?: cleanup;
 }
 
 static void mt6397_auxadc_stop(struct mt6397_auxadc *adc)
@@ -300,6 +452,9 @@ static int mt6397_auxadc_read_channel(struct iio_dev *indio_dev,
 
 	guard(mutex)(&adc->lock);
 
+	if (adc->mt6329)
+		return mt6329_auxadc_read(adc, chan, val);
+
 	if (chan->channel == MT6397_AUXADC_ISENSE)
 		return mt6397_auxadc_isense_read(adc, chan, val);
 
@@ -310,9 +465,23 @@ static int mt6397_auxadc_read_raw(struct iio_dev *indio_dev,
 				  const struct iio_chan_spec *chan,
 				  int *val, int *val2, long mask)
 {
+	struct mt6397_auxadc *adc = iio_priv(indio_dev);
 	int ret;
 
 	switch (mask) {
+	case IIO_CHAN_INFO_PROCESSED:
+		if (!adc->mt6329)
+			return -EINVAL;
+		ret = mt6397_auxadc_read_channel(indio_dev, chan, val);
+		if (ret)
+			return ret;
+		ret = mt6329_auxadc_calibrate(adc, chan, *val);
+		if (ret < 0)
+			return ret;
+		*val = ret;
+
+		return IIO_VAL_INT;
+
 	case IIO_CHAN_INFO_RAW:
 		ret = mt6397_auxadc_read_channel(indio_dev, chan, val);
 		if (ret)
@@ -340,6 +509,50 @@ static const struct iio_info mt6397_auxadc_info = {
 	.read_raw = mt6397_auxadc_read_raw,
 };
 
+static int mt6329_auxadc_init(struct device *dev, struct mt6397_auxadc *adc)
+{
+#if IS_REACHABLE(CONFIG_I2C)
+	struct i2c_client *client;
+	struct i2c_client *calibration;
+	unsigned int low, high;
+	int trim0, trim1, ret;
+
+	client = i2c_verify_client(dev->parent);
+	if (!client)
+		return -ENODEV;
+	adc->regmap = dev_get_regmap(dev->parent, "power");
+	if (!adc->regmap)
+		return -ENODEV;
+	ret = regmap_read(adc->regmap, 0, &low);
+	if (ret)
+		return ret;
+	ret = regmap_read(adc->regmap, 1, &high);
+	if (ret)
+		return ret;
+	if ((high << 8 | low) != 0x1029)
+		return -ENODEV;
+	calibration = devm_i2c_new_dummy_device(dev, client->adapter, 0x61);
+	if (IS_ERR(calibration))
+		return PTR_ERR(calibration);
+	trim0 = i2c_smbus_read_byte_data(calibration, 0x92);
+	if (trim0 < 0)
+		return trim0;
+	trim1 = i2c_smbus_read_byte_data(calibration, 0x93);
+	if (trim1 < 0)
+		return trim1;
+	adc->gain = trim0 & 0x7f;
+	if (adc->gain > 64)
+		adc->gain -= 128;
+	adc->offset = (trim0 >> 7) | ((trim1 & 0x1f) << 1);
+	if (adc->offset > 32)
+		adc->offset -= 64;
+
+	return 0;
+#else
+	return -EOPNOTSUPP;
+#endif
+}
+
 static int mt6397_auxadc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -353,28 +566,39 @@ static int mt6397_auxadc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	adc = iio_priv(indio_dev);
-	adc->regmap = chip->regmap;
+	adc->mt6329 = of_device_is_compatible(dev->of_node, "mediatek,mt6329-auxadc");
+	if (adc->mt6329) {
+		ret = mt6329_auxadc_init(dev, adc);
+		if (ret)
+			return dev_err_probe(dev, ret, "failed to initialize auxadc\n");
+	} else {
+		adc->regmap = chip->regmap;
+	}
 
 	ret = devm_mutex_init(dev, &adc->lock);
 	if (ret)
 		return ret;
 
-	ret = regmap_update_bits(adc->regmap, MT6397_AUXADC_CON0,
-				 MT6397_AUXADC_CON0_SPL_NUM,
-				 FIELD_PREP(MT6397_AUXADC_CON0_SPL_NUM, 1));
-	if (ret)
-		return dev_err_probe(dev, ret, "failed to initialize auxadc\n");
+	if (!adc->mt6329) {
+		ret = regmap_update_bits(adc->regmap, MT6397_AUXADC_CON0,
+					 MT6397_AUXADC_CON0_SPL_NUM,
+					 FIELD_PREP(MT6397_AUXADC_CON0_SPL_NUM, 1));
+		if (ret)
+			return dev_err_probe(dev, ret, "failed to initialize auxadc\n");
+	}
 
-	indio_dev->name = "mt6397-auxadc";
+	indio_dev->name = adc->mt6329 ? "mt6329-auxadc" : "mt6397-auxadc";
 	indio_dev->info = &mt6397_auxadc_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	indio_dev->channels = mt6397_auxadc_channels;
-	indio_dev->num_channels = ARRAY_SIZE(mt6397_auxadc_channels);
+	indio_dev->channels = adc->mt6329 ? mt6329_auxadc_channels : mt6397_auxadc_channels;
+	indio_dev->num_channels = adc->mt6329 ? ARRAY_SIZE(mt6329_auxadc_channels) :
+					      ARRAY_SIZE(mt6397_auxadc_channels);
 
 	return devm_iio_device_register(dev, indio_dev);
 }
 
 static const struct of_device_id mt6397_auxadc_of_match[] = {
+	{ .compatible = "mediatek,mt6329-auxadc" },
 	{ .compatible = "mediatek,mt6397-auxadc" },
 	{ }
 };

@@ -103,19 +103,22 @@ static const struct simple_mfd_data maxim_mon_max77705 = {
 
 static bool mt6329_readable(struct device *dev, unsigned int reg)
 {
-	return reg == 0 || reg == 1 || reg == MT6329_VUSB || reg == MT6329_VMC;
+	return reg == 0 || reg == 1 || reg == MT6329_VUSB || reg == MT6329_VMC ||
+	       reg == 0x38 || reg == 0xe8 || reg == 0xe9 ||
+	       reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
 }
 
 static bool mt6329_writeable(struct device *dev, unsigned int reg)
 {
-	return reg == MT6329_VUSB || reg == MT6329_VMC;
+	return reg == MT6329_VUSB || reg == MT6329_VMC ||
+	       reg == 0x38 || reg == 0xe8 || reg == 0xe9;
 }
 
 static const struct regmap_config mt6329_regmap_config = {
 	.name = "power",
 	.reg_bits = 8,
 	.val_bits = 8,
-	.max_register = MT6329_VMC,
+	.max_register = 0xe9,
 	.cache_type = REGCACHE_NONE,
 	.readable_reg = mt6329_readable,
 	.writeable_reg = mt6329_writeable,
@@ -123,6 +126,10 @@ static const struct regmap_config mt6329_regmap_config = {
 
 static const struct mfd_cell mt6329_cells[] = {
 	{ .name = "mt6329-regulator" },
+	{
+		.name = "mt6329-auxadc",
+		.of_compatible = "mediatek,mt6329-auxadc",
+	},
 };
 
 static const struct simple_mfd_data mediatek_mt6329 = {

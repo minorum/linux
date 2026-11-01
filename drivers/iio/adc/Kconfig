@@ -1234,10 +1234,11 @@ config MEDIATEK_MT6370_ADC
 	  will be called "mt6370-adc".
 
 config MEDIATEK_MT6397_AUXADC
-	tristate "MediaTek MT6397 PMIC AUXADC driver"
-	depends on MFD_MT6397
+	tristate "MediaTek MT6329/MT6397 PMIC AUXADC driver"
+	depends on MFD_MT6397 || MFD_MT6329
+	depends on I2C || I2C=n
 	help
-	  Say yes here to enable support for MediaTek MT6397 PMIC Auxiliary ADC.
+	  Say yes here to enable the MediaTek MT6329 or MT6397 PMIC Auxiliary ADC.
 	  This driver provides the battery voltage and battery temperature
 	  channels used by the fuel gauge on boards built around this PMIC.
 
