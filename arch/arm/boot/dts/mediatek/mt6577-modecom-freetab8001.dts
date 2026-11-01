@@ -81,6 +81,18 @@
 		};
 	};
 
+	battery: battery {
+		compatible = "simple-battery";
+	};
+
+	fuel-gauge {
+		compatible = "adc-battery";
+		io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
+			      <&battery_thermistor>;
+		io-channel-names = "voltage", "temperature";
+		monitored-battery = <&battery>;
+	};
+
 	battery_thermistor: battery-thermistor {
 		compatible = "generic-adc-thermal";
 		#thermal-sensor-cells = <0>;
