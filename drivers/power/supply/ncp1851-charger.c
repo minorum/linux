@@ -490,6 +490,12 @@ static int ncp1851_battery_info(struct ncp1851 *chip)
 		ret = -EINVAL;
 		goto out;
 	}
+	if (chip->power_path &&
+	    ncp1851_vsys.min + chip->vsys * ncp1851_vsys.step >=
+	    ncp1851_vreg.min + chip->vreg * ncp1851_vreg.step) {
+		ret = -EINVAL;
+		goto out;
+	}
 	chip->temp_min_mc = info->temp_alert_min * 1000;
 	chip->temp_max_mc = info->temp_alert_max * 1000;
 	chip->overvoltage_uv = info->overvoltage_limit_uv;
