@@ -137,6 +137,7 @@ struct musb_io;
  * @recover:	platform-specific babble recovery
  * @vbus_status: returns vbus status if possible
  * @set_vbus:	forces vbus status
+ * @vbus_draw:	VBUS current budget in mA, atomic context
  * @pre_root_reset_end: called before the root usb port reset flag gets cleared
  * @post_root_reset_end: called after the root usb port reset flag gets cleared
  * @phy_callback: optional callback function for the phy to call
@@ -185,6 +186,7 @@ struct musb_platform_ops {
 
 	int	(*vbus_status)(struct musb *musb);
 	void	(*set_vbus)(struct musb *musb, int on);
+	int	(*vbus_draw)(struct musb *musb, unsigned int mA);
 
 	void	(*pre_root_reset_end)(struct musb *musb);
 	void	(*post_root_reset_end)(struct musb *musb);
