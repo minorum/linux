@@ -50,6 +50,7 @@
 #define WDT_MODE_IRQ_EN		(1 << 3)
 #define WDT_MODE_AUTO_START	(1 << 4)
 #define WDT_MODE_DUAL_EN	(1 << 6)
+#define WDT_MODE_DEBUG_EN	BIT(6)
 #define WDT_MODE_CNT_SEL	(1 << 8)
 #define WDT_MODE_KEY		0x22000000
 
@@ -346,8 +347,8 @@ static int mtk_wdt_start(struct watchdog_device *wdt_dev)
 
 	reg = mtk_wdt_read_mode(mtk_wdt);
 	if (mtk_wdt->legacy_regs) {
-		reg &= ~(WDT_MODE_IRQ_EN | WDT_MODE_EXT_POL_HIGH);
-		reg |= WDT_MODE_EXRST_EN | WDT_MODE_AUTO_START;
+		reg &= ~(WDT_MODE_IRQ_EN | WDT_MODE_EXT_POL_HIGH | WDT_MODE_EXRST_EN);
+		reg |= WDT_MODE_DEBUG_EN | WDT_MODE_AUTO_START;
 	} else if (wdt_dev->pretimeout) {
 		reg |= (WDT_MODE_IRQ_EN | WDT_MODE_DUAL_EN);
 	} else {
