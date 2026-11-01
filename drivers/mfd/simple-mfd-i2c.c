@@ -98,6 +98,39 @@ static const struct simple_mfd_data maxim_mon_max77705 = {
 	.mfd_cell_size = ARRAY_SIZE(max77705_sensor_cells),
 };
 
+#define MT6329_VUSB 0x9b
+#define MT6329_VMC  0xa7
+
+static bool mt6329_readable(struct device *dev, unsigned int reg)
+{
+	return reg == 0 || reg == 1 || reg == MT6329_VUSB || reg == MT6329_VMC;
+}
+
+static bool mt6329_writeable(struct device *dev, unsigned int reg)
+{
+	return reg == MT6329_VUSB || reg == MT6329_VMC;
+}
+
+static const struct regmap_config mt6329_regmap_config = {
+	.name = "power",
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = MT6329_VMC,
+	.cache_type = REGCACHE_NONE,
+	.readable_reg = mt6329_readable,
+	.writeable_reg = mt6329_writeable,
+};
+
+static const struct mfd_cell mt6329_cells[] = {
+	{ .name = "mt6329-regulator" },
+};
+
+static const struct simple_mfd_data mediatek_mt6329 = {
+	.regmap_config = &mt6329_regmap_config,
+	.mfd_cell = mt6329_cells,
+	.mfd_cell_size = ARRAY_SIZE(mt6329_cells),
+};
+
 static const struct regmap_config spacemit_p1_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
@@ -124,6 +157,7 @@ static const struct of_device_id simple_mfd_i2c_of_match[] = {
 	{ .compatible = "maxim,max5970", .data = &maxim_max5970 },
 	{ .compatible = "maxim,max5978", .data = &maxim_max5970 },
 	{ .compatible = "maxim,max77705-battery", .data = &maxim_mon_max77705 },
+	{ .compatible = "mediatek,mt6329", .data = &mediatek_mt6329 },
 	{ .compatible = "silergy,sy7636a", .data = &silergy_sy7636a },
 	{ .compatible = "spacemit,p1", .data = &spacemit_p1 },
 	{}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include <linux/i2c.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
 
@@ -10,16 +10,6 @@
 static const unsigned int mt6329_vmc_voltages[] = {
 	1300000, 1500000, 1800000, 2500000, 2800000, 3000000, 3300000, 3300000,
 };
-
-static bool mt6329_readable(struct device *dev, unsigned int reg)
-{
-	return reg == 0 || reg == 1 || reg == MT6329_VUSB || reg == MT6329_VMC;
-}
-
-static bool mt6329_writeable(struct device *dev, unsigned int reg)
-{
-	return reg == MT6329_VUSB || reg == MT6329_VMC;
-}
 
 static int mt6329_check(struct regmap *map)
 {
@@ -105,62 +95,45 @@ static const struct regulator_desc mt6329_regulators[] = {
 	},
 };
 
-static const struct regmap_config mt6329_regmap_config = {
-	.name = "power",
-	.reg_bits = 8,
-	.val_bits = 8,
-	.max_register = MT6329_VMC,
-	.cache_type = REGCACHE_NONE,
-	.readable_reg = mt6329_readable,
-	.writeable_reg = mt6329_writeable,
-};
-
-static int mt6329_probe(struct i2c_client *client)
+static int mt6329_probe(struct platform_device *pdev)
 {
-	struct regulator_config config = { .dev = &client->dev };
+	struct regulator_config config = { .dev = pdev->dev.parent };
 	struct regulator_dev *rdev;
 	struct regmap *map;
 	unsigned int i;
 	int ret;
 
-	map = devm_regmap_init_i2c(client, &mt6329_regmap_config);
-	if (IS_ERR(map))
-		return dev_err_probe(&client->dev, PTR_ERR(map), "Missing PMIC regmap\n");
+	map = dev_get_regmap(pdev->dev.parent, "power");
+	if (!map)
+		return -ENODEV;
 	ret = mt6329_check(map);
 	if (ret)
-		return dev_err_probe(&client->dev, ret,
+		return dev_err_probe(&pdev->dev, ret,
 				     "Unsupported PMIC identity or control mode\n");
 	config.regmap = map;
 	for (i = 0; i < ARRAY_SIZE(mt6329_regulators); i++) {
-		rdev = devm_regulator_register(&client->dev, &mt6329_regulators[i], &config);
+		rdev = devm_regulator_register(&pdev->dev, &mt6329_regulators[i], &config);
 		if (IS_ERR(rdev))
-			return dev_err_probe(&client->dev, PTR_ERR(rdev),
+			return dev_err_probe(&pdev->dev, PTR_ERR(rdev),
 					     "Cannot register regulator\n");
 	}
 	return 0;
 }
 
-static const struct of_device_id mt6329_match[] = {
-	{ .compatible = "mediatek,mt6329" },
+static const struct platform_device_id mt6329_ids[] = {
+	{ "mt6329-regulator" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, mt6329_match);
+MODULE_DEVICE_TABLE(platform, mt6329_ids);
 
-static const struct i2c_device_id mt6329_ids[] = {
-	{ "mt6329" },
-	{ }
-};
-MODULE_DEVICE_TABLE(i2c, mt6329_ids);
-
-static struct i2c_driver mt6329_driver = {
+static struct platform_driver mt6329_driver = {
 	.driver = {
 		.name = "mt6329-regulator",
-		.of_match_table = mt6329_match,
 	},
 	.probe = mt6329_probe,
 	.id_table = mt6329_ids,
 };
-module_i2c_driver(mt6329_driver);
+module_platform_driver(mt6329_driver);
 
 MODULE_DESCRIPTION("MediaTek MT6329 VUSB and VMC regulators");
 MODULE_LICENSE("GPL");

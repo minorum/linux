@@ -892,8 +892,7 @@ config REGULATOR_MT6311
 
 config REGULATOR_MT6329
 	tristate "MediaTek MT6329 VUSB and VMC regulators"
-	depends on I2C
-	select REGMAP_I2C
+	depends on MFD_MT6329
 	help
 	  Support the VUSB and VMC regulators of the MT6329 PMIC.
 

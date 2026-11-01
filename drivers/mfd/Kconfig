@@ -1138,6 +1138,16 @@ config MFD_MT6370
 	  This driver can also be built as a module. If so, the module
 	  will be called "mt6370".
 
+config MFD_MT6329
+	tristate "MediaTek MT6329 PMIC Support"
+	depends on I2C
+	select MFD_SIMPLE_MFD_I2C
+	help
+	  Say yes here to enable shared register access for the MediaTek
+	  MT6329 power management IC over I2C. The existing simple MFD
+	  driver provides the transport and creates function devices.
+	  Enable the individual function drivers separately to use them.
+
 config MFD_MT6397
 	tristate "MediaTek MT6397 PMIC Support"
 	select MFD_CORE
