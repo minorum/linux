@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/onnn,ncp1851.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ON Semiconductor NCP1851 battery charger
+
+maintainers:
+  - Michal Andrzejczak <mit.mis@gmail.com>
+
+description: |
+  The NCP1851 and NCP1851A are single-cell switching battery chargers with
+  programmable input and charge limits and an optional system power path.
+  External voltage and temperature measurements provide battery monitoring.
+  The example battery limits are illustrative and do not identify a particular
+  board or battery pack.
+
+allOf:
+  - $ref: power-supply.yaml#
+  - if:
+      required:
+        - onnn,power-path
+    then:
+      required:
+        - onnn,system-voltage-microvolt
+
+properties:
+  compatible:
+    enum:
+      - onnn,ncp1851
+      - onnn,ncp1851a
+
+  reg:
+    const: 0x36
+
+  monitored-battery:
+    description: |
+      Battery information must specify constant-charge-current-max-microamp,
+      constant-charge-voltage-max-microvolt, precharge-current-microamp,
+      charge-term-current-microamp, over-voltage-threshold-microvolt and
+      alert-celsius. Charging is permitted only inside the explicitly supplied
+      alert-celsius normal temperature range. Missing or unsupported battery
+      limits prevent charging; no pack characteristics are inferred.
+      Normal precharge is fixed at 100 mA. The separate weak-battery current
+      source is configured conservatively to the same nominal current.
+
+  io-channels:
+    items:
+      - description: Battery voltage, processed in millivolts
+      - description: Battery temperature, processed in millicelsius
+
+  io-channel-names:
+    items:
+      - const: voltage
+      - const: temperature
+
+  input-current-limit-microamp:
+    description: |
+      Maximum input current permitted by the board. The available USB current
+      budget is supplied dynamically and initially limited to 100 mA. Budgets
+      below 100 mA inhibit charging.
+    enum: [100000, 500000, 900000, 1500000]
+
+  shunt-resistor-micro-ohms:
+    description: Battery charge-current sense resistor
+    const: 68000
+
+  onnn,power-path:
+    type: boolean
+    description: Enable the system power path
+
+  onnn,system-voltage-microvolt:
+    description: System regulation target through VFET with a weak battery
+    enum: [3100000, 3200000, 3300000, 3400000, 3500000, 3600000]
+
+required:
+  - compatible
+  - reg
+  - monitored-battery
+  - io-channels
+  - io-channel-names
+  - input-current-limit-microamp
+  - shunt-resistor-micro-ohms
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    battery: battery {
+      compatible = "simple-battery";
+      constant-charge-current-max-microamp = <500000>;
+      constant-charge-voltage-max-microvolt = <4200000>;
+      precharge-current-microamp = <100000>;
+      charge-term-current-microamp = <100000>;
+      over-voltage-threshold-microvolt = <4300000>;
+      alert-celsius = <0 40>;
+    };
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      charger@36 {
+        compatible = "onnn,ncp1851";
+        reg = <0x36>;
+        monitored-battery = <&battery>;
+        io-channels = <&adc 0>, <&thermistor>;
+        io-channel-names = "voltage", "temperature";
+        input-current-limit-microamp = <500000>;
+        shunt-resistor-micro-ohms = <68000>;
+        onnn,power-path;
+        onnn,system-voltage-microvolt = <3300000>;
+      };
+    };
