@@ -81,6 +81,12 @@
 		#size-cells = <1>;
 		ranges;
 
+		watchdog@c0000000 {
+			compatible = "mediatek,mt6577-wdt";
+			reg = <0xc0000000 0x1c>;
+			timeout-sec = <31>;
+		};
+
 		mmsys: clock-controller@c2080000 {
 			compatible = "mediatek,mt6577-mmsys", "syscon";
 			reg = <0xc2080000 0x1000>;
