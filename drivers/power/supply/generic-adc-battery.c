@@ -130,13 +130,16 @@ static void gab_work(struct work_struct *work)
 	union power_supply_propval val;
 	struct gab *adc_bat;
 	struct delayed_work *delayed_work;
-	int status;
+	int status, supplied;
 
 	delayed_work = to_delayed_work(work);
 	adc_bat = container_of(delayed_work, struct gab, bat_work);
 	status = adc_bat->status;
 
-	if (!power_supply_am_i_supplied(adc_bat->psy))
+	supplied = power_supply_am_i_supplied(adc_bat->psy);
+	if (supplied < 0)
+		adc_bat->status = POWER_SUPPLY_STATUS_UNKNOWN;
+	else if (!supplied)
 		adc_bat->status =  POWER_SUPPLY_STATUS_DISCHARGING;
 	else if (gab_charge_finished(adc_bat))
 		adc_bat->status = POWER_SUPPLY_STATUS_NOT_CHARGING;
@@ -144,7 +147,7 @@ static void gab_work(struct work_struct *work)
 							  POWER_SUPPLY_PROP_STATUS, &val))
 		adc_bat->status = val.intval;
 	else
-		adc_bat->status = POWER_SUPPLY_STATUS_CHARGING;
+		adc_bat->status = POWER_SUPPLY_STATUS_UNKNOWN;
 
 	if (status != adc_bat->status)
 		power_supply_changed(adc_bat->psy);
