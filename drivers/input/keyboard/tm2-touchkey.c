@@ -50,6 +50,7 @@ struct tm2_touchkey_data {
 	struct led_classdev led_dev;
 	struct regulator *vdd;
 	struct regulator_bulk_data regulators[3];
+	unsigned int num_regulators;
 	const struct touchkey_variant *variant;
 	u32 keycodes[4];
 	int num_keycodes;
@@ -110,7 +111,7 @@ static int tm2_touchkey_led_brightness_set(struct led_classdev *led_dev,
 		data = touchkey->variant->cmd_led_on;
 	}
 
-	if (!touchkey->variant->fixed_regulator)
+	if (touchkey->vdd && !touchkey->variant->fixed_regulator)
 		regulator_set_voltage(touchkey->vdd, volt, volt);
 
 	return touchkey->variant->no_reg ?
@@ -119,11 +120,38 @@ static int tm2_touchkey_led_brightness_set(struct led_classdev *led_dev,
 					  touchkey->variant->base_reg, data);
 }
 
+static int tm2_touchkey_init_regulators(struct tm2_touchkey_data *touchkey)
+{
+	struct device *dev = &touchkey->client->dev;
+	int error;
+
+	touchkey->regulators[0].supply = "vcc";
+	touchkey->regulators[1].supply = "vddio";
+	touchkey->num_regulators = ARRAY_SIZE(touchkey->regulators) - 1;
+	error = devm_regulator_bulk_get(dev, touchkey->num_regulators,
+					touchkey->regulators);
+	if (error)
+		return error;
+
+	touchkey->vdd = devm_regulator_get_optional(dev, "vdd");
+	if (IS_ERR(touchkey->vdd)) {
+		error = PTR_ERR(touchkey->vdd);
+		if (error != -ENODEV)
+			return error;
+		touchkey->vdd = NULL;
+	} else {
+		touchkey->regulators[2].supply = "vdd";
+		touchkey->regulators[2].consumer = touchkey->vdd;
+		touchkey->num_regulators++;
+	}
+	return 0;
+}
+
 static int tm2_touchkey_power_enable(struct tm2_touchkey_data *touchkey)
 {
 	int error;
 
-	error = regulator_bulk_enable(ARRAY_SIZE(touchkey->regulators),
+	error = regulator_bulk_enable(touchkey->num_regulators,
 				      touchkey->regulators);
 	if (error)
 		return error;
@@ -138,7 +166,7 @@ static void tm2_touchkey_power_disable(void *data)
 {
 	struct tm2_touchkey_data *touchkey = data;
 
-	regulator_bulk_disable(ARRAY_SIZE(touchkey->regulators),
+	regulator_bulk_disable(touchkey->num_regulators,
 			       touchkey->regulators);
 }
 
@@ -231,19 +259,11 @@ static int tm2_touchkey_probe(struct i2c_client *client)
 
 	touchkey->variant = of_device_get_match_data(&client->dev);
 
-	touchkey->regulators[0].supply = "vcc";
-	touchkey->regulators[1].supply = "vdd";
-	touchkey->regulators[2].supply = "vddio";
-	error = devm_regulator_bulk_get(&client->dev,
-					ARRAY_SIZE(touchkey->regulators),
-					touchkey->regulators);
+	error = tm2_touchkey_init_regulators(touchkey);
 	if (error) {
 		dev_err(&client->dev, "failed to get regulators: %d\n", error);
 		return error;
 	}
-
-	/* Save VDD for easy access */
-	touchkey->vdd = touchkey->regulators[1].consumer;
 
 	touchkey->num_keycodes = of_property_read_variable_u32_array(np,
 					"linux,keycodes", touchkey->keycodes, 0,
