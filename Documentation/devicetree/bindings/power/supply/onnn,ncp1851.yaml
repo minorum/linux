@@ -71,7 +71,9 @@ properties:
     description: Enable the system power path
 
   onnn,system-voltage-microvolt:
-    description: System regulation target through VFET with a weak battery
+    description:
+      Battery-to-system reconnection threshold during weak-battery charging.
+      This must be below the programmed constant-charge voltage.
     enum: [3100000, 3200000, 3300000, 3400000, 3500000, 3600000]
 
 required:
