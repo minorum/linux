@@ -6,6 +6,7 @@
 #include <dt-bindings/clock/mediatek,mt6577-clk.h>
 #include <dt-bindings/clock/mediatek,mt6577-mmsys.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/adc/mediatek,mt6329-auxadc.h>
 
 / {
 	model = "MODECOM FreeTAB 8001";
@@ -77,6 +78,41 @@
 			panel_in: endpoint {
 				remote-endpoint = <&dpi_out>;
 			};
+		};
+	};
+
+	battery_thermistor: battery-thermistor {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		#io-channel-cells = <0>;
+		io-channels = <&pmic_adc MT6329_AUXADC_BAT_TEMP>;
+		io-channel-names = "sensor-channel";
+		temperature-lookup-table = <
+			(-20000) 1174
+			(-15000) 1166
+			(-10000) 1154
+			(-5000) 1140
+			0 1122
+			5000 1101
+			10000 1075
+			15000 1044
+			20000 1008
+			25000 968
+			30000 923
+			35000 873
+			40000 820
+			45000 765
+			50000 708
+			55000 650
+			60000 594
+			65000 539
+			70000 486>;
+	};
+
+	thermal-zones {
+		battery-thermal {
+			polling-delay = <1000>;
+			thermal-sensors = <&battery_thermistor>;
 		};
 	};
 
