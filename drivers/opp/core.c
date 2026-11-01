@@ -2261,9 +2261,11 @@ static int _opp_set_regulators(struct opp_table *opp_table, struct device *dev,
 	for (i = 0; i < count; i++) {
 		reg = regulator_get_optional(dev, names[i]);
 		if (IS_ERR(reg)) {
-			ret = dev_err_probe(dev, PTR_ERR(reg),
-					    "%s: no regulator (%s) found\n",
-					    __func__, names[i]);
+			ret = PTR_ERR(reg);
+			if (ret != -ENODEV)
+				dev_err_probe(dev, ret,
+					      "%s: no regulator (%s) found\n",
+					      __func__, names[i]);
 			goto free_regulators;
 		}
 
