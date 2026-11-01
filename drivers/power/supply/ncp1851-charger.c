@@ -210,7 +210,7 @@ static bool ncp1851_configured(struct ncp1851 *chip, int input)
 static int ncp1851_update(struct ncp1851 *chip)
 {
 	int ret, mv, input, health;
-	bool online;
+	bool online, restart;
 
 	ret = ncp1851_read_regs(chip);
 	if (ret)
@@ -251,10 +251,11 @@ static int ncp1851_update(struct ncp1851 *chip)
 		if (ret)
 			goto fail;
 	}
-	ret = ncp1851_ctrl1(chip, true, chip->cycle_pending);
+	restart = chip->cycle_pending;
+	chip->cycle_pending = false;
+	ret = ncp1851_ctrl1(chip, true, restart);
 	if (ret)
 		goto fail;
-	chip->cycle_pending = false;
 	ret = ncp1851_kick(chip);
 	if (ret)
 		goto fail;
