@@ -230,6 +230,11 @@
 				compatible = "mediatek,mt6329";
 				reg = <0x60>;
 
+				pmic_adc: adc {
+					compatible = "mediatek,mt6329-auxadc";
+					#io-channel-cells = <1>;
+				};
+
 				regulators {
 					vusb: vusb {
 						regulator-name = "mt6329-vusb";
