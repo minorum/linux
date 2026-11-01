@@ -1202,4 +1202,15 @@ config MACSMC_POWER
 
 	  Say Y or M here if you have an Apple Silicon based Mac.
 
+config CHARGER_NCP1851
+	tristate "ON Semiconductor NCP1851 charger"
+	depends on I2C && IIO
+	select REGMAP_I2C
+	select LINEAR_RANGES
+	help
+	  Support NCP1851 and NCP1851A single-cell chargers with external
+	  battery voltage and temperature monitoring through IIO.
+	  Battery limits and the board input ceiling must be supplied by
+	  firmware. USB current authorization uses the power-supply interface.
+
 endif # POWER_SUPPLY
