@@ -15,12 +15,27 @@ description:
 
 allOf:
   - $ref: watchdog.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6577-wdt
+    then:
+      properties:
+        interrupts: false
+        '#reset-cells': false
+        mediatek,disable-extrst: false
+        mediatek,reset-by-toprgu: false
+        timeout-sec:
+          minimum: 1
+          maximum: 31
 
 properties:
   compatible:
     oneOf:
       - enum:
           - mediatek,mt2712-wdt
+          - mediatek,mt6577-wdt
           - mediatek,mt6589-wdt
           - mediatek,mt6735-wdt
           - mediatek,mt6795-wdt
