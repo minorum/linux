@@ -462,6 +462,7 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 	mtk_wdt->wdt_dev.max_hw_heartbeat_ms = WDT_MAX_TIMEOUT * 1000;
 	mtk_wdt->wdt_dev.min_timeout = WDT_MIN_TIMEOUT;
 	if (mtk_wdt->legacy_regs) {
+		mtk_wdt->wdt_dev.max_hw_heartbeat_ms = 0;
 		mtk_wdt->wdt_dev.min_timeout = 1;
 		mtk_wdt->wdt_dev.max_timeout = WDT_MAX_TIMEOUT;
 	}
