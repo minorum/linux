@@ -372,17 +372,13 @@ static int ncp1851_set_property(struct power_supply *psy, enum power_supply_prop
 	int ret;
 
 	mutex_lock(&chip->lock);
-	if (chip->stopped) {
-		ret = -EBUSY;
-		goto out;
-	}
 	switch (prop) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
-		if (val->intval < 0 || val->intval > chip->input_max) {
+		if (val->intval < 0) {
 			ret = -EINVAL;
 			goto out;
 		}
-		chip->input_budget = val->intval;
+		chip->input_budget = min(val->intval, chip->input_max);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
 		if (val->intval != POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO &&
@@ -396,7 +392,7 @@ static int ncp1851_set_property(struct power_supply *psy, enum power_supply_prop
 		ret = -EINVAL;
 		goto out;
 	}
-	ret = ncp1851_update(chip);
+	ret = chip->stopped ? 0 : ncp1851_update(chip);
 out:
 	mutex_unlock(&chip->lock);
 	if (!ret)
