@@ -44,6 +44,15 @@ properties:
   phy-names:
     const: usb2-phy
 
+  power-supplies:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    maxItems: 1
+    items:
+      maxItems: 1
+    description:
+      Charger receiving the USB peripheral's authorized input-current budget.
+      Reset, configuration, suspend and disconnect update its current limit.
+
 required:
   - compatible
   - reg
