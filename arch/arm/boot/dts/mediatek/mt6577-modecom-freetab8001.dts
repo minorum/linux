@@ -87,6 +87,11 @@
 			timeout-sec = <31>;
 		};
 
+		power-controller@c1003000 {
+			compatible = "mediatek,mt6577-pwrc";
+			reg = <0xc1003000 0x7c>;
+		};
+
 		mmsys: clock-controller@c2080000 {
 			compatible = "mediatek,mt6577-mmsys", "syscon";
 			reg = <0xc2080000 0x1000>;
