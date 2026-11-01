@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/irqchip/arm-gic.h>
 #include <linux/of_address.h>
 #include <linux/smp.h>
 
@@ -113,6 +114,7 @@ static int sc9830_cpu_disable(unsigned int cpu)
 
 static void sc9830_cpu_die(unsigned int cpu)
 {
+	gic_cpu_if_down(0);
 	asm volatile("clrex" : : : "memory");
 	v7_exit_coherency_flush(louis);
 	for (;;)
