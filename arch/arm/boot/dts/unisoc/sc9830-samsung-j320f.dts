@@ -114,6 +114,7 @@
 			reg = <0x20>;
 			interrupts-extended = <&gpio 90 IRQ_TYPE_EDGE_FALLING>;
 			vcc-supply = <&touchkey_vcc>;
+			vddio-supply = <&touchkey_vcc>;
 			linux,keycodes = <KEY_APPSELECT KEY_BACK>;
 		};
 	};
@@ -203,6 +204,12 @@
 	vmmc-supply = <&emmc_vmmc>;
 	vqmmc-supply = <&emmc_vqmmc>;
 	mmc-ddr-1_8v;
+};
+
+&i2c1 {
+	touchscreen@50 {
+		vddio-supply = <&sensor_vdd18>;
+	};
 };
 
 &i2c2 {
