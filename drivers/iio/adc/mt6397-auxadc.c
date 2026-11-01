@@ -102,6 +102,11 @@ struct mt6397_auxadc {
 	bool mt6329;
 	int gain;
 	int offset;
+	unsigned int saved_control;
+	unsigned int saved_config;
+	unsigned int saved_bias;
+	bool restore_pending;
+	bool restore_temperature;
 	/*
 	 * A read is a multi-register sequence: analog setup, then a channel
 	 * select and an edge-triggered start per conversion. Interleaving two
@@ -336,14 +341,43 @@ static int mt6397_auxadc_read_burst(struct mt6397_auxadc *adc,
 	return 0;
 }
 
+static int mt6329_auxadc_restore(struct mt6397_auxadc *adc)
+{
+	struct regmap *map = adc->regmap;
+	int ret, err;
+
+	if (!adc->restore_pending)
+		return 0;
+	ret = regmap_clear_bits(map, MT6329_AUXADC_CON0, MT6329_AUXADC_START);
+	if (adc->restore_temperature) {
+		err = regmap_update_bits(map, MT6329_AUXADC_TDET, MT6329_AUXADC_TDET_EN,
+					 adc->saved_bias & MT6329_AUXADC_TDET_EN);
+		if (!ret)
+			ret = err;
+	}
+	err = regmap_write(map, MT6329_AUXADC_CON1, adc->saved_config);
+	if (!ret)
+		ret = err;
+	err = regmap_write(map, MT6329_AUXADC_CON0, adc->saved_control);
+	if (!ret)
+		ret = err;
+	if (!ret)
+		adc->restore_pending = false;
+
+	return ret;
+}
+
 static int mt6329_auxadc_read(struct mt6397_auxadc *adc,
 			      const struct iio_chan_spec *chan, int *val)
 {
 	struct regmap *map = adc->regmap;
 	unsigned int control, config, bias = 0;
 	bool temperature = chan->address == 3;
-	int ret, cleanup, err;
+	int ret, cleanup;
 
+	ret = mt6329_auxadc_restore(adc);
+	if (ret)
+		return ret;
 	ret = regmap_read(map, MT6329_AUXADC_CON0, &control);
 	if (ret)
 		return ret;
@@ -357,6 +391,11 @@ static int mt6329_auxadc_read(struct mt6397_auxadc *adc,
 		if (ret)
 			return ret;
 	}
+	adc->saved_control = control;
+	adc->saved_config = config;
+	adc->saved_bias = bias;
+	adc->restore_temperature = temperature;
+	adc->restore_pending = true;
 	ret = regmap_update_bits(map, MT6329_AUXADC_CON0,
 				 MT6329_AUXADC_CHSEL | MT6329_AUXADC_TRIM_COMP,
 				 FIELD_PREP(MT6329_AUXADC_CHSEL, chan->address) |
@@ -381,19 +420,7 @@ static int mt6329_auxadc_read(struct mt6397_auxadc *adc,
 	ret = mt6397_auxadc_read_burst(adc, chan, val);
 
 restore:
-	cleanup = regmap_clear_bits(map, MT6329_AUXADC_CON0, MT6329_AUXADC_START);
-	if (temperature) {
-		err = regmap_update_bits(map, MT6329_AUXADC_TDET, MT6329_AUXADC_TDET_EN,
-					 bias & MT6329_AUXADC_TDET_EN);
-		if (!cleanup)
-			cleanup = err;
-	}
-	err = regmap_write(map, MT6329_AUXADC_CON1, config);
-	if (!cleanup)
-		cleanup = err;
-	err = regmap_write(map, MT6329_AUXADC_CON0, control);
-	if (!cleanup)
-		cleanup = err;
+	cleanup = mt6329_auxadc_restore(adc);
 
 	return ret ?: cleanup;
 }
@@ -509,6 +536,18 @@ static const struct iio_info mt6397_auxadc_info = {
 	.read_raw = mt6397_auxadc_read_raw,
 };
 
+static void mt6329_auxadc_cleanup(void *data)
+{
+	struct iio_dev *indio_dev = data;
+	struct mt6397_auxadc *adc = iio_priv(indio_dev);
+	int ret;
+
+	guard(mutex)(&adc->lock);
+	ret = mt6329_auxadc_restore(adc);
+	if (ret)
+		dev_err(&indio_dev->dev, "failed to restore ADC controls: %d\n", ret);
+}
+
 static int mt6329_auxadc_init(struct device *dev, struct mt6397_auxadc *adc)
 {
 #if IS_REACHABLE(CONFIG_I2C)
@@ -578,6 +617,12 @@ static int mt6397_auxadc_probe(struct platform_device *pdev)
 	ret = devm_mutex_init(dev, &adc->lock);
 	if (ret)
 		return ret;
+
+	if (adc->mt6329) {
+		ret = devm_add_action_or_reset(dev, mt6329_auxadc_cleanup, indio_dev);
+		if (ret)
+			return ret;
+	}
 
 	if (!adc->mt6329) {
 		ret = regmap_update_bits(adc->regmap, MT6397_AUXADC_CON0,
