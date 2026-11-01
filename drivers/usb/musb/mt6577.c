@@ -6,6 +6,8 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/phy/phy.h>
+#include <linux/power_supply.h>
+#include <linux/property.h>
 
 #include "musb_core.h"
 
@@ -15,7 +17,73 @@
 struct mt6577_glue {
 	struct clk *bus;
 	struct phy *phy;
+	struct device *dev;
+	struct power_supply *charger;
+	struct work_struct budget_work;
+	unsigned int budget_ma;
 };
+
+static void mt6577_budget_work(struct work_struct *work)
+{
+	struct mt6577_glue *glue = container_of(work, struct mt6577_glue, budget_work);
+	union power_supply_propval val;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
+		return;
+	val.intval = READ_ONCE(glue->budget_ma) * 1000;
+	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+	if (ret)
+		dev_err_ratelimited(glue->dev, "Cannot update USB current budget: %d\n", ret);
+}
+
+static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
+{
+	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+
+	if (!glue->charger)
+		return 0;
+	if (mA > INT_MAX / 1000)
+		return -EINVAL;
+	WRITE_ONCE(glue->budget_ma, mA);
+	schedule_work(&glue->budget_work);
+	return 0;
+}
+
+static void mt6577_budget_stop(void *data)
+{
+	struct mt6577_glue *glue = data;
+	union power_supply_propval val = { .intval = 0 };
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
+		return;
+	cancel_work_sync(&glue->budget_work);
+	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+	if (ret)
+		dev_err(glue->dev, "Cannot revoke USB current budget: %d\n", ret);
+}
+
+static int mt6577_budget_init(struct mt6577_glue *glue)
+{
+	union power_supply_propval val = { .intval = 0 };
+	int ret;
+
+	if (!device_property_present(glue->dev, "power-supplies"))
+		return 0;
+	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
+		return -ENODEV;
+	glue->charger = devm_power_supply_get_by_reference(glue->dev, "power-supplies");
+	if (IS_ERR(glue->charger))
+		return PTR_ERR(glue->charger);
+	if (!glue->charger)
+		return -EPROBE_DEFER;
+	INIT_WORK(&glue->budget_work, mt6577_budget_work);
+	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+	if (ret)
+		return ret;
+	return devm_add_action_or_reset(glue->dev, mt6577_budget_stop, glue);
+}
 
 static u8 mt6577_clearb(void __iomem *base, u32 offset)
 {
@@ -110,6 +178,7 @@ static const struct musb_platform_ops mt6577_ops = {
 	.exit = mt6577_exit,
 	.clearb = mt6577_clearb,
 	.clearw = mt6577_clearw,
+	.vbus_draw = mt6577_vbus_draw,
 };
 
 static const struct musb_fifo_cfg mt6577_fifo[] = {
@@ -153,6 +222,7 @@ static int mt6577_probe(struct platform_device *pdev)
 	};
 	struct platform_device *musb;
 	struct mt6577_glue *glue;
+	int ret;
 
 	glue = devm_kzalloc(&pdev->dev, sizeof(*glue), GFP_KERNEL);
 	if (!glue)
@@ -163,6 +233,10 @@ static int mt6577_probe(struct platform_device *pdev)
 	glue->phy = devm_phy_get(&pdev->dev, "usb2-phy");
 	if (IS_ERR(glue->phy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(glue->phy), "Missing USB PHY\n");
+	glue->dev = &pdev->dev;
+	ret = mt6577_budget_init(glue);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "Cannot initialize USB current budget\n");
 	platform_set_drvdata(pdev, glue);
 	musb = platform_device_register_full(&info);
 	if (IS_ERR(musb))

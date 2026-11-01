@@ -110,6 +110,7 @@ config USB_MUSB_MT6577
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	depends on OF && USB_MUSB_GADGET
 	depends on MUSB_PIO_ONLY
+	depends on POWER_SUPPLY || !POWER_SUPPLY
 	select GENERIC_PHY
 
 config USB_MUSB_MEDIATEK
