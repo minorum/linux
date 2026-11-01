@@ -1344,6 +1344,71 @@ static irqreturn_t mtk_i2c_irq(int irqno, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static s32 mtk_i2c_smbus_fifo(struct i2c_adapter *adap, u16 address,
+			      unsigned short flags, char direction, u8 command,
+			      int protocol, union i2c_smbus_data *data)
+{
+	struct mtk_i2c *i2c = i2c_get_adapdata(adap);
+	bool reading = direction == I2C_SMBUS_READ;
+	u16 status, control, length;
+	int ret;
+
+	if (flags || protocol != I2C_SMBUS_BYTE_DATA || !data)
+		return -EOPNOTSUPP;
+	if (address < 0x08 || address > 0x77 ||
+	    (direction != I2C_SMBUS_READ && direction != I2C_SMBUS_WRITE))
+		return -EINVAL;
+	ret = clk_bulk_enable(I2C_MT65XX_CLK_MAX, i2c->clocks);
+	if (ret)
+		return ret;
+	if ((mtk_i2c_readw(i2c, OFFSET_INTR_MASK) & 7) ||
+	    (mtk_i2c_readw(i2c, OFFSET_INTR_STAT) & 7) ||
+	    (mtk_i2c_readw(i2c, OFFSET_START) & 1) ||
+	    !(mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & 1)) {
+		ret = -EBUSY;
+		goto disable;
+	}
+	mtk_i2c_writew(i2c, i2c->timing_reg, OFFSET_TIMING);
+	mtk_i2c_writew(i2c, i2c->use_push_pull ? 0 : 3, OFFSET_IO_CONFIG);
+	mtk_i2c_writew(i2c, mtk_i2c_readw(i2c, OFFSET_HS) & ~1, OFFSET_HS);
+	control = mtk_i2c_readw(i2c, OFFSET_CONTROL);
+	mtk_i2c_writew(i2c, (control & ~0x7e) | (reading ? 0x3a : 0x28),
+		       OFFSET_CONTROL);
+	mtk_i2c_writew(i2c, address << 1, OFFSET_SLAVE_ADDR);
+	length = mtk_i2c_readw(i2c, OFFSET_TRANSFER_LEN) & ~0x1fff;
+	mtk_i2c_writew(i2c, length | (reading ? 0x101 : 2), OFFSET_TRANSFER_LEN);
+	mtk_i2c_writew(i2c, reading ? 2 : 1, OFFSET_TRANSAC_LEN);
+	mtk_i2c_writew(i2c, 1, OFFSET_FIFO_ADDR_CLR);
+	writeb(command, i2c->base);
+	if (!reading)
+		writeb(data->byte, i2c->base);
+	writel(1, i2c->base + 0x24);
+	ret = read_poll_timeout(mtk_i2c_readw, status, status & 7, 20, 100000,
+				false, i2c, OFFSET_INTR_STAT);
+	if (!ret && (status & 6))
+		ret = -ENXIO;
+	if (!ret && reading) {
+		if (mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & 1)
+			ret = -EIO;
+		else
+			data->byte = readb(i2c->base);
+	}
+	mtk_i2c_writew(i2c, status & 7, OFFSET_INTR_STAT);
+disable:
+	clk_bulk_disable(I2C_MT65XX_CLK_MAX, i2c->clocks);
+	return ret;
+}
+
+static u32 mtk_i2c_fifo_functionality(struct i2c_adapter *adap)
+{
+	return I2C_FUNC_SMBUS_BYTE_DATA;
+}
+
+static const struct i2c_algorithm mtk_i2c_fifo_algorithm = {
+	.smbus_xfer = mtk_i2c_smbus_fifo,
+	.functionality = mtk_i2c_fifo_functionality,
+};
+
 static u32 mtk_i2c_functionality(struct i2c_adapter *adap)
 {
 	if (i2c_check_quirks(adap, I2C_AQ_NO_ZERO_LEN))
@@ -1382,6 +1447,46 @@ static int mtk_i2c_parse_dt(struct device_node *np, struct mtk_i2c *i2c)
 	return 0;
 }
 
+static int mtk_i2c_fifo_probe(struct platform_device *pdev, struct mtk_i2c *i2c)
+{
+	struct device *dev = &pdev->dev;
+	unsigned int sample, step, rate;
+	int ret;
+
+	i2c->dev = dev;
+	ret = mtk_i2c_parse_dt(dev->of_node, i2c);
+	if (ret)
+		return ret;
+	if (i2c->speed_hz != 100000 || i2c->clk_src_div != 16 || i2c->have_pmic)
+		return -EINVAL;
+	i2c->clocks[I2C_MT65XX_CLK_MAIN].clk = devm_clk_get(dev, "main");
+	if (IS_ERR(i2c->clocks[I2C_MT65XX_CLK_MAIN].clk))
+		return PTR_ERR(i2c->clocks[I2C_MT65XX_CLK_MAIN].clk);
+	rate = clk_get_rate(i2c->clocks[I2C_MT65XX_CLK_MAIN].clk) / 16;
+	if (!rate)
+		return -EINVAL;
+	ret = mtk_i2c_calculate_speed(i2c, rate, i2c->speed_hz, &step, &sample);
+	if (ret)
+		return ret;
+	i2c->timing_reg = (sample << 8) | step;
+	ret = clk_bulk_prepare(I2C_MT65XX_CLK_MAX, i2c->clocks);
+	if (ret)
+		return ret;
+	i2c->adap.owner = THIS_MODULE;
+	i2c->adap.dev.parent = dev;
+	i2c->adap.dev.of_node = dev->of_node;
+	i2c->adap.algo = &mtk_i2c_fifo_algorithm;
+	strscpy(i2c->adap.name, I2C_DRV_NAME, sizeof(i2c->adap.name));
+	i2c_set_adapdata(&i2c->adap, i2c);
+	ret = i2c_add_adapter(&i2c->adap);
+	if (ret) {
+		clk_bulk_unprepare(I2C_MT65XX_CLK_MAX, i2c->clocks);
+		return ret;
+	}
+	platform_set_drvdata(pdev, i2c);
+	return 0;
+}
+
 static int mtk_i2c_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -1395,6 +1500,10 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 	i2c->base = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
 	if (IS_ERR(i2c->base))
 		return PTR_ERR(i2c->base);
+	i2c->dev_comp = of_device_get_match_data(&pdev->dev);
+	if (!platform_get_resource(pdev, IORESOURCE_MEM, 1) &&
+	    i2c->dev_comp == &mt6577_compat)
+		return mtk_i2c_fifo_probe(pdev, i2c);
 
 	i2c->pdmabase = devm_platform_get_and_ioremap_resource(pdev, 1, NULL);
 	if (IS_ERR(i2c->pdmabase))
@@ -1542,7 +1651,8 @@ static int mtk_i2c_resume_noirq(struct device *dev)
 		return ret;
 	}
 
-	mtk_i2c_init_hw(i2c);
+	if (i2c->pdmabase)
+		mtk_i2c_init_hw(i2c);
 
 	clk_bulk_disable(I2C_MT65XX_CLK_MAX, i2c->clocks);
 
