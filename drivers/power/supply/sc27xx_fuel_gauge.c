@@ -353,6 +353,57 @@ out:
 	return ret;
 }
 
+static int sc2723_fgu_estimate_ocv(struct sc27xx_fgu_data *data,
+				   int temperature, int *value)
+{
+	s64 ocv, resistance_mohm;
+	int ret, raw, voltage, current_ua, resistance;
+
+	mutex_lock(&data->lock);
+	if (data->internal_resist <= 0) {
+		ret = -ENODATA;
+		goto out;
+	}
+	resistance = 100;
+	if (data->resist_table_len > 0)
+		resistance = power_supply_temp2resist_simple(data->resist_table,
+							     data->resist_table_len,
+							     temperature / 10);
+	if (resistance <= 0) {
+		ret = -EINVAL;
+		goto out;
+	}
+	resistance_mohm = div_s64((s64)data->internal_resist * resistance, 100);
+	if (resistance_mohm <= 0 || resistance_mohm > INT_MAX) {
+		ret = -ERANGE;
+		goto out;
+	}
+
+	ret = sc2723_fgu_read_stable(data, SC27XX_FGU_VOLTAGE,
+				     GENMASK(12, 0), &raw);
+	if (!ret)
+		ret = sc2723_fgu_convert(data, false, raw, &voltage);
+	if (!ret)
+		ret = sc2723_fgu_read_stable(data, SC27XX_FGU_CURRENT,
+					     GENMASK(13, 0), &raw);
+	if (!ret)
+		ret = sc2723_fgu_convert(data, true, raw, &current_ua);
+out:
+	mutex_unlock(&data->lock);
+	if (ret)
+		return ret;
+	if (data->voltage_chan) {
+		ret = sc2723_fgu_get_adc_voltage(data, &voltage);
+		if (ret)
+			return ret;
+	}
+	ocv = voltage - div_s64((s64)current_ua * resistance_mohm, 1000);
+	if (ocv <= 0 || ocv > INT_MAX)
+		return -ERANGE;
+	*value = ocv;
+	return 0;
+}
+
 static int sc2723_fgu_compensate_capacity(struct sc27xx_fgu_data *data,
 					  int capacity, int temperature)
 {
@@ -377,7 +428,7 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 	u32 counter;
 	u64 elapsed, now;
 	int ret, ocv_ret, ocv, capacity, temperature;
-	bool full;
+	bool full, bootstrap;
 
 	if (!data->cap_table || data->total_cap <= 0)
 		return -ENODATA;
@@ -404,6 +455,14 @@ static int sc2723_fgu_get_capacity(struct sc27xx_fgu_data *data, int *value)
 	if (ret)
 		return ret;
 	ocv_ret = sc2723_fgu_get_ocv(data, &ocv);
+	if (ocv_ret == -ENODATA && !full) {
+		mutex_lock(&data->lock);
+		bootstrap = !data->soc_valid ||
+			ktime_get_boottime_seconds() - data->soc_time > 3600;
+		mutex_unlock(&data->lock);
+		if (bootstrap)
+			ocv_ret = sc2723_fgu_estimate_ocv(data, temperature, &ocv);
+	}
 	mutex_lock(&data->lock);
 	now = ktime_get_boottime_seconds();
 	elapsed = now - data->soc_time;
@@ -649,6 +708,21 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 				ret = -ENOMEM;
 			data->charge_full_table_size = info->charge_full_table_size;
 		}
+	}
+	if (!ret && info->factory_internal_resistance_uohm > 0) {
+		mutex_lock(&data->lock);
+		if (info->resist_table_size > 0) {
+			data->resist_table = devm_kmemdup_array(dev, info->resist_table,
+								info->resist_table_size,
+								sizeof(*info->resist_table),
+								GFP_KERNEL);
+			if (!data->resist_table)
+				ret = -ENOMEM;
+			data->resist_table_len = info->resist_table_size;
+		}
+		if (!ret)
+			data->internal_resist = info->factory_internal_resistance_uohm / 1000;
+		mutex_unlock(&data->lock);
 	}
 	power_supply_put_battery_info(data->battery, info);
 	if (ret)

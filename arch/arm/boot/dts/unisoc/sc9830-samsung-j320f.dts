@@ -138,6 +138,11 @@
 	status = "disabled";
 };
 
+&battery {
+	factory-internal-resistance-micro-ohms = <230000>;
+	resistance-temp-table = <25 100>, <10 187>, <0 217>;
+};
+
 &mailbox {
 	status = "disabled";
 };
