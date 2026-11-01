@@ -12,6 +12,32 @@ description:
 
 allOf:
   - $ref: /schemas/i2c/i2c-controller.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6577-i2c
+        reg:
+          maxItems: 1
+    then:
+      properties:
+        clocks:
+          maxItems: 1
+        clock-names:
+          maxItems: 1
+        clock-div:
+          const: 16
+        clock-frequency:
+          const: 100000
+        mediatek,have-pmic: false
+    else:
+      properties:
+        reg:
+          minItems: 2
+        clocks:
+          minItems: 2
+        clock-names:
+          minItems: 2
 
 maintainers:
   - Qii Wang <qii.wang@mediatek.com>
@@ -64,6 +90,7 @@ properties:
           - const: mediatek,mt8192-i2c
 
   reg:
+    minItems: 1
     items:
       - description: Physical base address
       - description: DMA base address
@@ -72,7 +99,7 @@ properties:
     maxItems: 1
 
   clocks:
-    minItems: 2
+    minItems: 1
     items:
       - description: Main clock for I2C bus
       - description: Clock for I2C via DMA
@@ -80,7 +107,7 @@ properties:
       - description: Clock for I2C from PMIC
 
   clock-names:
-    minItems: 2
+    minItems: 1
     items:
       - const: main
       - const: dma
