@@ -11,8 +11,8 @@ maintainers:
 
 description:
   The peripheral controller provides the PWM functional reference and clock
-  gates, the dual I2C gate, and the MSDC0 source selector and gate. PWM
-  channels4 through6 share one gate. MSDC0 supports the 26MHz and nominal
+  gates, the dual I2C gate, and the MSDC0 and MSDC3 source selectors and gates. PWM
+  channels4 through6 share one gate. MSDC0 and MSDC3 support the 26MHz and nominal
   WPLL197MHz source selections. USB supports the nominal WPLL61MHz source;
   its alternative source is not supported.
 
