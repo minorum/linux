@@ -59,6 +59,7 @@ struct sc2331_wifi {
 	bool scan_done;
 	bool connecting;
 	bool connected;
+	bool power_save;
 	bool regulatory_ready;
 	unsigned int scan_frames;
 };
@@ -596,7 +597,8 @@ static void sc2331_rx_work(struct work_struct *work)
 		wifi->connecting = false;
 		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
 	}
-	if (wifi->scan || wifi->connecting || wifi->connected)
+	if (wifi->scan || wifi->connecting ||
+	    (wifi->connected && (!wifi->power_save || !wifi->irq || !ret)))
 		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
 unlock:
 	mutex_unlock(&wifi->lock);
@@ -845,6 +847,24 @@ static int sc2331_set_default_key(struct wiphy *wiphy, struct net_device *netdev
 	return ret;
 }
 
+static int sc2331_set_power_mgmt(struct wiphy *wiphy, struct net_device *netdev,
+				bool enabled, int timeout)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[8] = { 1, 0x28 };
+	int ret;
+
+	put_unaligned_le16(4, payload + 2);
+	put_unaligned_le32(enabled ? 3 : 0, payload + 4);
+	mutex_lock(&wifi->lock);
+	ret = wifi->stopping ? -ENODEV :
+		sc2331_wifi_command(wifi, 0x21, payload, sizeof(payload), 5000);
+	if (!ret)
+		wifi->power_save = enabled;
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
 static const struct cfg80211_ops sc2331_cfg80211_ops = {
 	.add_key = sc2331_add_key,
 	.del_key = sc2331_del_key,
@@ -852,6 +872,7 @@ static const struct cfg80211_ops sc2331_cfg80211_ops = {
 	.scan = sc2331_scan,
 	.connect = sc2331_connect,
 	.disconnect = sc2331_disconnect,
+	.set_power_mgmt = sc2331_set_power_mgmt,
 };
 
 static void sc2331_tx_work(struct work_struct *work)
@@ -982,6 +1003,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wifi->func = func;
 	wifi->boot = boot;
 	wifi->sequence = 2;
+	wifi->power_save = true;
 	mutex_init(&wifi->lock);
 	INIT_DELAYED_WORK(&wifi->rx_work, sc2331_rx_work);
 	INIT_WORK(&wifi->tx_work, sc2331_tx_work);
@@ -1010,6 +1032,7 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->akm_suites = sc2331_akm_suites;
 	wiphy->n_akm_suites = ARRAY_SIZE(sc2331_akm_suites);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
+	wiphy->flags |= WIPHY_FLAG_PS_ON_BY_DEFAULT;
 	wiphy->reg_notifier = sc2331_reg_notify;
 	set_wiphy_dev(wiphy, &func->dev);
 	memcpy(wiphy->perm_addr, mac, ETH_ALEN);
