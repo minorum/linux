@@ -43,6 +43,9 @@ properties:
       - const: bus
       - const: source
 
+  domain-supply:
+    description: Supply feeding the GPU_TOP island.
+
 required:
   - compatible
   - '#power-domain-cells'
