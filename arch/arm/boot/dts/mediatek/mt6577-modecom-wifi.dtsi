@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#include <dt-bindings/clock/mediatek,mt6577-clk.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/mt6577-pinfunc.h>
+
+&pio {
+	combo_safe: combo-safe-pins {
+		pins {
+			pinmux = <PINMUX_GPIO71__FUNC_GPIO71>,
+				 <PINMUX_GPIO79__FUNC_GPIO79>,
+				 <PINMUX_GPIO89__FUNC_GPIO89>,
+				 <PINMUX_GPIO90__FUNC_GPIO90>,
+				 <PINMUX_GPIO91__FUNC_GPIO91>,
+				 <PINMUX_GPIO92__FUNC_GPIO92>,
+				 <PINMUX_GPIO93__FUNC_GPIO93>,
+				 <PINMUX_GPIO94__FUNC_GPIO94>;
+			output-disable;
+			bias-disable;
+		};
+	};
+
+	combo_active: combo-active-pins {
+		pins {
+			pinmux = <PINMUX_GPIO71__FUNC_UTXD3>,
+				 <PINMUX_GPIO79__FUNC_URXD3>,
+				 <PINMUX_GPIO89__FUNC_MSDC3_DAT2>,
+				 <PINMUX_GPIO90__FUNC_MSDC3_DAT1>,
+				 <PINMUX_GPIO91__FUNC_MSDC3_CMD>,
+				 <PINMUX_GPIO92__FUNC_MSDC3_CLK>,
+				 <PINMUX_GPIO93__FUNC_MSDC3_DAT3>,
+				 <PINMUX_GPIO94__FUNC_MSDC3_DAT0>;
+			bias-disable;
+		};
+	};
+};
+
+&uart2 {
+	pinctrl-names = "init", "default";
+	pinctrl-0 = <&combo_safe>;
+	pinctrl-1 = <>;
+
+	combo: mcu {
+		compatible = "mediatek,mt6628-wmt";
+		reset-gpios = <&pio 59 GPIO_ACTIVE_LOW>;
+		enable-gpios = <&pio 183 GPIO_ACTIVE_HIGH>;
+		power-gpios = <&pio 185 GPIO_ACTIVE_HIGH>,
+			      <&pio 149 GPIO_ACTIVE_HIGH>;
+		clocks = <&rtc_clock>;
+		clock-names = "rtc";
+		mediatek,antenna-mode = <1>;
+		pinctrl-names = "default", "active";
+		pinctrl-0 = <&combo_safe>;
+		pinctrl-1 = <&combo_active>;
+		status = "disabled";
+	};
+};
+
+&wifi_mmc {
+	compatible = "mediatek,mt6577-mmc";
+	reg = <0xc1240000 0x1000>;
+	clocks = <&pericfg CLK_MT6577_MSDC3>;
+	clock-names = "source";
+	bus-width = <4>;
+	max-frequency = <26000000>;
+	non-removable;
+	no-mmc;
+	no-sd;
+	mmc-pwrseq = <&combo>;
+	status = "disabled";
+};
