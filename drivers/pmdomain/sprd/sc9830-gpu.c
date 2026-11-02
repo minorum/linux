@@ -30,6 +30,7 @@ struct sc9830_gpu {
 	struct regulator *supply;
 	u32 saved;
 	bool saved_valid;
+	bool context_lost;
 	bool bus_enabled;
 	bool source_enabled;
 	bool supply_enabled;
@@ -109,24 +110,13 @@ static int sc9830_gpu_start(struct sc9830_gpu *gpu, bool unwind_supply)
 	ret = sc9830_gpu_wait(gpu, 0);
 	if (ret)
 		return ret;
-	if (gpu->saved_valid)
-		return regmap_write(gpu->clock, GPU_CLOCK, gpu->saved);
-	return 0;
-}
-
-static int sc9830_gpu_power_on(struct generic_pm_domain *domain)
-{
-	struct sc9830_gpu *gpu = container_of(domain, struct sc9830_gpu, genpd);
-	int ret;
-
-	if (READ_ONCE(gpu->faulted))
-		return -EIO;
-	ret = sc9830_gpu_start(gpu, true);
-	if (ret) {
-		WRITE_ONCE(gpu->faulted, true);
-		dev_err(gpu->dev, "GPU power-on failed: %d\n", ret);
+	if (gpu->saved_valid) {
+		ret = regmap_write(gpu->clock, GPU_CLOCK, gpu->saved);
+		if (ret)
+			return ret;
+		gpu->saved_valid = false;
 	}
-	return ret;
+	return 0;
 }
 
 static int sc9830_gpu_stop(struct sc9830_gpu *gpu)
@@ -161,13 +151,85 @@ static int sc9830_gpu_stop(struct sc9830_gpu *gpu)
 	return 0;
 }
 
-static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
+static int sc9830_gpu_recover_off(struct sc9830_gpu *gpu)
+{
+	unsigned int state;
+	int ret;
+
+	if (gpu->supply_uncertain)
+		return -EIO;
+	ret = sc9830_gpu_state(gpu, &state);
+	if (ret)
+		return ret;
+	if (state == 0) {
+		if (!gpu->source_enabled || (gpu->supply && !gpu->supply_enabled))
+			return -EIO;
+		if (!gpu->saved_valid) {
+			if (!gpu->bus_enabled) {
+				ret = clk_enable(gpu->bus);
+				if (ret)
+					return ret;
+				gpu->bus_enabled = true;
+			}
+			ret = regmap_read(gpu->clock, GPU_CLOCK, &gpu->saved);
+			if (ret)
+				return ret;
+			gpu->saved_valid = true;
+			gpu->context_lost = false;
+		}
+	} else if (state != GPU_OFF) {
+		return -EBUSY;
+	} else if (gpu->context_lost) {
+		return -EIO;
+	}
+	ret = sc9830_gpu_stop(gpu);
+	if (!ret) {
+		gpu->context_lost = false;
+		WRITE_ONCE(gpu->faulted, false);
+	}
+	return ret;
+}
+
+static int sc9830_gpu_power_on(struct generic_pm_domain *domain)
 {
 	struct sc9830_gpu *gpu = container_of(domain, struct sc9830_gpu, genpd);
-	int ret, rollback;
+	int ret;
 
 	if (READ_ONCE(gpu->faulted))
 		return -EIO;
+	ret = sc9830_gpu_start(gpu, true);
+	if (ret) {
+		WRITE_ONCE(gpu->faulted, true);
+		if (!sc9830_gpu_recover_off(gpu)) {
+			ret = sc9830_gpu_start(gpu, true);
+			if (!ret)
+				dev_warn(gpu->dev, "GPU power-on recovered\n");
+		}
+		if (ret) {
+			WRITE_ONCE(gpu->faulted, true);
+			dev_err(gpu->dev, "GPU power-on failed: %d\n", ret);
+		}
+	}
+	return ret;
+}
+
+static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
+{
+	struct sc9830_gpu *gpu = container_of(domain, struct sc9830_gpu, genpd);
+	unsigned int state;
+	int ret, rollback;
+
+	if (READ_ONCE(gpu->faulted))
+		return sc9830_gpu_recover_off(gpu);
+	ret = sc9830_gpu_state(gpu, &state);
+	if (ret)
+		return ret;
+	if (state != 0) {
+		gpu->saved_valid = false;
+		gpu->context_lost = true;
+		WRITE_ONCE(gpu->faulted, true);
+		return -EIO;
+	}
 	ret = regmap_read(gpu->clock, GPU_CLOCK, &gpu->saved);
 	if (ret)
 		return ret;
@@ -178,6 +240,8 @@ static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
 	rollback = sc9830_gpu_start(gpu, true);
 	if (rollback) {
 		WRITE_ONCE(gpu->faulted, true);
+		if (!sc9830_gpu_recover_off(gpu))
+			return 0;
 		dev_err(gpu->dev, "GPU power-off rollback failed: %d\n", rollback);
 	}
 	return ret;
@@ -192,8 +256,11 @@ static int sc9830_gpu_start_dev(struct device *dev)
 	if (READ_ONCE(gpu->faulted))
 		return -EIO;
 	ret = sc9830_gpu_wait(gpu, 0);
-	if (ret)
+	if (ret) {
+		gpu->saved_valid = false;
+		gpu->context_lost = true;
 		WRITE_ONCE(gpu->faulted, true);
+	}
 	return ret;
 }
 
