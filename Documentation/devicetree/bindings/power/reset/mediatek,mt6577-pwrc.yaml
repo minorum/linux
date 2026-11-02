@@ -12,7 +12,8 @@ maintainers:
 description:
   The RTC controls the PMIC PWRBB signal through its BBPU register.
   Its protected 16-bit registers are accessed over MMIO with a four-byte
-  stride. This node owns the RTC register block for system power-off.
+  stride. This node owns the RTC register block for system power-off and
+  the optional 32.768 kHz output clock.
 
 properties:
   compatible:
@@ -20,6 +21,9 @@ properties:
 
   reg:
     maxItems: 1
+
+  '#clock-cells':
+    const: 0
 
 required:
   - compatible
@@ -32,4 +36,5 @@ examples:
     power-controller@c1003000 {
         compatible = "mediatek,mt6577-pwrc";
         reg = <0xc1003000 0x7c>;
+        #clock-cells = <0>;
     };
