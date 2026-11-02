@@ -33,6 +33,8 @@ struct sc9830_gpu {
 	bool bus_enabled;
 	bool source_enabled;
 	bool supply_enabled;
+	bool supply_uncertain;
+	bool provider_added;
 	bool faulted;
 };
 
@@ -64,7 +66,7 @@ static int sc9830_gpu_wait(struct sc9830_gpu *gpu, unsigned int target)
 	return poll ?: ret;
 }
 
-static int sc9830_gpu_start(struct sc9830_gpu *gpu)
+static int sc9830_gpu_start(struct sc9830_gpu *gpu, bool unwind_supply)
 {
 	bool supply_started = false;
 	int ret, rollback;
@@ -79,13 +81,15 @@ static int sc9830_gpu_start(struct sc9830_gpu *gpu)
 	if (!gpu->source_enabled) {
 		ret = clk_enable(gpu->source);
 		if (ret) {
-			if (supply_started) {
+			if (supply_started && unwind_supply) {
 				rollback = regulator_disable(gpu->supply);
-				if (rollback)
+				if (rollback) {
+					gpu->supply_uncertain = true;
 					dev_err(gpu->dev, "GPU supply rollback failed: %d\n",
 						rollback);
-				else
+				} else {
 					gpu->supply_enabled = false;
+				}
 			}
 			return ret;
 		}
@@ -117,12 +121,44 @@ static int sc9830_gpu_power_on(struct generic_pm_domain *domain)
 
 	if (READ_ONCE(gpu->faulted))
 		return -EIO;
-	ret = sc9830_gpu_start(gpu);
+	ret = sc9830_gpu_start(gpu, true);
 	if (ret) {
 		WRITE_ONCE(gpu->faulted, true);
 		dev_err(gpu->dev, "GPU power-on failed: %d\n", ret);
 	}
 	return ret;
+}
+
+static int sc9830_gpu_stop(struct sc9830_gpu *gpu)
+{
+	int ret;
+
+	if (gpu->bus_enabled) {
+		clk_disable(gpu->bus);
+		gpu->bus_enabled = false;
+	}
+	ret = regmap_write(gpu->pmu, GPU_CFG + GPU_SET, GPU_FORCE_OFF);
+	if (!ret)
+		ret = sc9830_gpu_wait(gpu, GPU_OFF);
+	if (ret)
+		return ret;
+	if (gpu->source_enabled) {
+		clk_disable(gpu->source);
+		gpu->source_enabled = false;
+	}
+	if (gpu->supply_uncertain)
+		return -EIO;
+	if (gpu->supply_enabled) {
+		ret = regulator_disable(gpu->supply);
+		if (ret) {
+			gpu->supply_uncertain = true;
+			WRITE_ONCE(gpu->faulted, true);
+			dev_err(gpu->dev, "GPU supply release failed: %d\n", ret);
+			return ret;
+		}
+		gpu->supply_enabled = false;
+	}
+	return 0;
 }
 
 static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
@@ -136,26 +172,10 @@ static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
 	if (ret)
 		return ret;
 	gpu->saved_valid = true;
-	clk_disable(gpu->bus);
-	gpu->bus_enabled = false;
-	ret = regmap_write(gpu->pmu, GPU_CFG + GPU_SET, GPU_FORCE_OFF);
-	if (!ret)
-		ret = sc9830_gpu_wait(gpu, GPU_OFF);
-	if (!ret) {
-		clk_disable(gpu->source);
-		gpu->source_enabled = false;
-		if (gpu->supply_enabled) {
-			ret = regulator_disable(gpu->supply);
-			if (ret) {
-				WRITE_ONCE(gpu->faulted, true);
-				dev_err(gpu->dev, "GPU supply release failed: %d\n", ret);
-				return ret;
-			}
-			gpu->supply_enabled = false;
-		}
-		return 0;
-	}
-	rollback = sc9830_gpu_start(gpu);
+	ret = sc9830_gpu_stop(gpu);
+	if (!ret || READ_ONCE(gpu->faulted))
+		return ret;
+	rollback = sc9830_gpu_start(gpu, true);
 	if (rollback) {
 		WRITE_ONCE(gpu->faulted, true);
 		dev_err(gpu->dev, "GPU power-off rollback failed: %d\n", rollback);
@@ -177,12 +197,42 @@ static int sc9830_gpu_start_dev(struct device *dev)
 	return ret;
 }
 
+static int sc9830_gpu_init_state(struct sc9830_gpu *gpu, unsigned int state)
+{
+	int ret, rollback;
+
+	if (state != GPU_OFF && state != 0)
+		return -EBUSY;
+	ret = regmap_update_bits(gpu->pmu, GPU_CFG,
+				 GPU_FORCE_OFF | GPU_AUTO_OFF | GENMASK(23, 0),
+				 (state == GPU_OFF ? GPU_FORCE_OFF : 0) | 0x010101);
+	if (!ret && state == 0)
+		ret = sc9830_gpu_start(gpu, false);
+	if (!ret)
+		return 0;
+	rollback = sc9830_gpu_stop(gpu);
+	if (rollback)
+		dev_err(gpu->dev, "GPU handover rollback failed: %d\n", rollback);
+	return ret;
+}
+
 static void sc9830_gpu_remove_provider(void *data)
 {
 	struct sc9830_gpu *gpu = data;
+	int ret;
 
-	of_genpd_del_provider(gpu->dev->of_node);
-	pm_genpd_remove(&gpu->genpd);
+	if (gpu->provider_added)
+		of_genpd_del_provider(gpu->dev->of_node);
+	ret = pm_genpd_remove(&gpu->genpd);
+	if (ret) {
+		dev_err(gpu->dev, "GPU domain removal failed: %d\n", ret);
+		return;
+	}
+	if (gpu->bus_enabled || gpu->source_enabled || gpu->supply_enabled) {
+		ret = sc9830_gpu_stop(gpu);
+		if (ret)
+			dev_err(gpu->dev, "GPU cleanup failed: %d\n", ret);
+	}
 }
 
 static int sc9830_gpu_probe(struct platform_device *pdev)
@@ -190,7 +240,7 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sc9830_gpu *gpu;
 	unsigned int state;
-	int ret, poll;
+	int ret, poll, rollback;
 
 	gpu = devm_kzalloc(dev, sizeof(*gpu), GFP_KERNEL);
 	if (!gpu)
@@ -212,32 +262,35 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 				 50, 3000000, false, gpu, &state);
 	if (poll || ret)
 		return dev_err_probe(dev, poll ?: ret, "unstable GPU domain\n");
-	if (state != GPU_OFF)
-		return dev_err_probe(dev, -EBUSY, "GPU domain is not unowned\n");
 	if (of_property_present(dev->of_node, "domain-supply")) {
 		gpu->supply = devm_regulator_get_optional(dev, "domain");
 		if (IS_ERR(gpu->supply))
 			return dev_err_probe(dev, PTR_ERR(gpu->supply),
 					     "GPU domain supply\n");
 	}
-	ret = regmap_update_bits(gpu->pmu, GPU_CFG,
-				 GPU_FORCE_OFF | GPU_AUTO_OFF | GENMASK(23, 0),
-				 GPU_FORCE_OFF | 0x010101);
+	ret = sc9830_gpu_init_state(gpu, state);
 	if (ret)
 		return ret;
 	gpu->genpd.name = "sc9830-gpu";
 	gpu->genpd.power_on = sc9830_gpu_power_on;
 	gpu->genpd.power_off = sc9830_gpu_power_off;
 	gpu->genpd.dev_ops.start = sc9830_gpu_start_dev;
-	ret = pm_genpd_init(&gpu->genpd, NULL, true);
+	ret = pm_genpd_init(&gpu->genpd, NULL, state == GPU_OFF);
+	if (ret) {
+		if (gpu->bus_enabled || gpu->source_enabled || gpu->supply_enabled) {
+			rollback = sc9830_gpu_stop(gpu);
+			if (rollback)
+				dev_err(dev, "GPU registration rollback failed: %d\n", rollback);
+		}
+		return ret;
+	}
+	ret = devm_add_action_or_reset(dev, sc9830_gpu_remove_provider, gpu);
 	if (ret)
 		return ret;
 	ret = of_genpd_add_provider_simple(dev->of_node, &gpu->genpd);
-	if (ret) {
-		pm_genpd_remove(&gpu->genpd);
-		return ret;
-	}
-	return devm_add_action_or_reset(dev, sc9830_gpu_remove_provider, gpu);
+	if (!ret)
+		gpu->provider_added = true;
+	return ret;
 }
 
 static const struct of_device_id sc9830_gpu_match[] = {
