@@ -20,6 +20,7 @@
 #define CLK_MT6577_USB		8
 #define CLK_MT6577_I2C0		9
 #define CLK_MT6577_MSDC3		10
-#define CLK_MT6577_PERI_NR_CLK	11
+#define CLK_MT6577_UART2		11
+#define CLK_MT6577_PERI_NR_CLK	12
 
 #endif

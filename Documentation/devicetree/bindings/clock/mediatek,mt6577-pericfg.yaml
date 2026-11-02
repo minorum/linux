@@ -14,7 +14,8 @@ description:
   gates, the dual I2C gate, and the MSDC0 and MSDC3 source selectors and gates. PWM
   channels4 through6 share one gate. MSDC0 and MSDC3 support the 26MHz and nominal
   WPLL197MHz source selections. USB supports the nominal WPLL61MHz source;
-  its alternative source is not supported.
+  its alternative source is not supported. UART2 uses the AXI clock divided
+  by four and has an independent gate.
 
 properties:
   compatible:
