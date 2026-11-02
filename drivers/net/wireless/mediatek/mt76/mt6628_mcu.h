@@ -7,6 +7,7 @@
 
 struct sdio_func;
 struct mt76_dev;
+struct sk_buff;
 
 #define MT6628_MCU_SET 0x100
 
@@ -20,5 +21,6 @@ int mt6628_mcu_event(const u8 *buf, size_t len, u8 event, u8 sequence);
 int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw);
 int mt6628_sdio_bootstrap(struct sdio_func *func);
 void mt6628_mcu_init(struct mt76_dev *dev);
+bool mt6628_mcu_rx_event(struct mt76_dev *dev, struct sk_buff *skb);
 
 #endif

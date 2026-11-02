@@ -95,6 +95,23 @@ static int mt6628_mcu_response(struct mt76_dev *dev, int cmd,
 	return 0;
 }
 
+bool mt6628_mcu_rx_event(struct mt76_dev *dev, struct sk_buff *skb)
+{
+	if (skb_is_nonlinear(skb) || skb->len < 8 ||
+	    get_unaligned_le16(skb->data) != skb->len ||
+	    get_unaligned_le16(skb->data + 2) != 1)
+		return false;
+	switch (skb->data[4]) {
+	case 1:
+	case 2:
+	case 9:
+		mt76_mcu_rx_event(dev, skb);
+		return true;
+	default:
+		return false;
+	}
+}
+
 void mt6628_mcu_init(struct mt76_dev *dev)
 {
 	static const struct mt76_mcu_ops ops = {
