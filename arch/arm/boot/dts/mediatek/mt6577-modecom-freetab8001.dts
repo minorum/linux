@@ -18,6 +18,7 @@
 	aliases {
 		i2c0 = &pmic_i2c;
 		i2c1 = &charger_i2c;
+		serial2 = &uart2;
 	};
 
 	chosen {
@@ -224,6 +225,17 @@
 				 <&pericfg CLK_MT6577_PWM7>;
 			clock-names = "top", "main", "pwm1", "pwm2", "pwm3",
 				      "pwm4", "pwm5", "pwm6", "pwm7";
+		};
+
+		uart2: serial@c100b000 {
+			compatible = "mediatek,mt6577-uart";
+			reg = <0xc100b000 0x100>;
+			interrupt-parent = <&sysirq>;
+			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&pericfg CLK_MT6577_UART2>,
+				 <&pericfg CLK_MT6577_UART2>;
+			clock-names = "baud", "bus";
+			status = "disabled";
 		};
 
 		pio: pinctrl@c0005000 {
