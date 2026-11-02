@@ -12,6 +12,30 @@ static void mt6628_runtime_fault(struct mt6628_dev *dev, int error)
 	complete_all(&dev->command_done);
 }
 
+static int mt6628_runtime_packet(const u8 *packet, unsigned int count)
+{
+	unsigned int type, offset;
+
+	if (count < 4 || get_unaligned_le16(packet) != count)
+		return -EPROTO;
+	type = get_unaligned_le16(packet + 2) & 3;
+	if (type == 1)
+		return count >= 8 ? 0 : -EPROTO;
+	if (type == 2)
+		return -EOPNOTSUPP;
+	if (count < 12)
+		return -EPROTO;
+	offset = 12 + (packet[4] & 3);
+	if (count < offset)
+		return -EPROTO;
+	if (!type)
+		return count - offset >= 14 ? 0 : -EINVAL;
+	if (count - offset < 24 || (packet[4] >> 2) > count - offset ||
+	    (get_unaligned_le16(packet + offset) & 0xf))
+		return -EINVAL;
+	return 0;
+}
+
 static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 			     const struct mt6628_sdio_status *status)
 {
@@ -33,9 +57,9 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 		const u8 *packet = dev->rx_buf + offset;
 		unsigned int count = status->rx_len[port][i];
 
-		if (count < 8 || get_unaligned_le16(packet) != count ||
-		    get_unaligned_le16(packet + 2) != 1)
-			return -EPROTO;
+		ret = mt6628_runtime_packet(packet, count);
+		if (ret && ret != -EINVAL)
+			return ret;
 		offset += ALIGN(count + 4, 4);
 	}
 	return status->rx_count[port];
