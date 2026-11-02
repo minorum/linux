@@ -15,6 +15,8 @@
 
 #include "lima_device.h"
 #include "lima_devfreq.h"
+#include "lima_gp.h"
+#include "lima_pp.h"
 
 static void lima_devfreq_update_utilization(struct lima_devfreq *devfreq)
 {
@@ -34,14 +36,37 @@ static void lima_devfreq_update_utilization(struct lima_devfreq *devfreq)
 static int lima_devfreq_target(struct device *dev, unsigned long *freq,
 			       u32 flags)
 {
+	struct lima_device *ldev = dev_get_drvdata(dev);
+	struct lima_devfreq *devfreq = &ldev->devfreq;
 	struct dev_pm_opp *opp;
+	int ret;
 
 	opp = devfreq_recommended_opp(dev, freq, flags);
 	if (IS_ERR(opp))
 		return PTR_ERR(opp);
 	dev_pm_opp_put(opp);
 
-	return dev_pm_opp_set_rate(dev, *freq);
+	if (ldev->id != lima_gpu_mali400)
+		return dev_pm_opp_set_rate(dev, *freq);
+
+	mutex_lock(&devfreq->transition_lock);
+	if (!wait_event_timeout(devfreq->idle, !READ_ONCE(devfreq->busy_count),
+				msecs_to_jiffies(1000))) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+	ret = clk_prepare_enable(ldev->clk_gpu);
+	if (ret)
+		goto unlock;
+	ret = lima_gp_wait_idle(ldev);
+	if (!ret)
+		ret = lima_pp_wait_idle(ldev);
+	if (!ret)
+		ret = dev_pm_opp_set_rate(dev, *freq);
+	clk_disable_unprepare(ldev->clk_gpu);
+unlock:
+	mutex_unlock(&devfreq->transition_lock);
+	return ret;
 }
 
 static void lima_devfreq_reset(struct lima_devfreq *devfreq)
@@ -182,6 +207,7 @@ void lima_devfreq_record_busy(struct lima_devfreq *devfreq)
 	if (!devfreq->devfreq)
 		return;
 
+	mutex_lock(&devfreq->transition_lock);
 	spin_lock_irqsave(&devfreq->lock, irqflags);
 
 	lima_devfreq_update_utilization(devfreq);
@@ -189,6 +215,7 @@ void lima_devfreq_record_busy(struct lima_devfreq *devfreq)
 	devfreq->busy_count++;
 
 	spin_unlock_irqrestore(&devfreq->lock, irqflags);
+	mutex_unlock(&devfreq->transition_lock);
 }
 
 void lima_devfreq_record_idle(struct lima_devfreq *devfreq)
@@ -205,6 +232,7 @@ void lima_devfreq_record_idle(struct lima_devfreq *devfreq)
 	WARN_ON(--devfreq->busy_count < 0);
 
 	spin_unlock_irqrestore(&devfreq->lock, irqflags);
+	wake_up(&devfreq->idle);
 }
 
 int lima_devfreq_resume(struct lima_devfreq *devfreq)

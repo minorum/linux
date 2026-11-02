@@ -7,6 +7,8 @@
 #include <linux/devfreq.h>
 #include <linux/spinlock.h>
 #include <linux/ktime.h>
+#include <linux/mutex.h>
+#include <linux/wait.h>
 
 struct devfreq;
 struct thermal_cooling_device;
@@ -14,6 +16,9 @@ struct thermal_cooling_device;
 struct lima_device;
 
 struct lima_devfreq {
+	/* GPU quiescence */
+	struct mutex transition_lock;
+	wait_queue_head_t idle;
 	struct devfreq *devfreq;
 	struct thermal_cooling_device *cooling;
 	struct devfreq_simple_ondemand_data gov_data;

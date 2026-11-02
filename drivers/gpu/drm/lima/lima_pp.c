@@ -329,6 +329,19 @@ void lima_pp_bcast_fini(struct lima_ip *ip)
 	devm_free_irq(dev->dev, ip->irq, ip);
 }
 
+int lima_pp_wait_idle(struct lima_device *dev)
+{
+	struct lima_sched_pipe *pipe = &dev->pipe[lima_pipe_pp];
+	int i, ret;
+
+	for (i = 0; i < pipe->num_processor; i++) {
+		ret = lima_pp_soft_reset_async_wait(pipe->processor[i]);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
 static int lima_pp_task_validate(struct lima_sched_pipe *pipe,
 				 struct lima_sched_task *task)
 {

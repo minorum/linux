@@ -357,6 +357,9 @@ int lima_device_init(struct lima_device *ldev)
 	struct platform_device *pdev = to_platform_device(ldev->dev);
 	int err, i;
 
+	mutex_init(&ldev->devfreq.transition_lock);
+	init_waitqueue_head(&ldev->devfreq.idle);
+
 	dma_set_coherent_mask(ldev->dev, DMA_BIT_MASK(32));
 	dma_set_max_seg_size(ldev->dev, UINT_MAX);
 
@@ -476,10 +479,11 @@ int lima_device_resume(struct device *dev)
 	struct lima_device *ldev = dev_get_drvdata(dev);
 	int i, err;
 
+	mutex_lock(&ldev->devfreq.transition_lock);
 	err = lima_clk_enable(ldev);
 	if (err) {
 		dev_err(dev, "resume clk fail %d\n", err);
-		return err;
+		goto unlock;
 	}
 
 	err = lima_regulator_enable(ldev);
@@ -496,9 +500,11 @@ int lima_device_resume(struct device *dev)
 		}
 	}
 
+	mutex_unlock(&ldev->devfreq.transition_lock);
 	err = lima_devfreq_resume(&ldev->devfreq);
 	if (err) {
 		dev_err(dev, "devfreq resume fail\n");
+		mutex_lock(&ldev->devfreq.transition_lock);
 		goto err_out1;
 	}
 
@@ -510,6 +516,8 @@ err_out1:
 	lima_regulator_disable(ldev);
 err_out0:
 	lima_clk_disable(ldev);
+unlock:
+	mutex_unlock(&ldev->devfreq.transition_lock);
 	return err;
 }
 
@@ -530,12 +538,14 @@ int lima_device_suspend(struct device *dev)
 		return err;
 	}
 
+	mutex_lock(&ldev->devfreq.transition_lock);
 	for (i = lima_ip_num - 1; i >= 0; i--)
 		lima_suspend_ip(ldev, i);
 
 	lima_regulator_disable(ldev);
 
 	lima_clk_disable(ldev);
+	mutex_unlock(&ldev->devfreq.transition_lock);
 
 	return 0;
 }

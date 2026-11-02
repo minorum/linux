@@ -103,6 +103,11 @@ static int lima_gp_soft_reset_async_wait(struct lima_ip *ip)
 	return 0;
 }
 
+int lima_gp_wait_idle(struct lima_device *dev)
+{
+	return lima_gp_soft_reset_async_wait(&dev->ip[lima_ip_gp]);
+}
+
 static int lima_gp_task_validate(struct lima_sched_pipe *pipe,
 				 struct lima_sched_task *task)
 {
