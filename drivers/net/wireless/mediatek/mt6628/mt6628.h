@@ -13,6 +13,8 @@ struct mt6628_factory {
 	u8 tx_power[40];
 	u8 phy[144];
 	bool set_tx_power;
+	bool edge_enabled;
+	bool enable_5ghz;
 };
 
 struct mt6628_fw_info {

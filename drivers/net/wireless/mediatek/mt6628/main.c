@@ -58,6 +58,9 @@ static int mt6628_probe(struct sdio_func *func,
 	ret = mt6628_sdio_set(dev, 0x31, dev->factory.phy, sizeof(dev->factory.phy));
 	if (ret)
 		goto stop;
+	ret = mt6628_radio_register(dev);
+	if (ret)
+		goto stop;
 	dev_info(&func->dev, "firmware %04x peer %04x; station frontend pending\n",
 		 dev->info.firmware_version, dev->info.peer_version);
 	return 0;
@@ -72,6 +75,7 @@ static void mt6628_remove(struct sdio_func *func)
 	int ret;
 
 	if (dev) {
+		mt6628_radio_unregister(dev);
 		ret = mt6628_sdio_stop(dev);
 		if (ret)
 			dev_warn(&func->dev, "transport stop failed: %d\n", ret);

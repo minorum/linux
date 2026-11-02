@@ -14,6 +14,7 @@ struct mt6628_dev {
 	struct sdio_func *func;
 	struct mt6628_fw_info info;
 	struct mt6628_factory factory;
+	struct wiphy *wiphy;
 	/* Commands */
 	struct mutex command_mutex;
 	struct completion command_done;
@@ -34,5 +35,8 @@ int mt6628_sdio_start(struct mt6628_dev *dev);
 int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 		    const void *data, size_t len);
 int mt6628_sdio_stop(struct mt6628_dev *dev);
+void mt6628_sdio_fault(struct mt6628_dev *dev, int error);
+int mt6628_radio_register(struct mt6628_dev *dev);
+void mt6628_radio_unregister(struct mt6628_dev *dev);
 
 #endif

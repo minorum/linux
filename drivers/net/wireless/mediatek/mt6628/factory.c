@@ -51,6 +51,8 @@ int mt6628_read_factory(struct device *device, struct mt6628_factory *factory)
 	memcpy(result.tx_power, fw->data + 12, sizeof(result.tx_power));
 	memcpy(result.phy, fw->data + 0x34, sizeof(result.phy));
 	result.set_tx_power = get_unaligned_le16(fw->data) != 1 && fw->data[0xc4];
+	result.edge_enabled = fw->data[0xc6];
+	result.enable_5ghz = fw->data[0xc5] && fw->data[0x106];
 	legacy = get_unaligned_le32(result.phy + 72);
 	if (legacy & BIT(27) && !get_unaligned_le32(result.phy + 28)) {
 		value = BIT(24);

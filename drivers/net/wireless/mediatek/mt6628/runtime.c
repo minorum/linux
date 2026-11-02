@@ -5,7 +5,7 @@
 
 #include "runtime.h"
 
-static void mt6628_runtime_fault(struct mt6628_dev *dev, int error)
+void mt6628_sdio_fault(struct mt6628_dev *dev, int error)
 {
 	if (!atomic_cmpxchg(&dev->error, 0, error))
 		mod_delayed_work(system_wq, &dev->io_work, 0);
@@ -142,7 +142,7 @@ static void mt6628_runtime_work(struct work_struct *work)
 out:
 	sdio_release_host(dev->func);
 	if (ret < 0)
-		mt6628_runtime_fault(dev, ret);
+		mt6628_sdio_fault(dev, ret);
 }
 
 static void mt6628_runtime_irq(struct sdio_func *func)
@@ -152,7 +152,7 @@ static void mt6628_runtime_irq(struct sdio_func *func)
 
 	sdio_writeb(func, 2, 0x04, &ret);
 	if (ret) {
-		mt6628_runtime_fault(dev, ret);
+		mt6628_sdio_fault(dev, ret);
 		return;
 	}
 	if (!atomic_read(&dev->error))
@@ -176,7 +176,7 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	dev->rx_buf = devm_kmalloc(&dev->func->dev, 37888, GFP_KERNEL);
 	dev->tx_buf = devm_kmalloc(&dev->func->dev, 4096, GFP_KERNEL);
 	if (!dev->status_buf || !dev->rx_buf || !dev->tx_buf) {
-		mt6628_runtime_fault(dev, -ENOMEM);
+		mt6628_sdio_fault(dev, -ENOMEM);
 		return -ENOMEM;
 	}
 	sdio_claim_host(dev->func);
@@ -190,7 +190,7 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	if (!ret)
 		mod_delayed_work(system_wq, &dev->io_work, 0);
 	else
-		mt6628_runtime_fault(dev, ret);
+		mt6628_sdio_fault(dev, ret);
 	return ret;
 }
 
@@ -230,7 +230,7 @@ int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 	mod_delayed_work(system_wq, &dev->io_work, 0);
 	if (!wait_for_completion_timeout(&dev->command_done,
 					 msecs_to_jiffies(1000)))
-		mt6628_runtime_fault(dev, -ETIMEDOUT);
+		mt6628_sdio_fault(dev, -ETIMEDOUT);
 	ret = atomic_read(&dev->error);
 unlock:
 	mutex_unlock(&dev->command_mutex);
@@ -243,7 +243,7 @@ int mt6628_sdio_stop(struct mt6628_dev *dev)
 
 	if (!READ_ONCE(dev->initialized))
 		return 0;
-	mt6628_runtime_fault(dev, -ESHUTDOWN);
+	mt6628_sdio_fault(dev, -ESHUTDOWN);
 	sdio_claim_host(dev->func);
 	sdio_writeb(dev->func, 2, 0x04, &ret);
 	if (dev->irq_claimed) {
