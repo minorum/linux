@@ -20,6 +20,7 @@ struct mt6628_dev {
 	struct sk_buff_head tx;
 	atomic_t error;
 	u8 credits[6];
+	u8 mac_addr[6];
 	u8 sequence;
 	u8 *status_buf;
 	u8 *rx_buf;

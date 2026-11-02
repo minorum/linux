@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/delay.h>
-#include <linux/etherdevice.h>
 #include <linux/jiffies.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/slab.h>
@@ -184,10 +183,6 @@ int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
 	ret = mt6628_init_query(func, io, 0xc1, 2, response);
 	if (ret)
 		goto out;
-	if (!is_valid_ether_addr(response + 8)) {
-		ret = -ENODATA;
-		goto out;
-	}
 	memcpy(result.permanent_addr, response + 8, sizeof(result.permanent_addr));
 	*info = result;
 	memcpy(credits, io->credits, sizeof(io->credits));

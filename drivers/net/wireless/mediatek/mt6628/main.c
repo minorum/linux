@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/etherdevice.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/module.h>
@@ -22,6 +23,9 @@ static int mt6628_probe(struct sdio_func *func,
 	if (!dev)
 		return -ENOMEM;
 	dev->func = func;
+	ret = mt6628_read_factory_mac(&func->dev, dev->mac_addr);
+	if (ret)
+		return ret;
 	ret = mt6628_sdio_bootstrap(func);
 	if (ret)
 		return ret;
@@ -29,10 +33,18 @@ static int mt6628_probe(struct sdio_func *func,
 	ret = mt6628_sdio_get_info(func, &dev->info, dev->credits);
 	if (ret)
 		goto stop;
+	if (!is_valid_ether_addr(dev->mac_addr)) {
+		if (!dev->info.mac_valid ||
+		    !is_valid_ether_addr(dev->info.permanent_addr)) {
+			ret = -ENODATA;
+			goto stop;
+		}
+		ether_addr_copy(dev->mac_addr, dev->info.permanent_addr);
+	}
 	ret = mt6628_sdio_start(dev);
 	if (ret)
 		goto stop;
-	memcpy(config, dev->info.permanent_addr, 6);
+	memcpy(config, dev->mac_addr, 6);
 	ret = mt6628_sdio_set(dev, 0xc1, config, sizeof(config));
 	if (ret)
 		goto stop;
@@ -82,3 +94,4 @@ module_sdio_driver(mt6628_driver);
 MODULE_DESCRIPTION("MediaTek MT6628 SDIO driver");
 MODULE_LICENSE("GPL");
 MODULE_FIRMWARE("mediatek/WIFI_RAM_CODE_MT6628");
+MODULE_FIRMWARE("mediatek/mt6628-nvram.bin");
