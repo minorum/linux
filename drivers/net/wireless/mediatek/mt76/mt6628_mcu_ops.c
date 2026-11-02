@@ -113,6 +113,17 @@ bool mt6628_mcu_rx_event(struct mt76_dev *dev, struct sk_buff *skb)
 	}
 }
 
+int mt6628_mcu_set_basic_config(struct mt76_dev *dev, const u8 *address)
+{
+	u8 config[12] = {};
+
+	if (!is_valid_ether_addr(address))
+		return -EINVAL;
+	memcpy(config, address, 6);
+	return mt76_mcu_send_and_get_msg(dev, MT6628_MCU_SET | 0xc1, config,
+				      sizeof(config), false, NULL);
+}
+
 int mt6628_mcu_get_info(struct mt76_dev *dev, struct mt6628_fw_info *info)
 {
 	struct mt6628_fw_info result = {};

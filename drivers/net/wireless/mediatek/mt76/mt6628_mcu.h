@@ -34,5 +34,6 @@ int mt6628_sdio_bootstrap(struct sdio_func *func);
 void mt6628_mcu_init(struct mt76_dev *dev);
 bool mt6628_mcu_rx_event(struct mt76_dev *dev, struct sk_buff *skb);
 int mt6628_mcu_get_info(struct mt76_dev *dev, struct mt6628_fw_info *info);
+int mt6628_mcu_set_basic_config(struct mt76_dev *dev, const u8 *address);
 
 #endif
