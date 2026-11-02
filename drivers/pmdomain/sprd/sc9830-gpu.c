@@ -11,6 +11,7 @@
 
 #define GPU_CFG		0x20
 #define GPU_FORCE_OFF	BIT(25)
+#define GPU_AUTO_OFF	BIT(24)
 #define GPU_STATUS	0xbc
 #define GPU_STATE	GENMASK(27, 24)
 #define GPU_OFF		7
@@ -184,7 +185,8 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, poll ?: ret, "unstable GPU domain\n");
 	if (state != GPU_OFF)
 		return dev_err_probe(dev, -EBUSY, "GPU domain is not unowned\n");
-	ret = regmap_update_bits(gpu->pmu, GPU_CFG, GENMASK(23, 0), 0x010101);
+	ret = regmap_update_bits(gpu->pmu, GPU_CFG,
+				 GPU_AUTO_OFF | GENMASK(23, 0), 0x010101);
 	if (ret)
 		return ret;
 	gpu->genpd.name = "sc9830-gpu";

@@ -10,8 +10,10 @@ maintainers:
   - minorum <mit.mis@gmail.com>
 
 description: |
-  The GPU domain uses the PMU power sequencer and an AON bus gate. Its
-  clock mux and divider must be retained across power cycles.
+  The GPU_TOP island uses the PMU power sequencer for power and isolation.
+  Software controls its transitions with automatic shutdown disabled. The
+  AON bus gate and LTEPLL source request are required during power-up, and
+  the GPU clock mux and divider must be retained across power cycles.
 
 allOf:
   - $ref: power-domain.yaml#
@@ -50,3 +52,16 @@ required:
   - clock-names
 
 additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/sprd,sc9830-clk.h>
+
+    power-controller-gpu {
+        compatible = "sprd,sc9830-gpu-pwrc";
+        #power-domain-cells = <0>;
+        sprd,pmu = <&pmu>;
+        sprd,gpu-clk = <&gpu_clk>;
+        clocks = <&aon_gate CLK_GPU_EB>, <&pmu CLK_PMU_LTEPLL_GATE>;
+        clock-names = "bus", "source";
+    };
