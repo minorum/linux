@@ -749,6 +749,9 @@ static int mt6628_probe(struct serdev_device *serdev)
 	ctx->active = pinctrl_lookup_state(ctx->pinctrl, "active");
 	if (IS_ERR(ctx->active))
 		return dev_err_probe(dev, PTR_ERR(ctx->active), "active pins unavailable\n");
+	ret = pinctrl_select_state(ctx->pinctrl, ctx->safe);
+	if (ret)
+		return dev_err_probe(dev, ret, "safe pins unavailable\n");
 	ret = gpiod_count(dev, "power");
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "power GPIOs unavailable\n");
