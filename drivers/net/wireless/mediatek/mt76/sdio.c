@@ -437,11 +437,15 @@ static int mt76s_process_tx_queue(struct mt76_dev *dev, struct mt76_queue *q)
 
 	mcu = q == dev->q_mcu[MT_MCUQ_WM];
 	while (q->queued > 0) {
-		if (!q->entry[q->tail].done)
+		spin_lock_bh(&q->lock);
+		if (!q->entry[q->tail].done) {
+			spin_unlock_bh(&q->lock);
 			break;
+		}
 
 		entry = q->entry[q->tail];
 		q->entry[q->tail].done = false;
+		spin_unlock_bh(&q->lock);
 
 		if (mcu) {
 			dev_kfree_skb(entry.skb);
@@ -530,7 +534,7 @@ mt76s_tx_queue_skb(struct mt76_phy *phy, struct mt76_queue *q,
 	int err, len = skb->len;
 	u16 idx = q->head;
 
-	if (q->queued == q->ndesc)
+	if (q->queued >= q->ndesc - 1)
 		return -ENOSPC;
 
 	skb->prev = skb->next = NULL;
@@ -568,7 +572,7 @@ mt76s_tx_queue_skb_raw(struct mt76_dev *dev, struct mt76_queue *q,
 
 	spin_lock_bh(&q->lock);
 
-	if (q->queued == q->ndesc) {
+	if (q->queued >= q->ndesc - 1) {
 		ret = -ENOSPC;
 		spin_unlock_bh(&q->lock);
 		goto error;
