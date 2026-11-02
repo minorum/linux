@@ -462,6 +462,32 @@ static int mt76s_process_tx_queue(struct mt76_dev *dev, struct mt76_queue *q)
 	return nframes;
 }
 
+int mt76s_tx_drain(struct mt76_dev *dev)
+{
+	struct mt76_queue *q;
+	int i, nframes = 0;
+
+	if (!test_bit(MT76_RESET, &dev->phy.state))
+		return -EBUSY;
+	for (i = 0; i <= MT_TXQ_PSD + 1; i++) {
+		if (i <= MT_TXQ_PSD)
+			q = dev->phy.q_tx[i];
+		else
+			q = dev->q_mcu[MT_MCUQ_WM];
+		if (!q)
+			continue;
+		spin_lock_bh(&q->lock);
+		while (q->first != q->head) {
+			q->entry[q->first].done = true;
+			q->first = (q->first + 1) % q->ndesc;
+		}
+		spin_unlock_bh(&q->lock);
+		nframes += mt76s_process_tx_queue(dev, q);
+	}
+	return nframes;
+}
+EXPORT_SYMBOL_GPL(mt76s_tx_drain);
+
 static void mt76s_status_worker(struct mt76_worker *w)
 {
 	struct mt76_sdio *sdio = container_of(w, struct mt76_sdio,
