@@ -36,6 +36,8 @@ struct sc9830_gpu {
 	bool supply_enabled;
 	bool supply_uncertain;
 	bool provider_added;
+	bool domain_retained;
+	bool quarantined;
 	bool faulted;
 };
 
@@ -219,6 +221,8 @@ static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
 	unsigned int state;
 	int ret, rollback;
 
+	if (gpu->quarantined)
+		return -EIO;
 	if (READ_ONCE(gpu->faulted))
 		return sc9830_gpu_recover_off(gpu);
 	ret = sc9830_gpu_state(gpu, &state);
@@ -288,18 +292,40 @@ static void sc9830_gpu_remove_provider(void *data)
 	struct sc9830_gpu *gpu = data;
 	int ret;
 
-	if (gpu->provider_added)
+	if (gpu->provider_added) {
 		of_genpd_del_provider(gpu->dev->of_node);
+		gpu->provider_added = false;
+	}
 	ret = pm_genpd_remove(&gpu->genpd);
 	if (ret) {
+		gpu->domain_retained = true;
 		dev_err(gpu->dev, "GPU domain removal failed: %d\n", ret);
 		return;
 	}
+	gpu->domain_retained = false;
 	if (gpu->bus_enabled || gpu->source_enabled || gpu->supply_enabled) {
 		ret = sc9830_gpu_stop(gpu);
 		if (ret)
 			dev_err(gpu->dev, "GPU cleanup failed: %d\n", ret);
 	}
+}
+
+static int sc9830_gpu_probe_error(struct sc9830_gpu *gpu, int error)
+{
+	if (gpu->bus_enabled || gpu->source_enabled || gpu->supply_enabled ||
+	    gpu->supply_uncertain || gpu->domain_retained) {
+		if (gpu->provider_added) {
+			of_genpd_del_provider(gpu->dev->of_node);
+			gpu->provider_added = false;
+		}
+		gpu->quarantined = true;
+		WRITE_ONCE(gpu->faulted, true);
+		dev_set_drvdata(gpu->dev, gpu);
+		dev_err(gpu->dev, "GPU unavailable; ownership retained until reboot: %d\n",
+			error);
+		return 0;
+	}
+	return error;
 }
 
 static int sc9830_gpu_probe(struct platform_device *pdev)
@@ -337,7 +363,7 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 	}
 	ret = sc9830_gpu_init_state(gpu, state);
 	if (ret)
-		return ret;
+		return sc9830_gpu_probe_error(gpu, ret);
 	gpu->genpd.name = "sc9830-gpu";
 	gpu->genpd.power_on = sc9830_gpu_power_on;
 	gpu->genpd.power_off = sc9830_gpu_power_off;
@@ -349,15 +375,19 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 			if (rollback)
 				dev_err(dev, "GPU registration rollback failed: %d\n", rollback);
 		}
-		return ret;
+		return sc9830_gpu_probe_error(gpu, ret);
 	}
 	ret = devm_add_action_or_reset(dev, sc9830_gpu_remove_provider, gpu);
 	if (ret)
-		return ret;
+		return sc9830_gpu_probe_error(gpu, ret);
 	ret = of_genpd_add_provider_simple(dev->of_node, &gpu->genpd);
-	if (!ret)
-		gpu->provider_added = true;
-	return ret;
+	if (ret) {
+		devm_release_action(dev, sc9830_gpu_remove_provider, gpu);
+		return sc9830_gpu_probe_error(gpu, ret);
+	}
+	gpu->provider_added = true;
+	dev_set_drvdata(dev, gpu);
+	return 0;
 }
 
 static const struct of_device_id sc9830_gpu_match[] = {
