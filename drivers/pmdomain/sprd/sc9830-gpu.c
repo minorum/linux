@@ -186,7 +186,8 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 	if (state != GPU_OFF)
 		return dev_err_probe(dev, -EBUSY, "GPU domain is not unowned\n");
 	ret = regmap_update_bits(gpu->pmu, GPU_CFG,
-				 GPU_AUTO_OFF | GENMASK(23, 0), 0x010101);
+				 GPU_FORCE_OFF | GPU_AUTO_OFF | GENMASK(23, 0),
+				 GPU_FORCE_OFF | 0x010101);
 	if (ret)
 		return ret;
 	gpu->genpd.name = "sc9830-gpu";
