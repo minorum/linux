@@ -16727,6 +16727,13 @@ S:	Maintained
 F:	drivers/iio/adc/mt6397-auxadc.c
 F:	include/dt-bindings/iio/adc/mediatek,mt6397-auxadc.h
 
+MEDIATEK MT6628 WMT BOOTSTRAP AND POWER SEQUENCE
+M:	Michal Andrzejczak <mit.mis@gmail.com>
+L:	linux-mmc@vger.kernel.org
+L:	linux-mediatek@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/mmc/mediatek,mt6628-wmt.yaml
+
 MEDIATEK MT6735 CLOCK & RESET DRIVERS
 M:	Yassine Oudjana <y.oudjana@protonmail.com>
 L:	linux-clk@vger.kernel.org
