@@ -16733,6 +16733,7 @@ L:	linux-mmc@vger.kernel.org
 L:	linux-mediatek@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	Documentation/devicetree/bindings/mmc/mediatek,mt6628-wmt.yaml
+F:	drivers/mmc/core/pwrseq_mt6628.c
 
 MEDIATEK MT6735 CLOCK & RESET DRIVERS
 M:	Yassine Oudjana <y.oudjana@protonmail.com>

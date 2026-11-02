@@ -23,6 +23,18 @@ config PWRSEQ_SD8787
 	  This driver can also be built as a module. If so, the module
 	  will be called pwrseq_sd8787.
 
+config PWRSEQ_MT6628
+	tristate "MediaTek MT6628 WMT bootstrap and power sequence"
+	depends on OF && SERIAL_DEV_BUS && COMMON_CLK && GPIOLIB && PINCTRL
+	select CRC16
+	select FW_LOADER
+	help
+	  Bootstrap an MT6628 combo chip over UART before SDIO enumeration.
+	  The provider owns its GPIO power sequence, RTC clock and WMT patch.
+	  The matching patch and factory Wi-Fi calibration must be available
+	  to the firmware loader.
+	  Bluetooth and the SDIO wireless data path need separate drivers.
+
 config PWRSEQ_SIMPLE
 	tristate "Simple HW reset support for MMC"
 	default y
