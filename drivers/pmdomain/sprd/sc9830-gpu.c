@@ -8,6 +8,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 
 #define GPU_CFG		0x20
 #define GPU_FORCE_OFF	BIT(25)
@@ -26,10 +27,12 @@ struct sc9830_gpu {
 	struct regmap *clock;
 	struct clk *bus;
 	struct clk *source;
+	struct regulator *supply;
 	u32 saved;
 	bool saved_valid;
 	bool bus_enabled;
 	bool source_enabled;
+	bool supply_enabled;
 	bool faulted;
 };
 
@@ -63,12 +66,29 @@ static int sc9830_gpu_wait(struct sc9830_gpu *gpu, unsigned int target)
 
 static int sc9830_gpu_start(struct sc9830_gpu *gpu)
 {
-	int ret;
+	bool supply_started = false;
+	int ret, rollback;
 
-	if (!gpu->source_enabled) {
-		ret = clk_enable(gpu->source);
+	if (gpu->supply && !gpu->supply_enabled) {
+		ret = regulator_enable(gpu->supply);
 		if (ret)
 			return ret;
+		gpu->supply_enabled = true;
+		supply_started = true;
+	}
+	if (!gpu->source_enabled) {
+		ret = clk_enable(gpu->source);
+		if (ret) {
+			if (supply_started) {
+				rollback = regulator_disable(gpu->supply);
+				if (rollback)
+					dev_err(gpu->dev, "GPU supply rollback failed: %d\n",
+						rollback);
+				else
+					gpu->supply_enabled = false;
+			}
+			return ret;
+		}
 		gpu->source_enabled = true;
 		usleep_range(1000, 1100);
 	}
@@ -124,6 +144,15 @@ static int sc9830_gpu_power_off(struct generic_pm_domain *domain)
 	if (!ret) {
 		clk_disable(gpu->source);
 		gpu->source_enabled = false;
+		if (gpu->supply_enabled) {
+			ret = regulator_disable(gpu->supply);
+			if (ret) {
+				WRITE_ONCE(gpu->faulted, true);
+				dev_err(gpu->dev, "GPU supply release failed: %d\n", ret);
+				return ret;
+			}
+			gpu->supply_enabled = false;
+		}
 		return 0;
 	}
 	rollback = sc9830_gpu_start(gpu);
@@ -185,6 +214,12 @@ static int sc9830_gpu_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, poll ?: ret, "unstable GPU domain\n");
 	if (state != GPU_OFF)
 		return dev_err_probe(dev, -EBUSY, "GPU domain is not unowned\n");
+	if (of_property_present(dev->of_node, "domain-supply")) {
+		gpu->supply = devm_regulator_get_optional(dev, "domain");
+		if (IS_ERR(gpu->supply))
+			return dev_err_probe(dev, PTR_ERR(gpu->supply),
+					     "GPU domain supply\n");
+	}
 	ret = regmap_update_bits(gpu->pmu, GPU_CFG,
 				 GPU_FORCE_OFF | GPU_AUTO_OFF | GENMASK(23, 0),
 				 GPU_FORCE_OFF | 0x010101);
