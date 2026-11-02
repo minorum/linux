@@ -17,6 +17,7 @@
 struct mt6577_root_clk {
 	struct clk_hw hw;
 	struct regmap *map;
+	u8 shift;
 };
 
 #define to_mt6577_root(h) container_of(h, struct mt6577_root_clk, hw)
@@ -129,10 +130,23 @@ static u8 mt6577_msdc0_parent(struct clk_hw *hw)
 
 	if (regmap_read(clk->map, 0x0c, &mux))
 		return 2;
-	return min_t(u32, mux & 3, 2);
+	return min_t(u32, (mux >> clk->shift) & 3, 2);
+}
+
+static int mt6577_msdc_prepare(struct clk_hw *hw)
+{
+	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	u32 mux;
+	int ret;
+
+	ret = regmap_read(clk->map, 0x0c, &mux);
+	if (ret)
+		return ret;
+	return ((mux >> clk->shift) & 3) < 2 ? 0 : -EINVAL;
 }
 
 static const struct clk_ops mt6577_msdc0_ops = {
+	.prepare = mt6577_msdc_prepare,
 	.get_parent = mt6577_msdc0_parent,
 };
 
@@ -196,6 +210,8 @@ static const struct mtk_gate mt6577_peri_gates[] = {
 		 &mt6577_peri_regs, 6, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT6577_MSDC0, "mt6577_msdc0", "mt6577_msdc0_sel",
 		 &mt6577_peri_regs, 15, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT6577_MSDC3, "mt6577_msdc3", "mt6577_msdc3_sel",
+		 &mt6577_peri_regs, 18, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT6577_USB, "mt6577_usb", "mt6577_usb_sel",
 		 &mt6577_peri_regs, 9, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK_FLAGS(CLK_MT6577_I2C_DUAL, "mt6577_i2c_dual", NULL,
@@ -224,9 +240,9 @@ static void mt6577_unregister_gates(void *data)
 
 static int mt6577_peri_probe(struct platform_device *pdev)
 {
+	static const char * const msdc_names[] = { "mt6577_msdc0_sel", "mt6577_msdc3_sel" };
 	const struct clk_parent_data parents[] = { { .index = 1 }, { .index = 2 } };
-	const struct clk_init_data init = {
-		.name = "mt6577_msdc0_sel",
+	struct clk_init_data init = {
 		.ops = &mt6577_msdc0_ops,
 		.parent_data = parents,
 		.num_parents = ARRAY_SIZE(parents),
@@ -258,16 +274,20 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 	if (IS_ERR(reference))
 		return PTR_ERR(reference);
 	peri->data->hws[CLK_MT6577_PWM_REF] = reference;
-	mux = devm_kzalloc(dev, sizeof(*mux), GFP_KERNEL);
-	if (!mux)
-		return -ENOMEM;
-	mux->map = device_node_to_regmap(dev->of_node);
-	if (IS_ERR(mux->map))
-		return PTR_ERR(mux->map);
-	mux->hw.init = &init;
-	ret = devm_clk_hw_register(dev, &mux->hw);
-	if (ret)
-		return ret;
+	for (i = 0; i < ARRAY_SIZE(msdc_names); i++) {
+		mux = devm_kzalloc(dev, sizeof(*mux), GFP_KERNEL);
+		if (!mux)
+			return -ENOMEM;
+		mux->map = device_node_to_regmap(dev->of_node);
+		if (IS_ERR(mux->map))
+			return PTR_ERR(mux->map);
+		mux->shift = i ? 7 : 0;
+		init.name = msdc_names[i];
+		mux->hw.init = &init;
+		ret = devm_clk_hw_register(dev, &mux->hw);
+		if (ret)
+			return ret;
+	}
 	usb = devm_kzalloc(dev, sizeof(*usb), GFP_KERNEL);
 	if (!usb)
 		return -ENOMEM;
