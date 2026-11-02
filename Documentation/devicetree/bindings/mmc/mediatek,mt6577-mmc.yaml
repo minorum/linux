@@ -4,21 +4,22 @@
 $id: http://devicetree.org/schemas/mmc/mediatek,mt6577-mmc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MT6577 legacy eMMC controller
+title: MediaTek MT6577 legacy MMC and SDIO controller
 
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
 
 description: |
-  Revision 4 polling eMMC controller with native clock-gate, controller
+  Revision 4 polling MMC and SDIO controller with native clock-gate, controller
   reset, timing and electrical-pad initialization. The supported configuration
   is nonremovable, up to 4 bits wide, with legacy and SDR high-speed operation
-  up to 52 MHz.
+  up to 52 MHz for MMC and 50 MHz for SDIO.
   Pad defaults use the drive encoding qualified on the MODECOM FreeTAB 8001.
   Card power is retained, matching the stock host-0 software policy. Supply
   switching and external card reset are not part of this interface. Active
   SoC pin routing remains configured by the platform. Basic DMA uses a
-  32-bit coherent bounce buffer, with PIO fallback. DDR, HS200, HS400 and
+  32-bit coherent bounce buffer, with PIO fallback and byte-sized transfers.
+  SDIO interrupts use core polling. DDR, HS200, HS400 and
   system power management are not supported.
   The source clock provider owns the controller gate and describes the
   boot-selected source.
@@ -46,6 +47,8 @@ properties:
     maximum: 52000000
 
   cap-mmc-highspeed: true
+  cap-sd-highspeed: true
+  cap-sdio-irq: false
 
   mmc-ddr-1_2v: false
   mmc-ddr-1_8v: false
