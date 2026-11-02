@@ -8,8 +8,7 @@
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 
-#include "mt6628_mcu.h"
-#include "mt6628_sdio.h"
+#include "mt6628.h"
 
 const u8 mt6628_sdio_tx_max[6] = { 1, 20, 1, 1, 4, 1 };
 

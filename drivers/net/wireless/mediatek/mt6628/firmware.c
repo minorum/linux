@@ -5,7 +5,7 @@
 #include <linux/string.h>
 #include <linux/unaligned.h>
 
-#include "mt6628_mcu.h"
+#include "mt6628.h"
 
 int mt6628_fw_validate(const struct firmware *fw)
 {
