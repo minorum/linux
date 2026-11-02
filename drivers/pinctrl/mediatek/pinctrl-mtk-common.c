@@ -83,8 +83,7 @@ static int mtk_pmx_gpio_set_direction(struct pinctrl_dev *pctldev,
 	else
 		reg_addr = SET_ADDR(reg_addr, pctl);
 
-	regmap_write(mtk_get_regmap(pctl, offset), reg_addr, bit);
-	return 0;
+	return regmap_write(mtk_get_regmap(pctl, offset), reg_addr, bit);
 }
 
 static int mtk_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
@@ -361,9 +360,10 @@ static int mtk_pconf_set_pull_select(struct mtk_pinctrl *pctl,
 		reg_pullsel = CLR_ADDR(mtk_get_port(pctl, pin) +
 			pctl->devdata->pullsel_offset, pctl);
 
-	regmap_write(mtk_get_regmap(pctl, pin), reg_pullen, bit);
-	regmap_write(mtk_get_regmap(pctl, pin), reg_pullsel, bit);
-	return 0;
+	ret = regmap_write(mtk_get_regmap(pctl, pin), reg_pullen, bit);
+	if (ret)
+		return ret;
+	return regmap_write(mtk_get_regmap(pctl, pin), reg_pullsel, bit);
 }
 
 static int mtk_pconf_parse_conf(struct pinctrl_dev *pctldev,
@@ -384,7 +384,9 @@ static int mtk_pconf_parse_conf(struct pinctrl_dev *pctldev,
 		ret = mtk_pconf_set_pull_select(pctl, pin, true, false, arg);
 		break;
 	case PIN_CONFIG_INPUT_ENABLE:
-		mtk_pmx_gpio_set_direction(pctldev, NULL, pin, true);
+		ret = mtk_pmx_gpio_set_direction(pctldev, NULL, pin, true);
+		if (ret)
+			break;
 		ret = mtk_pconf_set_ies_smt(pctl, pin, arg, param);
 		break;
 	case PIN_CONFIG_LEVEL:
@@ -392,7 +394,9 @@ static int mtk_pconf_parse_conf(struct pinctrl_dev *pctldev,
 		ret = mtk_pmx_gpio_set_direction(pctldev, NULL, pin, false);
 		break;
 	case PIN_CONFIG_INPUT_SCHMITT_ENABLE:
-		mtk_pmx_gpio_set_direction(pctldev, NULL, pin, true);
+		ret = mtk_pmx_gpio_set_direction(pctldev, NULL, pin, true);
+		if (ret)
+			break;
 		ret = mtk_pconf_set_ies_smt(pctl, pin, arg, param);
 		break;
 	case PIN_CONFIG_DRIVE_STRENGTH:
@@ -761,8 +765,7 @@ static int mtk_pmx_set_mux(struct pinctrl_dev *pctldev,
 	desc = mtk_pctrl_find_function_by_pin(pctl, g->pin, function);
 	if (!desc)
 		return -EINVAL;
-	mtk_pmx_set_mode(pctldev, g->pin, desc->muxval);
-	return 0;
+	return mtk_pmx_set_mode(pctldev, g->pin, desc->muxval);
 }
 
 static int mtk_pmx_find_gpio_mode(struct mtk_pinctrl *pctl,
@@ -784,7 +787,7 @@ static int mtk_pmx_gpio_request_enable(struct pinctrl_dev *pctldev,
 				    struct pinctrl_gpio_range *range,
 				    unsigned offset)
 {
-	int muxval;
+	int muxval, ret;
 	struct mtk_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
 	muxval = mtk_pmx_find_gpio_mode(pctl, offset);
@@ -794,7 +797,9 @@ static int mtk_pmx_gpio_request_enable(struct pinctrl_dev *pctldev,
 		return -EINVAL;
 	}
 
-	mtk_pmx_set_mode(pctldev, offset, muxval);
+	ret = mtk_pmx_set_mode(pctldev, offset, muxval);
+	if (ret)
+		return ret;
 	mtk_pconf_set_ies_smt(pctl, offset, 1, PIN_CONFIG_INPUT_ENABLE);
 
 	return 0;
