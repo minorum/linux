@@ -93,12 +93,19 @@ properties:
 
   pinctrl-0: true
   pinctrl-1: true
+  pinctrl-2: true
 
   pinctrl-names:
-    minItems: 1
-    items:
-      - const: default
-      - const: sleep
+    oneOf:
+      - minItems: 1
+        items:
+          - const: default
+          - const: sleep
+      - minItems: 2
+        items:
+          - const: init
+          - const: default
+          - const: sleep
 
 required:
   - compatible
