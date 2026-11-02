@@ -59,8 +59,13 @@ static int mt6628_mcu_response(struct mt76_dev *dev, int cmd,
 	u8 event;
 	int ret;
 
-	if (!skb)
+	if (!skb) {
+		if (atomic_read(&dev->bus_hung))
+			return -EIO;
+		if (test_bit(MT76_MCU_RESET, &dev->phy.state))
+			return -ESHUTDOWN;
 		return -ETIMEDOUT;
+	}
 	if (skb->len < 8 || get_unaligned_le16(skb->data) != skb->len ||
 	    get_unaligned_le16(skb->data + 2) != 1)
 		return -EPROTO;

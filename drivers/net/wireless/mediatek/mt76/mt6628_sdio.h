@@ -4,6 +4,9 @@
 
 #include <linux/types.h>
 
+struct mt76_dev;
+struct mt76_queue;
+
 struct mt6628_sdio_status {
 	u32 isr;
 	u8 tx[6];
@@ -17,5 +20,7 @@ extern const u8 mt6628_sdio_tx_max[6];
 int mt6628_sdio_decode_status(const u8 *buf, size_t len,
 			      struct mt6628_sdio_status *status);
 int mt6628_sdio_return_credits(u8 credits[6], const u8 returned[6]);
+int mt6628_sdio_tx_one(struct mt76_dev *dev, struct mt76_queue *q,
+		       u8 credits[6]);
 
 #endif
