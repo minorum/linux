@@ -545,7 +545,7 @@ static int mt6628_bootstrap(struct mt6628 *ctx, const struct firmware *patch,
 static int mt6628_power_off(struct mt6628 *ctx)
 {
 	unsigned int i;
-	int ret;
+	int ret, err;
 
 	lockdep_assert_held(&ctx->lock);
 	ctx->powered = false;
@@ -561,18 +561,23 @@ static int mt6628_power_off(struct mt6628 *ctx)
 		serdev_device_close(ctx->serdev);
 		ctx->opened = false;
 	}
-	gpiod_set_value_cansleep(ctx->reset, 1);
-	for (i = 0; i < ARRAY_SIZE(ctx->pmu); i++)
-		gpiod_set_value_cansleep(ctx->pmu[i], 0);
-	ret = pinctrl_select_state(ctx->pinctrl, ctx->safe);
-	if (ret)
-		dev_err(&ctx->serdev->dev, "safe pin state failed, retaining LDO: %d\n", ret);
+	ret = gpiod_set_value_cansleep(ctx->reset, 1);
+	for (i = 0; i < ARRAY_SIZE(ctx->pmu); i++) {
+		err = gpiod_set_value_cansleep(ctx->pmu[i], 0);
+		if (err && !ret)
+			ret = err;
+	}
+	err = pinctrl_select_state(ctx->pinctrl, ctx->safe);
+	if (err && !ret)
+		ret = err;
 	if (ctx->rtc_enabled) {
 		clk_disable_unprepare(ctx->rtc);
 		ctx->rtc_enabled = false;
 	}
 	if (!ret)
-		gpiod_set_value_cansleep(ctx->ldo, 0);
+		ret = gpiod_set_value_cansleep(ctx->ldo, 0);
+	if (ret)
+		dev_err(&ctx->serdev->dev, "power-off incomplete: %d\n", ret);
 	return ret;
 }
 
@@ -590,7 +595,9 @@ static int mt6628_power_on(struct mt6628 *ctx)
 	ret = mt6628_power_off(ctx);
 	if (ret)
 		return ret;
-	gpiod_set_value_cansleep(ctx->ldo, 1);
+	ret = gpiod_set_value_cansleep(ctx->ldo, 1);
+	if (ret)
+		goto off;
 	msleep(100);
 	ret = clk_prepare_enable(ctx->rtc);
 	if (ret)
@@ -619,10 +626,15 @@ static int mt6628_power_on(struct mt6628 *ctx)
 	ctx->stopping = false;
 	mutex_unlock(&ctx->rx_lock);
 	usleep_range(10000, 12000);
-	for (i = 0; i < ARRAY_SIZE(ctx->pmu); i++)
-		gpiod_set_value_cansleep(ctx->pmu[i], 1);
+	for (i = 0; i < ARRAY_SIZE(ctx->pmu); i++) {
+		ret = gpiod_set_value_cansleep(ctx->pmu[i], 1);
+		if (ret)
+			goto off;
+	}
 	msleep(30);
-	gpiod_set_value_cansleep(ctx->reset, 0);
+	ret = gpiod_set_value_cansleep(ctx->reset, 0);
+	if (ret)
+		goto off;
 	msleep(30);
 	ret = mt6628_identify(ctx);
 	if (ret)
