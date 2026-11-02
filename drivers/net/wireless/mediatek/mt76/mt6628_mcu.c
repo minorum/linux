@@ -65,3 +65,33 @@ int mt6628_init_result(const u8 *buf, size_t len, u8 sequence)
 		return -EPROTO;
 	return buf[4] ? -EREMOTEIO : 0;
 }
+
+int mt6628_mcu_command(u8 *buf, size_t capacity, const u8 *data, size_t len,
+		       u8 command, bool set, u8 sequence)
+{
+	size_t size;
+
+	if (len > 4084)
+		return -EMSGSIZE;
+	size = ALIGN(8 + len, 4);
+	if (capacity < size)
+		return -ENOSPC;
+	memset(buf, 0, size);
+	put_unaligned_le16(size, buf);
+	buf[3] = 0x50;
+	buf[4] = command;
+	buf[5] = set;
+	buf[6] = sequence;
+	if (len)
+		memcpy(buf + 8, data, len);
+	return size;
+}
+
+int mt6628_mcu_event(const u8 *buf, size_t len, u8 event, u8 sequence)
+{
+	if (len < 8 || get_unaligned_le16(buf) != len ||
+	    get_unaligned_le16(buf + 2) != 1 || buf[4] != event ||
+	    buf[5] != sequence)
+		return -EPROTO;
+	return 0;
+}
