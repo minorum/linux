@@ -352,6 +352,7 @@
 			bus-width = <4>;
 			max-frequency = <52000000>;
 			cap-mmc-highspeed;
+			no-sdio;
 			non-removable;
 		};
 	};
