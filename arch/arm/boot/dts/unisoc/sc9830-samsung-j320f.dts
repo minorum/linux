@@ -242,6 +242,10 @@
 	status = "okay";
 };
 
+&gpu_domain {
+	domain-supply = <&vddcore>;
+};
+
 &usb {
 	maximum-speed = "high-speed";
 	g-rx-fifo-size = <814>;
