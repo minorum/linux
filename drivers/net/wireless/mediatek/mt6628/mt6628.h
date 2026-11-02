@@ -8,6 +8,13 @@
 struct sdio_func;
 struct device;
 
+struct mt6628_factory {
+	u8 mac_addr[6];
+	u8 tx_power[40];
+	u8 phy[144];
+	bool set_tx_power;
+};
+
 struct mt6628_fw_info {
 	u16 product_id;
 	u16 firmware_version;
@@ -43,6 +50,6 @@ int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw)
 int mt6628_sdio_bootstrap(struct sdio_func *func);
 int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
 			 u8 credits[6]);
-int mt6628_read_factory_mac(struct device *device, u8 address[6]);
+int mt6628_read_factory(struct device *device, struct mt6628_factory *factory);
 
 #endif

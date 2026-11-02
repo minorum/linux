@@ -13,6 +13,7 @@
 struct mt6628_dev {
 	struct sdio_func *func;
 	struct mt6628_fw_info info;
+	struct mt6628_factory factory;
 	/* Commands */
 	struct mutex command_mutex;
 	struct completion command_done;

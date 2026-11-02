@@ -23,9 +23,10 @@ static int mt6628_probe(struct sdio_func *func,
 	if (!dev)
 		return -ENOMEM;
 	dev->func = func;
-	ret = mt6628_read_factory_mac(&func->dev, dev->mac_addr);
+	ret = mt6628_read_factory(&func->dev, &dev->factory);
 	if (ret)
 		return ret;
+	ether_addr_copy(dev->mac_addr, dev->factory.mac_addr);
 	ret = mt6628_sdio_bootstrap(func);
 	if (ret)
 		return ret;
@@ -46,6 +47,15 @@ static int mt6628_probe(struct sdio_func *func,
 		goto stop;
 	memcpy(config, dev->mac_addr, 6);
 	ret = mt6628_sdio_set(dev, 0xc1, config, sizeof(config));
+	if (ret)
+		goto stop;
+	if (dev->factory.set_tx_power) {
+		ret = mt6628_sdio_set(dev, 0x28, dev->factory.tx_power,
+				      sizeof(dev->factory.tx_power));
+		if (ret)
+			goto stop;
+	}
+	ret = mt6628_sdio_set(dev, 0x31, dev->factory.phy, sizeof(dev->factory.phy));
 	if (ret)
 		goto stop;
 	dev_info(&func->dev, "firmware %04x peer %04x; station frontend pending\n",
