@@ -3,6 +3,7 @@
 #include <linux/errno.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
+#include <linux/mmc/core.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
@@ -178,5 +179,43 @@ int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw)
 out:
 	sdio_release_host(func);
 	kfree(buf);
+	return ret;
+}
+
+int mt6628_sdio_bootstrap(struct sdio_func *func)
+{
+	const struct firmware *fw;
+	int ret, err;
+
+	ret = request_firmware(&fw, "mediatek/WIFI_RAM_CODE_MT6628", &func->dev);
+	if (ret)
+		return ret;
+	ret = mt6628_fw_validate(fw);
+	if (ret)
+		goto release;
+	sdio_claim_host(func);
+	ret = mmc_hw_reset(func->card);
+	if (ret) {
+		if (ret > 0)
+			ret = -EAGAIN;
+		goto unlock;
+	}
+	ret = sdio_enable_func(func);
+	if (!ret)
+		ret = sdio_set_block_size(func, 512);
+	if (!ret)
+		ret = mt6628_sdio_load_firmware(func, fw);
+	if (ret) {
+		err = sdio_disable_func(func);
+		if (err)
+			dev_warn(&func->dev, "function disable failed: %d\n", err);
+		err = mmc_hw_reset(func->card);
+		if (err)
+			dev_warn(&func->dev, "recovery reset incomplete: %d\n", err);
+	}
+unlock:
+	sdio_release_host(func);
+release:
+	release_firmware(fw);
 	return ret;
 }
