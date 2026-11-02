@@ -7,6 +7,7 @@
  *  MMC power sequence management
  */
 #include <linux/kernel.h>
+#include <linux/device.h>
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -22,6 +23,8 @@ int mmc_pwrseq_alloc(struct mmc_host *host)
 {
 	struct device_node *np;
 	struct mmc_pwrseq *p;
+	struct device *supplier = NULL;
+	int ret = -EPROBE_DEFER;
 
 	np = of_parse_phandle(host->parent->of_node, "mmc-pwrseq", 0);
 	if (!np)
@@ -30,21 +33,49 @@ int mmc_pwrseq_alloc(struct mmc_host *host)
 	mutex_lock(&pwrseq_list_mutex);
 	list_for_each_entry(p, &pwrseq_list, pwrseq_node) {
 		if (device_match_of_node(p->dev, np)) {
-			if (!try_module_get(p->owner))
-				dev_err(host->parent,
-					"increasing module refcount failed\n");
-			else
-				host->pwrseq = p;
-
+			supplier = get_device(p->dev);
 			break;
 		}
 	}
-
-	of_node_put(np);
 	mutex_unlock(&pwrseq_list_mutex);
+	of_node_put(np);
 
-	if (!host->pwrseq)
+	if (!supplier)
 		return -EPROBE_DEFER;
+
+	device_lock(supplier);
+	if (!device_is_bound(supplier) ||
+	    READ_ONCE(supplier->links.status) != DL_DEV_DRIVER_BOUND)
+		goto unlock;
+
+	mutex_lock(&pwrseq_list_mutex);
+	list_for_each_entry(p, &pwrseq_list, pwrseq_node) {
+		if (p->dev != supplier)
+			continue;
+
+		if (!try_module_get(p->owner)) {
+			dev_err(host->parent,
+				"increasing module refcount failed\n");
+			break;
+		}
+
+		if (!device_link_add(host->parent, supplier,
+				     DL_FLAG_AUTOREMOVE_CONSUMER)) {
+			module_put(p->owner);
+			ret = -ENOMEM;
+			break;
+		}
+
+		host->pwrseq = p;
+		ret = 0;
+		break;
+	}
+	mutex_unlock(&pwrseq_list_mutex);
+unlock:
+	device_unlock(supplier);
+	put_device(supplier);
+	if (ret)
+		return ret;
 
 	dev_info(host->parent, "allocated mmc-pwrseq\n");
 
