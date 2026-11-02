@@ -149,7 +149,8 @@ static int mt6628_init_query(struct sdio_func *func, struct mt6628_init_io *io,
 	}
 }
 
-int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info)
+int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
+			 u8 credits[6])
 {
 	struct mt6628_fw_info result = {};
 	struct mt6628_init_io *io;
@@ -189,6 +190,7 @@ int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info)
 	}
 	memcpy(result.permanent_addr, response + 8, sizeof(result.permanent_addr));
 	*info = result;
+	memcpy(credits, io->credits, sizeof(io->credits));
 out:
 	sdio_release_host(func);
 	kfree(io);

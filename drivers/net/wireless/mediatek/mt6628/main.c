@@ -3,37 +3,57 @@
 #include <linux/mmc/sdio_func.h>
 #include <linux/module.h>
 
-#include "mt6628.h"
+#include "runtime.h"
 
 static void mt6628_remove(struct sdio_func *func);
 
 static int mt6628_probe(struct sdio_func *func,
 			const struct sdio_device_id *id)
 {
-	struct mt6628_fw_info info;
+	struct mt6628_dev *dev;
+	u8 config[12] = {};
 	int ret;
 
 	if (func->num != 1)
 		return -ENODEV;
 	if (func->card->sdio_funcs != 1)
 		return -EOPNOTSUPP;
+	dev = devm_kzalloc(&func->dev, sizeof(*dev), GFP_KERNEL);
+	if (!dev)
+		return -ENOMEM;
+	dev->func = func;
 	ret = mt6628_sdio_bootstrap(func);
 	if (ret)
 		return ret;
-	ret = mt6628_sdio_get_info(func, &info);
-	if (ret) {
-		mt6628_remove(func);
-		return ret;
-	}
+	sdio_set_drvdata(func, dev);
+	ret = mt6628_sdio_get_info(func, &dev->info, dev->credits);
+	if (ret)
+		goto stop;
+	ret = mt6628_sdio_start(dev);
+	if (ret)
+		goto stop;
+	memcpy(config, dev->info.permanent_addr, 6);
+	ret = mt6628_sdio_set(dev, 0xc1, config, sizeof(config));
+	if (ret)
+		goto stop;
 	dev_info(&func->dev, "firmware %04x peer %04x; station frontend pending\n",
-		 info.firmware_version, info.peer_version);
+		 dev->info.firmware_version, dev->info.peer_version);
 	return 0;
+stop:
+	mt6628_remove(func);
+	return ret;
 }
 
 static void mt6628_remove(struct sdio_func *func)
 {
+	struct mt6628_dev *dev = sdio_get_drvdata(func);
 	int ret;
 
+	if (dev) {
+		ret = mt6628_sdio_stop(dev);
+		if (ret)
+			dev_warn(&func->dev, "transport stop failed: %d\n", ret);
+	}
 	sdio_claim_host(func);
 	sdio_writeb(func, 2, 0x04, &ret);
 	if (ret)
@@ -42,6 +62,7 @@ static void mt6628_remove(struct sdio_func *func)
 	if (ret)
 		dev_warn(&func->dev, "function disable failed: %d\n", ret);
 	sdio_release_host(func);
+	sdio_set_drvdata(func, NULL);
 }
 
 static const struct sdio_device_id mt6628_ids[] = {

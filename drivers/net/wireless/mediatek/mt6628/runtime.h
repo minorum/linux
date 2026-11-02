@@ -1,0 +1,36 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef __MT6628_RUNTIME_H
+#define __MT6628_RUNTIME_H
+
+#include <linux/atomic.h>
+#include <linux/completion.h>
+#include <linux/mutex.h>
+#include <linux/skbuff.h>
+#include <linux/workqueue.h>
+
+#include "mt6628.h"
+
+struct mt6628_dev {
+	struct sdio_func *func;
+	struct mt6628_fw_info info;
+	/* Commands */
+	struct mutex command_mutex;
+	struct completion command_done;
+	struct delayed_work io_work;
+	struct sk_buff_head tx;
+	atomic_t error;
+	u8 credits[6];
+	u8 sequence;
+	u8 *status_buf;
+	u8 *rx_buf;
+	u8 *tx_buf;
+	bool initialized;
+	bool irq_claimed;
+};
+
+int mt6628_sdio_start(struct mt6628_dev *dev);
+int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
+		    const void *data, size_t len);
+int mt6628_sdio_stop(struct mt6628_dev *dev);
+
+#endif
