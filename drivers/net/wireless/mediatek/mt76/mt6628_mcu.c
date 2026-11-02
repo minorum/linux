@@ -76,14 +76,15 @@ int mt6628_mcu_command(u8 *buf, size_t capacity, const u8 *data, size_t len,
 	size = ALIGN(8 + len, 4);
 	if (capacity < size)
 		return -ENOSPC;
-	memset(buf, 0, size);
+	if (len)
+		memmove(buf + 8, data, len);
+	memset(buf, 0, 8);
+	memset(buf + 8 + len, 0, size - 8 - len);
 	put_unaligned_le16(size, buf);
 	buf[3] = 0x50;
 	buf[4] = command;
 	buf[5] = set;
 	buf[6] = sequence;
-	if (len)
-		memcpy(buf + 8, data, len);
 	return size;
 }
 
