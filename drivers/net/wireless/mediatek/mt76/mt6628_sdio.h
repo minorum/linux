@@ -18,6 +18,7 @@ struct mt6628_sdio_status {
 struct mt6628_sdio_state {
 	struct mt6628_sdio_status pending;
 	u8 credits[6];
+	bool ready;
 };
 
 extern const u8 mt6628_sdio_tx_max[6];
@@ -30,5 +31,6 @@ int mt6628_sdio_tx_one(struct mt76_dev *dev, struct mt76_queue *q,
 int mt6628_sdio_rx_run(struct mt76_dev *dev, unsigned int port,
 		       struct mt6628_sdio_status *status);
 int mt6628_sdio_step(struct mt76_dev *dev, struct mt6628_sdio_state *state);
+int mt6628_sdio_setup(struct mt76_dev *dev, struct mt6628_sdio_state *state);
 
 #endif
