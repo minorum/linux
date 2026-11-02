@@ -153,7 +153,8 @@ static int lima_pp_soft_reset_async_wait(struct lima_ip *ip)
 	} else
 		err = lima_pp_soft_reset_async_wait_one(ip);
 
-	ip->data.async_reset = false;
+	if (!err)
+		ip->data.async_reset = false;
 	return err;
 }
 
