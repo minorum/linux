@@ -587,6 +587,10 @@ static int mtk8250_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 
+	err = pinctrl_select_default_state(&pdev->dev);
+	if (err)
+		return err;
+
 	data->line = serial8250_register_8250_port(&uart);
 	if (data->line < 0)
 		return data->line;
