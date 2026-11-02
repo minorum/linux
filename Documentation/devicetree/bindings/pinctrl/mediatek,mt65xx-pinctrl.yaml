@@ -116,6 +116,8 @@ patternProperties:
 
           output-high: true
 
+          output-disable: true
+
           input-schmitt-enable: true
 
           input-schmitt-disable: true
