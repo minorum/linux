@@ -7,6 +7,17 @@
 
 struct sdio_func;
 
+struct mt6628_fw_info {
+	u16 product_id;
+	u16 firmware_version;
+	u16 peer_version;
+	bool hw_5ghz_disabled;
+	bool eeprom_used;
+	bool efuse_valid;
+	bool mac_valid;
+	u8 permanent_addr[6];
+};
+
 struct mt6628_sdio_status {
 	u32 isr;
 	u8 tx[6];
@@ -29,5 +40,6 @@ int mt6628_sdio_decode_status(const u8 *buf, size_t len,
 int mt6628_sdio_return_credits(u8 credits[6], const u8 returned[6]);
 int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw);
 int mt6628_sdio_bootstrap(struct sdio_func *func);
+int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info);
 
 #endif

@@ -5,9 +5,12 @@
 
 #include "mt6628.h"
 
+static void mt6628_remove(struct sdio_func *func);
+
 static int mt6628_probe(struct sdio_func *func,
 			const struct sdio_device_id *id)
 {
+	struct mt6628_fw_info info;
 	int ret;
 
 	if (func->num != 1)
@@ -17,7 +20,13 @@ static int mt6628_probe(struct sdio_func *func,
 	ret = mt6628_sdio_bootstrap(func);
 	if (ret)
 		return ret;
-	dev_info(&func->dev, "firmware initialized; station frontend pending\n");
+	ret = mt6628_sdio_get_info(func, &info);
+	if (ret) {
+		mt6628_remove(func);
+		return ret;
+	}
+	dev_info(&func->dev, "firmware %04x peer %04x; station frontend pending\n",
+		 info.firmware_version, info.peer_version);
 	return 0;
 }
 
