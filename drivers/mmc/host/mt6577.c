@@ -215,6 +215,8 @@ static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
 			return -ETIMEDOUT;
 		if (status & INT_DATCRCERR)
 			return -EILSEQ;
+		if (write && remaining && status & INT_XFER_COMPL)
+			return -EIO;
 		count = readl(host->base + MSDC_FIFOCS);
 		count = write ? FIELD_GET(FIFO_TXCNT, count) : FIELD_GET(FIFO_RXCNT, count);
 		if (count > FIFO_SIZE)
@@ -230,6 +232,15 @@ static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
 			ptr += 4;
 			remaining -= 4;
 			count -= 4;
+		}
+		while (remaining < 4 && count) {
+			if (write)
+				writeb(*ptr, host->base + MSDC_TXDATA);
+			else
+				*ptr = readb(host->base + MSDC_RXDATA);
+			ptr++;
+			remaining--;
+			count--;
 		}
 		if (status & INT_XFER_COMPL) {
 			writel(INT_XFER_COMPL, host->base + MSDC_INT);
@@ -285,6 +296,7 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct mmc_data *data = mrq->data;
 	unsigned int length = 0;
 	bool dma = host->dma_enabled;
+	u32 cfg;
 	int ret;
 
 	if (host->clock_error) {
@@ -292,12 +304,13 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		goto done;
 	}
 	if (data) {
-		if (!data->blksz || !data->blocks || data->blksz % 4 ||
+		if (!data->blksz || !data->blocks ||
 		    data->blksz > 512 || data->blocks > MAX_REQUEST / data->blksz) {
 			mrq->cmd->error = -EINVAL;
 			goto done;
 		}
 		length = data->blocks * data->blksz;
+		dma &= !(data->blksz % 4);
 		if (data->flags & MMC_DATA_WRITE &&
 		    sg_copy_to_buffer(data->sg, data->sg_len, host->buffer, length) != length) {
 			mrq->cmd->error = -EINVAL;
@@ -314,13 +327,15 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (mrq->sbc->error)
 			goto done;
 	}
-	if (data && host->dma_enabled)
-		writel(readl(host->base + MSDC_CFG) & ~CFG_PIO, host->base + MSDC_CFG);
+	if (data) {
+		cfg = readl(host->base + MSDC_CFG) & ~CFG_PIO;
+		writel(cfg | (dma ? 0 : CFG_PIO), host->base + MSDC_CFG);
+	}
 	mrq->cmd->error = mt6577_command(host, mrq->cmd, data);
 	if (mrq->cmd->error)
 		goto done;
 	if (data) {
-		data->error = host->dma_enabled ? mt6577_dma_transfer(host, data) :
+		data->error = dma ? mt6577_dma_transfer(host, data) :
 			      mt6577_transfer(host, data);
 		if (!data->error && data->flags & MMC_DATA_READ &&
 		    sg_copy_from_buffer(data->sg, data->sg_len, host->buffer, length) != length)
@@ -350,7 +365,9 @@ static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	if (!host->clock_enabled)
 		return;
-	if ((ios->timing != MMC_TIMING_LEGACY && ios->timing != MMC_TIMING_MMC_HS) ||
+	if ((ios->timing != MMC_TIMING_LEGACY && ios->timing != MMC_TIMING_MMC_HS &&
+	     ios->timing != MMC_TIMING_SD_HS) ||
+	    (ios->timing == MMC_TIMING_SD_HS && ios->clock > 50000000) ||
 	    ios->signal_voltage != MMC_SIGNAL_VOLTAGE_330) {
 		host->clock_error = -EINVAL;
 		return;
@@ -424,7 +441,7 @@ static int mt6577_probe(struct platform_device *pdev)
 	mmc->f_min = DIV_ROUND_UP(host->rate, 4 * 255);
 	mmc->f_max = 52000000;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
-	mmc->caps2 = MMC_CAP2_NO_SD | MMC_CAP2_NO_SDIO;
+	mmc->caps2 = MMC_CAP2_NO_SD;
 	mmc->max_segs = 16;
 	mmc->max_seg_size = MAX_REQUEST;
 	mmc->max_req_size = MAX_REQUEST;
@@ -434,7 +451,8 @@ static int mt6577_probe(struct platform_device *pdev)
 	ret = mmc_of_parse(mmc);
 	if (ret)
 		return ret;
-	if (!(mmc->caps & MMC_CAP_NONREMOVABLE) || mmc->caps & MMC_CAP_8_BIT_DATA)
+	if (!(mmc->caps & MMC_CAP_NONREMOVABLE) ||
+	    mmc->caps & (MMC_CAP_8_BIT_DATA | MMC_CAP_SDIO_IRQ))
 		return -EINVAL;
 	mmc->f_max = min(mmc->f_max, 52000000U);
 	ret = mt6577_init_hw(host);
@@ -472,5 +490,5 @@ static struct platform_driver mt6577_driver = {
 };
 module_platform_driver(mt6577_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 eMMC host");
+MODULE_DESCRIPTION("MediaTek MT6577 MMC and SDIO host");
 MODULE_LICENSE("GPL");
