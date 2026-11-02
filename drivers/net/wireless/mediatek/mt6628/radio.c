@@ -21,6 +21,7 @@ struct mt6628_radio {
 	unsigned int channel_mask;
 	int regulatory_power;
 	int policy_error;
+	int configure_error;
 	bool configured;
 };
 
@@ -127,12 +128,16 @@ static int mt6628_radio_update(struct mt6628_radio *radio,
 	int ret;
 
 	ret = mt6628_radio_build(radio, alpha2, limit, domain, power);
-	if (ret)
+	if (ret) {
+		radio->configure_error = ret;
 		return ret;
+	}
 	ret = mt6628_sdio_set(radio->dev, 0x28, power, sizeof(power));
 	if (!ret)
 		ret = mt6628_sdio_set(radio->dev, 0x13, domain, sizeof(domain));
 	if (ret) {
+		radio->configure_error = ret;
+		radio->configured = false;
 		mt6628_sdio_fault(radio->dev, ret);
 		return ret;
 	}
@@ -140,6 +145,7 @@ static int mt6628_radio_update(struct mt6628_radio *radio,
 	radio->alpha2[1] = alpha2[1];
 	radio->power_limit = limit;
 	radio->configured = true;
+	radio->configure_error = 0;
 	return 0;
 }
 
@@ -203,6 +209,7 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	radio->dev = dev;
 	mutex_init(&radio->policy_mutex);
 	radio->policy_error = -EAGAIN;
+	radio->configure_error = -EAGAIN;
 	radio->alpha2[0] = '0';
 	radio->alpha2[1] = '0';
 	radio->power_limit = INT_MAX;
@@ -228,14 +235,10 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	ret = wiphy_register(wiphy);
 	if (ret)
 		goto free;
-	rtnl_lock();
 	mutex_lock(&radio->policy_mutex);
-	if (!radio->configured) {
-		mt6628_radio_snapshot(radio);
-		ret = mt6628_radio_update(radio, radio->alpha2, radio->power_limit);
-	}
+	if (!radio->configured)
+		ret = radio->configure_error;
 	mutex_unlock(&radio->policy_mutex);
-	rtnl_unlock();
 	if (ret) {
 		wiphy_unregister(wiphy);
 		goto free;
