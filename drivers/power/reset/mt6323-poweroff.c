@@ -8,6 +8,7 @@
  *
  */
 
+#include <linux/clk-provider.h>
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -16,6 +17,7 @@
 #include <linux/mfd/mt6397/core.h>
 #include <linux/mfd/mt6397/rtc.h>
 #include <linux/reboot.h>
+#include <linux/spinlock.h>
 
 struct mt6323_pwrc_data {
 	u32 wrtgr;
@@ -39,7 +41,18 @@ struct mt6323_pwrc {
 	struct regmap *regmap;
 	u32 base;
 	const struct mt6323_pwrc_data *data;
+	raw_spinlock_t lock;
+	struct clk_hw clock;
 };
+
+static int mt6577_pwrc_wait(struct mt6323_pwrc *pwrc)
+{
+	unsigned int val;
+
+	return regmap_read_poll_timeout_atomic(pwrc->regmap, RTC_BBPU, val,
+					      !(val & RTC_BBPU_CBUSY),
+					      MTK_RTC_POLL_DELAY_US, MTK_RTC_POLL_TIMEOUT);
+}
 
 static int mt6323_pwrc_write(struct mt6323_pwrc *pwrc, u32 reg, u32 value)
 {
@@ -65,20 +78,60 @@ static int mt6323_pwrc_write(struct mt6323_pwrc *pwrc, u32 reg, u32 value)
 					MTK_RTC_POLL_TIMEOUT);
 }
 
+static int mt6577_pwrc_unlock(struct mt6323_pwrc *pwrc)
+{
+	int ret;
+
+	ret = mt6577_pwrc_wait(pwrc);
+	if (ret)
+		return ret;
+	ret = mt6323_pwrc_write(pwrc, 0x68, 0x586a);
+	if (ret)
+		return ret;
+	return mt6323_pwrc_write(pwrc, 0x68, 0x9136);
+}
+
+static int mt6577_rtc_set_clock(struct mt6323_pwrc *pwrc, bool enable)
+{
+	unsigned int con, users;
+	unsigned long flags;
+	int ret;
+
+	raw_spin_lock_irqsave(&pwrc->lock, flags);
+	ret = mt6577_pwrc_unlock(pwrc);
+	if (ret)
+		goto out;
+	if (!enable) {
+		ret = regmap_read(pwrc->regmap, 0x58, &users);
+		if (ret || (users & GENMASK(12, 8)))
+			goto out;
+	}
+	ret = regmap_read(pwrc->regmap, 0x78, &con);
+	if (ret)
+		goto out;
+	con = enable ? con & ~BIT(5) : con | BIT(5);
+	ret = mt6323_pwrc_write(pwrc, 0x78, con);
+out:
+	raw_spin_unlock_irqrestore(&pwrc->lock, flags);
+	return ret;
+}
+
 static int mt6323_do_pwroff(struct sys_off_data *data)
 {
 	struct mt6323_pwrc *pwrc = data->cb_data;
+	unsigned long flags = 0;
 	int ret;
 
 	if (pwrc->data->mmio) {
-		ret = mt6323_pwrc_write(pwrc, 0x68, 0x586a);
+		raw_spin_lock_irqsave(&pwrc->lock, flags);
+		ret = mt6577_pwrc_unlock(pwrc);
 		if (ret)
-			goto err;
-		ret = mt6323_pwrc_write(pwrc, 0x68, 0x9136);
-		if (ret)
-			goto err;
+			goto unlock;
 	}
 	ret = mt6323_pwrc_write(pwrc, RTC_BBPU, pwrc->data->bbpu);
+unlock:
+	if (pwrc->data->mmio)
+		raw_spin_unlock_irqrestore(&pwrc->lock, flags);
 	if (ret)
 		goto err;
 
@@ -96,24 +149,69 @@ err:
 
 static bool mt6577_pwrc_readable(struct device *dev, unsigned int reg)
 {
-	return reg == RTC_BBPU;
+	return reg == RTC_BBPU || reg == 0x58 || reg == 0x78;
 }
 
 static bool mt6577_pwrc_writeable(struct device *dev, unsigned int reg)
 {
-	return reg == RTC_BBPU || reg == 0x68 || reg == 0x74;
+	return reg == RTC_BBPU || reg == 0x68 || reg == 0x74 || reg == 0x78;
 }
 
 static const struct regmap_config mt6577_pwrc_regmap = {
 	.reg_bits = 32,
 	.val_bits = 16,
 	.reg_stride = 4,
-	.max_register = 0x74,
+	.max_register = 0x78,
 	.fast_io = true,
+	.use_raw_spinlock = true,
 	.cache_type = REGCACHE_NONE,
 	.readable_reg = mt6577_pwrc_readable,
 	.writeable_reg = mt6577_pwrc_writeable,
 };
+
+static int mt6577_rtc_clock_prepare(struct clk_hw *hw)
+{
+	return mt6577_rtc_set_clock(container_of(hw, struct mt6323_pwrc, clock), true);
+}
+
+static void mt6577_rtc_clock_unprepare(struct clk_hw *hw)
+{
+	struct mt6323_pwrc *pwrc = container_of(hw, struct mt6323_pwrc, clock);
+	int ret;
+
+	ret = mt6577_rtc_set_clock(pwrc, false);
+	if (ret)
+		dev_err(pwrc->dev, "failed to disable RTC clock: %d\n", ret);
+}
+
+static unsigned long mt6577_rtc_clock_rate(struct clk_hw *hw, unsigned long parent)
+{
+	return 32768;
+}
+
+static const struct clk_ops mt6577_rtc_clock_ops = {
+	.prepare = mt6577_rtc_clock_prepare,
+	.unprepare = mt6577_rtc_clock_unprepare,
+	.recalc_rate = mt6577_rtc_clock_rate,
+};
+
+static int mt6577_rtc_register_clock(struct mt6323_pwrc *pwrc)
+{
+	struct clk_init_data init = {
+		.name = "mt6577_rtc_32k",
+		.ops = &mt6577_rtc_clock_ops,
+		.flags = CLK_IGNORE_UNUSED,
+	};
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_COMMON_CLK))
+		return -EOPNOTSUPP;
+	pwrc->clock.init = &init;
+	ret = devm_clk_hw_register(pwrc->dev, &pwrc->clock);
+	if (ret)
+		return ret;
+	return devm_of_clk_add_hw_provider(pwrc->dev, of_clk_hw_simple_get, &pwrc->clock);
+}
 
 static int mt6323_pwrc_probe(struct platform_device *pdev)
 {
@@ -148,6 +246,12 @@ static int mt6323_pwrc_probe(struct platform_device *pdev)
 		pwrc->regmap = chip->regmap;
 	}
 	pwrc->dev = &pdev->dev;
+	raw_spin_lock_init(&pwrc->lock);
+	if (pwrc->data->mmio && of_property_present(pdev->dev.of_node, "#clock-cells")) {
+		ret = mt6577_rtc_register_clock(pwrc);
+		if (ret)
+			return dev_err_probe(pwrc->dev, ret, "failed to register RTC clock\n");
+	}
 
 	ret = devm_register_sys_off_handler(pwrc->dev,
 					    SYS_OFF_MODE_POWER_OFF,
