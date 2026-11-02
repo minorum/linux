@@ -219,6 +219,8 @@ static const struct mtk_gate mt6577_peri_gates[] = {
 		       CLK_IS_CRITICAL),
 	GATE_MTK(CLK_MT6577_I2C0, "mt6577_i2c0", NULL,
 		 &mt6577_peri_regs, 28, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT6577_UART2, "mt6577_uart2", "mt6577_pwm_ref",
+		 &mt6577_peri_regs, 26, &mtk_clk_gate_ops_no_setclr),
 };
 
 struct mt6577_peri {
