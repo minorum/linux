@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/mmc/core.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
@@ -259,4 +260,19 @@ int mt6628_sdio_stop(struct mt6628_dev *dev)
 	mutex_unlock(&dev->command_mutex);
 	WRITE_ONCE(dev->initialized, false);
 	return ret;
+}
+
+int mt6628_sdio_abort(struct mt6628_dev *dev)
+{
+	int ret, err;
+
+	if (!READ_ONCE(dev->initialized))
+		return atomic_read(&dev->error) ?: -ESHUTDOWN;
+	ret = mt6628_sdio_stop(dev);
+	sdio_claim_host(dev->func);
+	err = mmc_hw_reset(dev->func->card);
+	sdio_release_host(dev->func);
+	if (err > 0)
+		err = -EAGAIN;
+	return err ?: ret;
 }

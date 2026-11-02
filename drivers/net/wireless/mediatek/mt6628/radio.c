@@ -136,9 +136,15 @@ static int mt6628_radio_update(struct mt6628_radio *radio,
 	if (!ret)
 		ret = mt6628_sdio_set(radio->dev, 0x13, domain, sizeof(domain));
 	if (ret) {
+		int err;
+
 		radio->configure_error = ret;
 		radio->configured = false;
 		mt6628_sdio_fault(radio->dev, ret);
+		err = mt6628_sdio_abort(radio->dev);
+		if (err)
+			dev_warn(&radio->dev->func->dev,
+				 "terminal reset failed: %d\n", err);
 		return ret;
 	}
 	radio->alpha2[0] = alpha2[0];
