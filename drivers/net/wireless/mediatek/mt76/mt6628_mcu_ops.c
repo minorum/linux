@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/etherdevice.h>
 #include <linux/unaligned.h>
 
 #include "mt76.h"
@@ -110,6 +111,37 @@ bool mt6628_mcu_rx_event(struct mt76_dev *dev, struct sk_buff *skb)
 	default:
 		return false;
 	}
+}
+
+int mt6628_mcu_get_info(struct mt76_dev *dev, struct mt6628_fw_info *info)
+{
+	struct mt6628_fw_info result = {};
+	struct sk_buff *skb;
+	u8 query[16] = {};
+	int ret;
+
+	ret = mt76_mcu_send_and_get_msg(dev, 0x80, query, sizeof(query), true, &skb);
+	if (ret)
+		return ret;
+	result.product_id = get_unaligned_le16(skb->data);
+	result.firmware_version = get_unaligned_le16(skb->data + 2);
+	result.peer_version = get_unaligned_le16(skb->data + 4);
+	result.hw_5ghz_disabled = skb->data[6];
+	result.eeprom_used = skb->data[7];
+	result.efuse_valid = skb->data[8];
+	result.mac_valid = skb->data[9];
+	dev_kfree_skb(skb);
+	ret = mt76_mcu_send_and_get_msg(dev, 0xc1, query, 12, true, &skb);
+	if (ret)
+		return ret;
+	if (!is_valid_ether_addr(skb->data)) {
+		dev_kfree_skb(skb);
+		return -ENODATA;
+	}
+	memcpy(result.permanent_addr, skb->data, sizeof(result.permanent_addr));
+	dev_kfree_skb(skb);
+	*info = result;
+	return 0;
 }
 
 void mt6628_mcu_init(struct mt76_dev *dev)
