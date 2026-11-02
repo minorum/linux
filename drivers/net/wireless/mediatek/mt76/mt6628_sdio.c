@@ -9,6 +9,55 @@
 #include <linux/unaligned.h>
 
 #include "mt6628_mcu.h"
+#include "mt6628_sdio.h"
+
+const u8 mt6628_sdio_tx_max[6] = { 1, 20, 1, 1, 4, 1 };
+
+int mt6628_sdio_decode_status(const u8 *buf, size_t len,
+			      struct mt6628_sdio_status *status)
+{
+	struct mt6628_sdio_status decoded = {};
+	unsigned int port, i;
+
+	if (len != 88)
+		return -EPROTO;
+	decoded.isr = get_unaligned_le32(buf);
+	memcpy(decoded.tx, buf + 4, sizeof(decoded.tx));
+	for (i = 0; i < 6; i++)
+		if (decoded.tx[i])
+			decoded.isr |= BIT(0);
+	for (port = 0; port < 2; port++) {
+		decoded.rx_count[port] = get_unaligned_le16(buf + 12 + port * 2);
+		if (decoded.rx_count[port] > 16)
+			return -EPROTO;
+		for (i = 0; i < decoded.rx_count[port]; i++) {
+			u16 size = get_unaligned_le16(buf + 16 + port * 32 + i * 2);
+
+			if (!size || size > 2352)
+				return -EPROTO;
+			decoded.rx_len[port][i] = size;
+		}
+	}
+	decoded.mailbox[0] = get_unaligned_le32(buf + 80);
+	decoded.mailbox[1] = get_unaligned_le32(buf + 84);
+	*status = decoded;
+	return 0;
+}
+
+int mt6628_sdio_return_credits(u8 credits[6], const u8 returned[6])
+{
+	unsigned int i, total = 0;
+
+	for (i = 0; i < 6; i++) {
+		if (credits[i] > mt6628_sdio_tx_max[i] ||
+		    returned[i] > mt6628_sdio_tx_max[i] - credits[i])
+			return -EPROTO;
+		total += returned[i];
+	}
+	for (i = 0; i < 6; i++)
+		credits[i] += returned[i];
+	return total;
+}
 
 static int mt6628_sdio_poll(struct sdio_func *func, u32 reg, u32 mask,
 			    unsigned int timeout)
