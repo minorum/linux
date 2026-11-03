@@ -30,8 +30,10 @@ static int mt6628_init_setup(struct sdio_func *func)
 	value = sdio_readl(func, 0x00, &ret);
 	if (ret)
 		return ret;
-	if ((value & 0xffff) != 0x6628 || !(value & BIT(21)))
+	if ((value & 0xffff) != 0x6628 || !(value & BIT(21))) {
+		dev_err(&func->dev, "initialization WCIR %#x\n", value);
 		return -ENODEV;
+	}
 	value = sdio_readl(func, 0x0c, &ret);
 	if (ret)
 		return ret;
@@ -171,6 +173,7 @@ int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
 		goto out;
 	result.product_id = get_unaligned_le16(response + 8);
 	if (result.product_id != 0x6628) {
+		dev_err(&func->dev, "firmware product %#x\n", result.product_id);
 		ret = -ENODEV;
 		goto out;
 	}

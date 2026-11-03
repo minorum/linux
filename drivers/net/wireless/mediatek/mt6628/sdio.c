@@ -149,6 +149,7 @@ int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw)
 	if (ret)
 		goto out;
 	if ((value & 0xffff) != 0x6628) {
+		dev_err(&func->dev, "download WCIR %#x\n", value);
 		ret = -ENODEV;
 		goto out;
 	}

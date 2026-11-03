@@ -37,11 +37,13 @@ int mt6628_hw_start(struct mt6628_dev *dev)
 		return -EBUSY;
 	ret = mt6628_sdio_bootstrap(func);
 	if (ret)
-		return ret;
+		return dev_err_probe(&func->dev, ret, "SDIO bootstrap failed\n");
 	sdio_set_drvdata(func, dev);
 	ret = mt6628_sdio_get_info(func, &dev->info, dev->credits);
-	if (ret)
+	if (ret) {
+		dev_err_probe(&func->dev, ret, "firmware information failed\n");
 		goto stop;
+	}
 	address = dev->factory.mac_addr;
 	if (!is_valid_ether_addr(address)) {
 		if (!dev->info.mac_valid ||
