@@ -242,6 +242,7 @@ static int sc2723_wdt_probe(struct platform_device *pdev)
 	watchdog_set_drvdata(&wdt->wdd, wdt);
 	watchdog_set_nowayout(&wdt->wdd, WATCHDOG_NOWAYOUT);
 	watchdog_stop_ping_on_suspend(&wdt->wdd);
+	watchdog_stop_on_reboot(&wdt->wdd);
 	watchdog_stop_on_unregister(&wdt->wdd);
 	platform_set_drvdata(pdev, wdt);
 	return devm_watchdog_register_device(dev, &wdt->wdd);
