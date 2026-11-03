@@ -187,7 +187,7 @@ static int sc2723_wdt_suspend(struct device *dev)
 		}
 		ret = rtc_read_time(rtc, &now);
 		if (!ret)
-			ret = rtc_read_alarm(rtc, &alarm);
+			ret = rtc_read_next_alarm(rtc, &alarm);
 		rtc_class_close(rtc);
 		if (ret)
 			return ret;
