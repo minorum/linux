@@ -33,6 +33,10 @@ struct mt6628_radio {
 	struct sk_buff_head rx;
 	struct wiphy_work rx_work;
 	struct net_device *netdev;
+	u8 rx_mode[200];
+	int rx_mode_error;
+	bool rx_mode_applied;
+	bool rx_mode_blocked;
 	struct cfg80211_scan_request *scan_request;
 	struct delayed_work scan_timeout;
 	unsigned long scan_deadline;
@@ -82,12 +86,15 @@ struct mt6628_radio {
 	u8 assoc_response[1536];
 	size_t assoc_response_len;
 	bool peer_created;
+	bool peer_activated;
 	bool channel_owned;
 };
 
 static void mt6628_radio_fault(struct mt6628_radio *radio, int error);
 static void mt6628_join_fail(struct mt6628_radio *radio);
 static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb);
+static int mt6628_rx_mode_apply(struct mt6628_radio *radio);
+static void mt6628_join_assoc_done(struct mt6628_radio *radio, u16 status);
 
 static void mt6628_join_expire(struct work_struct *work)
 {
@@ -226,6 +233,9 @@ static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 		mt6628_radio_fault(radio, error);
 	if (radio->join_error)
 		mt6628_join_fail(radio);
+	if (radio->join_state == MT6628_JOIN_ACTIVATE && radio->peer_activated &&
+	    !radio->rx_mode_error && radio->rx_mode_applied)
+		mt6628_join_assoc_done(radio, 0);
 	mutex_unlock(&radio->policy_mutex);
 
 	for (budget = 0; budget < 48; budget++) {
@@ -395,6 +405,7 @@ static void mt6628_radio_snapshot(struct mt6628_radio *radio)
 
 	ASSERT_RTNL();
 	radio->configured = false;
+	radio->rx_mode_applied = false;
 	for (i = 0; i < 14; i++) {
 		struct ieee80211_channel *channel = &radio->channels[i];
 
@@ -476,6 +487,7 @@ static void mt6628_radio_fault(struct mt6628_radio *radio, int error)
 {
 	int ret;
 
+	mt6628_data_stop(radio->dev);
 	mt6628_scan_finish(radio, true);
 	if (radio->join_state != MT6628_JOIN_IDLE) {
 		if (!radio->join_error)
@@ -484,6 +496,7 @@ static void mt6628_radio_fault(struct mt6628_radio *radio, int error)
 	}
 	radio->configured = false;
 	radio->configure_error = error;
+	radio->rx_mode_applied = false;
 	radio->active = false;
 	mt6628_sdio_fault(radio->dev, error);
 	ret = mt6628_sdio_abort(radio->dev);
@@ -525,6 +538,7 @@ static int mt6628_radio_restart(struct mt6628_radio *radio)
 	if (radio->policy_error)
 		return radio->policy_error;
 	ret = mt6628_sdio_stop(radio->dev);
+	radio->rx_mode_applied = false;
 	if (ret)
 		dev_warn(&radio->dev->func->dev, "recovery stop failed: %d\n", ret);
 	radio->configured = false;
@@ -647,6 +661,7 @@ static int mt6628_net_stop(struct net_device *netdev)
 	netif_carrier_off(netdev);
 	netif_stop_queue(netdev);
 	mutex_lock(&radio->policy_mutex);
+	radio->rx_mode_applied = false;
 	mt6628_scan_cancel(radio);
 	if (radio->join_state)
 		mt6628_radio_fault(radio, -ESHUTDOWN);
@@ -664,15 +679,85 @@ static int mt6628_net_stop(struct net_device *netdev)
 
 static netdev_tx_t mt6628_net_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
-	dev_core_stats_tx_dropped_inc(netdev);
-	dev_kfree_skb_any(skb);
-	return NETDEV_TX_OK;
+	struct mt6628_radio *radio = wiphy_priv(netdev->ieee80211_ptr->wiphy);
+
+	return mt6628_data_xmit(radio->dev, netdev, skb);
+}
+
+static int mt6628_rx_mode_apply(struct mt6628_radio *radio)
+{
+	u8 list[200], filter[4] = {};
+	int ret;
+
+	ret = radio->rx_mode_error;
+	if (ret == -EAGAIN)
+		return ret;
+	if (ret) {
+		mt6628_data_stop(radio->dev);
+		radio->rx_mode_applied = false;
+		radio->rx_mode_blocked = true;
+		dev_warn(&radio->dev->func->dev, "unsupported receive mode: %d\n", ret);
+		return ret;
+	}
+	if (radio->rx_mode_applied)
+		return 0;
+	memcpy(list, radio->rx_mode, sizeof(list));
+	filter[0] = get_unaligned_le32(list) ? 0x0b : 9;
+	ret = mt6628_sdio_set(radio->dev, 0xc3, list, sizeof(list));
+	if (!ret)
+		ret = mt6628_sdio_set(radio->dev, 0x0b, filter, sizeof(filter));
+	if (ret) {
+		mt6628_radio_fault(radio, ret);
+		return ret;
+	}
+	radio->rx_mode_applied = true;
+	if (radio->rx_mode_blocked && radio->join_state == MT6628_JOIN_CONNECTED)
+		mt6628_data_start(radio->dev, radio->netdev, radio->join_peer,
+				  radio->join_channel);
+	radio->rx_mode_blocked = false;
+	return 0;
+}
+
+static int mt6628_set_rx_mode(struct net_device *netdev,
+			      struct netdev_hw_addr_list *uc,
+			      struct netdev_hw_addr_list *mc)
+{
+	struct mt6628_radio *radio = wiphy_priv(netdev->ieee80211_ptr->wiphy);
+	struct netdev_hw_addr *address;
+	u8 list[200] = {};
+	unsigned int count = 0;
+	int error = 0;
+
+	ASSERT_RTNL();
+	if ((netdev->flags & (IFF_PROMISC | IFF_ALLMULTI)) ||
+	    !netdev_hw_addr_list_empty(uc)) {
+		error = -EOPNOTSUPP;
+	} else if ((netdev->flags & IFF_MULTICAST) && netdev_hw_addr_list_count(mc) > 32) {
+		error = -ENOSPC;
+	} else if (netdev->flags & IFF_MULTICAST) {
+		netdev_hw_addr_list_for_each(address, mc)
+			ether_addr_copy(list + 8 + 6 * count++, address->addr);
+		put_unaligned_le32(count, list);
+	}
+	mutex_lock(&radio->policy_mutex);
+	memcpy(radio->rx_mode, list, sizeof(list));
+	radio->rx_mode_error = error;
+	radio->rx_mode_applied = false;
+	if (radio->ready && radio->active && radio->configured)
+		error = mt6628_rx_mode_apply(radio);
+	else if (!error)
+		error = radio->configure_error ?: -EAGAIN;
+	if (!error && radio->peer_activated && radio->join_state == MT6628_JOIN_ACTIVATE)
+		wiphy_work_queue(radio->dev->wiphy, &radio->rx_work);
+	mutex_unlock(&radio->policy_mutex);
+	return error;
 }
 
 static const struct net_device_ops mt6628_net_ops = {
 	.ndo_open = mt6628_net_open,
 	.ndo_stop = mt6628_net_stop,
 	.ndo_start_xmit = mt6628_net_xmit,
+	.ndo_set_rx_mode_async = mt6628_set_rx_mode,
 };
 
 static struct wireless_dev *
@@ -712,6 +797,8 @@ mt6628_add_interface(struct wiphy *wiphy, const char *name, unsigned char assign
 	wdev->iftype = NL80211_IFTYPE_STATION;
 	netdev->ieee80211_ptr = wdev;
 	netdev->netdev_ops = &mt6628_net_ops;
+	netdev->max_mtu = ETH_DATA_LEN;
+	netdev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
 	netdev->needs_free_netdev = true;
 	dev_net_set(netdev, wiphy_net(wiphy));
 	SET_NETDEV_DEV(netdev, &radio->dev->func->dev);
@@ -719,6 +806,10 @@ mt6628_add_interface(struct wiphy *wiphy, const char *name, unsigned char assign
 	ether_addr_copy(netdev->perm_addr, radio->dev->mac_addr);
 	netif_carrier_off(netdev);
 	netif_stop_queue(netdev);
+	memset(radio->rx_mode, 0, sizeof(radio->rx_mode));
+	radio->rx_mode_error = -EAGAIN;
+	radio->rx_mode_applied = false;
+	radio->rx_mode_blocked = false;
 	ret = cfg80211_register_netdevice(netdev);
 	if (ret) {
 		free_netdev(netdev);
@@ -899,6 +990,7 @@ static void mt6628_join_fail(struct mt6628_radio *radio)
 
 	if (state == MT6628_JOIN_IDLE)
 		return;
+	mt6628_data_stop(radio->dev);
 	wiphy = radio->netdev->ieee80211_ptr->wiphy;
 	radio->join_state = MT6628_JOIN_IDLE;
 	radio->join_error = 0;
@@ -914,6 +1006,7 @@ static void mt6628_join_fail(struct mt6628_radio *radio)
 			ret = mt6628_join_release_channel(radio);
 	}
 	radio->peer_created = false;
+	radio->peer_activated = false;
 	radio->channel_owned = false;
 	if (state == MT6628_JOIN_CHANNEL || state == MT6628_JOIN_AUTH)
 		cfg80211_auth_timeout(radio->netdev, radio->auth_bss->bssid);
@@ -1087,6 +1180,9 @@ static int mt6628_assoc(struct wiphy *wiphy, struct net_device *netdev,
 	    request->use_mfp || request->ie_len || request->crypto.wpa_versions ||
 	    request->crypto.cipher_group || request->crypto.n_ciphers_pairwise ||
 	    request->crypto.n_akm_suites || request->crypto.control_port ||
+	    request->crypto.control_port_over_nl80211 ||
+	    request->crypto.control_port_no_preauth ||
+	    request->crypto.psk || request->crypto.sae_pwd_len ||
 	    request->fils_kek_len || request->supported_selectors_len ||
 	    request->flags & ~(ASSOC_REQ_DISABLE_HT | ASSOC_REQ_DISABLE_VHT |
 			       ASSOC_REQ_DISABLE_HE | ASSOC_REQ_DISABLE_EHT |
@@ -1152,6 +1248,19 @@ static void mt6628_join_assoc_done(struct mt6628_radio *radio, u16 status)
 		.req_ies_len = radio->assoc_ies_len,
 	};
 
+	if (!status) {
+		int ret = time_before(jiffies, radio->join_deadline) ?
+			mt6628_rx_mode_apply(radio) : -ETIMEDOUT;
+
+		if (ret == -EAGAIN)
+			return;
+		if (!ret && !time_before(jiffies, radio->join_deadline))
+			ret = -ETIMEDOUT;
+		if (ret) {
+			mt6628_join_fail(radio);
+			return;
+		}
+	}
 	data.links[0].bss = radio->assoc_bss;
 	radio->assoc_bss = NULL;
 	if (!status) {
@@ -1161,6 +1270,9 @@ static void mt6628_join_assoc_done(struct mt6628_radio *radio, u16 status)
 		radio->join_state = MT6628_JOIN_AUTHENTICATED;
 	}
 	cfg80211_rx_assoc_resp(radio->netdev, &data);
+	if (!status)
+		mt6628_data_start(radio->dev, radio->netdev, radio->join_peer,
+				  radio->auth_bss->channel->hw_value);
 	if (status)
 		mt6628_join_fail(radio);
 }
@@ -1236,8 +1348,10 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 			    packet[14] != radio->join_peer || packet[15])
 				return;
 			ret = mt6628_join_release_channel(radio);
-			if (!ret)
+			if (!ret) {
+				radio->peer_activated = true;
 				mt6628_join_assoc_done(radio, 0);
+			}
 			break;
 		case 1:
 			if (radio->join_state == MT6628_JOIN_ACTIVATE &&
@@ -1296,6 +1410,7 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 		if (!ret)
 			ret = mt6628_join_peer(radio, 2);
 	} else if ((frame[0] == 0xc0 || frame[0] == 0xa0) && len >= 26) {
+		mt6628_data_stop(radio->dev);
 		cfg80211_rx_mlme_mgmt(radio->netdev, frame, len);
 		if (radio->join_state == MT6628_JOIN_CONNECTED)
 			radio->join_state = MT6628_JOIN_ACTIVATE;
@@ -1321,6 +1436,7 @@ static int mt6628_disconnect(struct wiphy *wiphy, struct net_device *netdev,
 		ret = -ENOTCONN;
 		goto out;
 	}
+	mt6628_data_stop(radio->dev);
 	mt6628_join_header(radio, frame, subtype);
 	put_unaligned_le16(reason, frame + 24);
 	if (!local && radio->peer_created && radio->configured)

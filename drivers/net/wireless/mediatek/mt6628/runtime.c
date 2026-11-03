@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/jiffies.h>
+#include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
 #include <linux/mmc/core.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/slab.h>
@@ -10,7 +12,205 @@
 struct mt6628_tx_info {
 	unsigned long deadline;
 	bool management;
+	u8 tc;
 };
+
+#define MT6628_DATA_QUEUE_LEN 64
+#define MT6628_DATA_LIFETIME_MS 1000
+
+void mt6628_data_start(struct mt6628_dev *dev, struct net_device *netdev,
+		       u8 peer, u8 channel)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	if (!atomic_read(&dev->error)) {
+		dev->data_netdev = netdev;
+		dev->data_peer = peer;
+		dev->data_channel = channel;
+		dev->data_enabled = true;
+		netif_carrier_on(netdev);
+		netif_wake_queue(netdev);
+	}
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+}
+
+void mt6628_data_stop(struct mt6628_dev *dev)
+{
+	struct net_device *netdev;
+	struct sk_buff *skb;
+	unsigned long flags;
+
+	if (!READ_ONCE(dev->initialized))
+		return;
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	dev->data_enabled = false;
+	netdev = dev->data_netdev;
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	if (netdev) {
+		netif_carrier_off(netdev);
+		netif_tx_disable(netdev);
+	}
+	sdio_claim_host(dev->func);
+	while ((skb = skb_dequeue(&dev->data_tx))) {
+		dev_core_stats_tx_dropped_inc(netdev);
+		dev_kfree_skb_any(skb);
+	}
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	dev->data_netdev = NULL;
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	sdio_release_host(dev->func);
+}
+
+netdev_tx_t mt6628_data_xmit(struct mt6628_dev *dev, struct net_device *netdev,
+			     struct sk_buff *skb)
+{
+	struct mt6628_tx_info *info = (void *)skb->cb;
+	struct ethhdr header, *eth;
+	unsigned long flags;
+	__be16 protocol;
+
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	if (!dev->data_enabled || dev->data_netdev != netdev || atomic_read(&dev->error))
+		goto drop;
+	if (skb_queue_len(&dev->data_tx) >= MT6628_DATA_QUEUE_LEN) {
+		netif_stop_queue(dev->data_netdev);
+		spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+		return NETDEV_TX_BUSY;
+	}
+	eth = skb_header_pointer(skb, 0, sizeof(header), &header);
+	if (!eth || skb->len > VLAN_ETH_FRAME_LEN || skb_is_gso(skb) ||
+	    skb_vlan_tag_present(skb) || skb->ip_summed == CHECKSUM_PARTIAL)
+		goto drop;
+	protocol = __vlan_get_protocol(skb, eth->h_proto, NULL);
+	if (!protocol || protocol == htons(ETH_P_PAE) || protocol == htons(ETH_P_PREAUTH))
+		goto drop;
+	info->tc = is_multicast_ether_addr(eth->h_dest) ? 5 : 1;
+	info->deadline = jiffies + msecs_to_jiffies(MT6628_DATA_LIFETIME_MS);
+	__skb_queue_tail(&dev->data_tx, skb);
+	if (skb_queue_len(&dev->data_tx) == MT6628_DATA_QUEUE_LEN)
+		netif_stop_queue(dev->data_netdev);
+	mod_delayed_work(system_wq, &dev->io_work, 0);
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	return NETDEV_TX_OK;
+drop:
+	dev_core_stats_tx_dropped_inc(netdev);
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	dev_kfree_skb_any(skb);
+	return NETDEV_TX_OK;
+}
+
+static void mt6628_data_rx(struct mt6628_dev *dev, const u8 *packet,
+			   unsigned int count)
+{
+	unsigned int offset = 12 + (packet[4] & 3), len = count - offset;
+	struct net_device *netdev;
+	struct sk_buff *skb;
+	unsigned long flags;
+	__be16 protocol;
+
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	netdev = dev->data_netdev;
+	if (!dev->data_enabled || atomic_read(&dev->error) ||
+	    (packet[5] & 0xf7) || (get_unaligned_le16(packet + 6) & BIT(15)) ||
+	    packet[8] != dev->data_peer || packet[10] != dev->data_channel ||
+	    (packet[4] >> 2) != ETH_HLEN || len > VLAN_ETH_FRAME_LEN ||
+	    (!is_multicast_ether_addr(packet + offset) &&
+	     !ether_addr_equal(packet + offset, netdev->dev_addr))) {
+		spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+		return;
+	}
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	skb = netdev_alloc_skb_ip_align(netdev, len);
+	if (!skb) {
+		dev_core_stats_rx_dropped_inc(netdev);
+		return;
+	}
+	skb_put_data(skb, packet + offset, len);
+	skb->protocol = ((struct ethhdr *)skb->data)->h_proto;
+	protocol = vlan_get_protocol(skb);
+	if (!protocol || protocol == htons(ETH_P_PAE) || protocol == htons(ETH_P_PREAUTH)) {
+		dev_core_stats_rx_dropped_inc(netdev);
+		dev_kfree_skb_any(skb);
+		return;
+	}
+	skb->protocol = eth_type_trans(skb, netdev);
+	skb->ip_summed = CHECKSUM_NONE;
+	local_bh_disable();
+	dev_sw_netstats_rx_add(netdev, len);
+	local_bh_enable();
+	netif_rx(skb);
+}
+
+static int mt6628_data_tx(struct mt6628_dev *dev)
+{
+	struct sk_buff *skb, *next, *selected = NULL;
+	struct net_device *netdev;
+	struct mt6628_tx_info *info;
+	unsigned long flags;
+	unsigned int wire;
+	bool more = false;
+	u8 tc;
+	int ret, work = 0;
+
+	spin_lock_irqsave(&dev->data_tx.lock, flags);
+	netdev = dev->data_netdev;
+	if (!dev->data_enabled || atomic_read(&dev->error))
+		goto unlock;
+	skb_queue_walk_safe(&dev->data_tx, skb, next) {
+		info = (void *)skb->cb;
+		if (!time_before(jiffies, info->deadline)) {
+			__skb_unlink(skb, &dev->data_tx);
+			dev_core_stats_tx_dropped_inc(netdev);
+			dev_kfree_skb_any(skb);
+			work++;
+		} else if (!selected && dev->credits[info->tc]) {
+			selected = skb;
+		}
+	}
+	if (selected) {
+		__skb_unlink(selected, &dev->data_tx);
+		skb_queue_walk(&dev->data_tx, skb)
+			if (((struct mt6628_tx_info *)skb->cb)->tc == 1)
+				more = true;
+	}
+	if (skb_queue_len(&dev->data_tx) < MT6628_DATA_QUEUE_LEN)
+		netif_wake_queue(netdev);
+	if (!skb_queue_empty(&dev->data_tx))
+		queue_delayed_work(system_wq, &dev->io_work, msecs_to_jiffies(100));
+unlock:
+	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
+	if (!selected)
+		return work;
+	tc = ((struct mt6628_tx_info *)selected->cb)->tc;
+	wire = ALIGN(16 + selected->len, 4);
+	if (wire >= 512)
+		wire = roundup(wire, 512);
+	memset(dev->tx_buf, 0, wire);
+	put_unaligned_le16(16 + selected->len, dev->tx_buf);
+	dev->tx_buf[2] = ETH_HLEN;
+	dev->tx_buf[3] = tc << 2;
+	dev->tx_buf[4] = ETH_HLEN;
+	dev->tx_buf[10] = tc == 5 ? 0xff : dev->data_peer;
+	dev->tx_buf[11] = 0x20 | (tc == 1 && more ? 3 : 0);
+	ret = skb_copy_bits(selected, 0, dev->tx_buf + 16, selected->len);
+	if (ret) {
+		dev_core_stats_tx_dropped_inc(netdev);
+		dev_kfree_skb_any(selected);
+		return work + 1;
+	}
+	ret = sdio_writesb(dev->func, 0x28, dev->tx_buf, wire);
+	if (ret) {
+		dev_core_stats_tx_dropped_inc(netdev);
+	} else {
+		dev->credits[tc]--;
+		local_bh_disable();
+		dev_sw_netstats_tx_add(netdev, 1, selected->len);
+		local_bh_enable();
+	}
+	dev_kfree_skb_any(selected);
+	return ret ?: work + 1;
+}
 
 void mt6628_sdio_fault(struct mt6628_dev *dev, int error)
 {
@@ -69,6 +269,8 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 			return ret;
 		if (!ret && (get_unaligned_le16(packet + 2) & 3))
 			mt6628_radio_rx(dev, packet, count);
+		else if (!ret)
+			mt6628_data_rx(dev, packet, count);
 		offset += ALIGN(count + 4, 4);
 	}
 	return status->rx_count[port];
@@ -99,11 +301,13 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 			return ret;
 		work += ret;
 	}
-	if (!dev->credits[4] || atomic_read(&dev->error))
+	if (atomic_read(&dev->error))
 		return work;
-	skb = skb_dequeue(&dev->tx);
-	if (!skb)
-		return work;
+	skb = dev->credits[4] ? skb_dequeue(&dev->tx) : NULL;
+	if (!skb) {
+		ret = mt6628_data_tx(dev);
+		return ret < 0 ? ret : work + ret;
+	}
 	info = (void *)skb->cb;
 	if (info->management && !time_before(jiffies, info->deadline)) {
 		dev_kfree_skb(skb);
@@ -118,7 +322,8 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 		return ret;
 	dev->credits[4]--;
 	complete(&dev->command_done);
-	return work + 1;
+	ret = mt6628_data_tx(dev);
+	return ret < 0 ? ret : work + 1 + ret;
 }
 
 static void mt6628_runtime_work(struct work_struct *work)
@@ -153,7 +358,7 @@ static void mt6628_runtime_work(struct work_struct *work)
 			goto out;
 		}
 	}
-	mod_delayed_work(system_wq, &dev->io_work, msecs_to_jiffies(10));
+	queue_delayed_work(system_wq, &dev->io_work, msecs_to_jiffies(10));
 out:
 	sdio_release_host(dev->func);
 	if (ret < 0)
@@ -189,6 +394,9 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	mutex_init(&dev->command_mutex);
 	init_completion(&dev->command_done);
 	skb_queue_head_init(&dev->tx);
+	skb_queue_head_init(&dev->data_tx);
+	dev->data_enabled = false;
+	dev->data_netdev = NULL;
 	INIT_DELAYED_WORK(&dev->io_work, mt6628_runtime_work);
 	atomic_set(&dev->error, 0);
 	WRITE_ONCE(dev->initialized, true);
@@ -330,6 +538,7 @@ int mt6628_sdio_stop(struct mt6628_dev *dev)
 
 	if (!READ_ONCE(dev->initialized))
 		return 0;
+	mt6628_data_stop(dev);
 	mt6628_sdio_fault(dev, -ESHUTDOWN);
 	sdio_claim_host(dev->func);
 	sdio_writeb(dev->func, 2, 0x04, &ret);
