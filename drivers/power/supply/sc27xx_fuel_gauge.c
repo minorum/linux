@@ -144,6 +144,7 @@ struct sc27xx_fgu_data {
 	struct delayed_work soc_work;
 	int last_soc_error;
 	int last_soc_capacity;
+	bool low_pending;
 };
 
 static int sc2723_fgu_set_calibration(struct sc27xx_fgu_data *data,
@@ -577,16 +578,23 @@ static void sc2723_fgu_poll(struct work_struct *work)
 	struct sc27xx_fgu_data *data = container_of(to_delayed_work(work),
 						  struct sc27xx_fgu_data, soc_work);
 	int ret, capacity;
+	bool notify;
 
 	ret = sc2723_fgu_get_capacity(data, &capacity);
-	if (ret != data->last_soc_error ||
-	    (!ret && capacity != data->last_soc_capacity)) {
+	mutex_lock(&data->lock);
+	notify = data->low_pending || ret != data->last_soc_error ||
+		 (!ret && capacity != data->last_soc_capacity);
+	data->low_pending = false;
+	if (notify) {
 		data->last_soc_error = ret;
 		if (!ret)
 			data->last_soc_capacity = capacity;
-		power_supply_changed(data->battery);
 	}
-	schedule_delayed_work(&data->soc_work, 30 * HZ);
+	mutex_unlock(&data->lock);
+	if (notify)
+		power_supply_changed(data->battery);
+
+	queue_delayed_work(system_freezable_wq, &data->soc_work, 30 * HZ);
 }
 
 static void sc2723_fgu_stop_poll(void *arg)
@@ -672,10 +680,8 @@ static int sc2723_fgu_suspend(struct sc27xx_fgu_data *data)
 			dev_err(data->dev, "failed to mask low voltage: %d\n", cleanup);
 	}
 	mutex_unlock(&data->lock);
-	if (ret) {
-		schedule_delayed_work(&data->soc_work, 0);
-		power_supply_changed(data->battery);
-	}
+	if (ret)
+		queue_delayed_work(system_freezable_wq, &data->soc_work, 0);
 	return ret;
 }
 
@@ -689,6 +695,7 @@ static int sc2723_fgu_handle_low(struct sc27xx_fgu_data *data, bool *low)
 	if (ret || !(status & SC27XX_FGU_LOW_OVERLOAD_INT))
 		return ret;
 	*low = true;
+	data->low_pending = true;
 	pm_wakeup_event(data->dev, 0);
 	ret = sc2723_fgu_mask_low(data);
 	if (ret)
@@ -706,9 +713,7 @@ static int sc2723_fgu_resume(struct sc27xx_fgu_data *data)
 	ret = sc2723_fgu_handle_low(data, &low);
 	mask = sc2723_fgu_mask_low(data);
 	mutex_unlock(&data->lock);
-	if (low)
-		power_supply_changed(data->battery);
-	schedule_delayed_work(&data->soc_work, 0);
+	queue_delayed_work(system_freezable_wq, &data->soc_work, 0);
 	return ret ?: mask;
 }
 
@@ -725,8 +730,7 @@ static irqreturn_t sc2723_fgu_interrupt(int irq, void *arg)
 	mutex_unlock(&data->lock);
 	if (!low)
 		return IRQ_NONE;
-	mod_delayed_work(system_percpu_wq, &data->soc_work, 0);
-	power_supply_changed(data->battery);
+	mod_delayed_work(system_freezable_wq, &data->soc_work, 0);
 	return IRQ_HANDLED;
 }
 
@@ -885,7 +889,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	ret = sc2723_fgu_setup_irq(pdev, data);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to set up FGU wake\n");
-	schedule_delayed_work(&data->soc_work, 30 * HZ);
+	queue_delayed_work(system_freezable_wq, &data->soc_work, 30 * HZ);
 	return 0;
 }
 
