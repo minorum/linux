@@ -790,10 +790,6 @@ mt6628_add_interface(struct wiphy *wiphy, const char *name, unsigned char assign
 		ret = -EBUSY;
 		goto unlock;
 	}
-	if (!radio->configured) {
-		ret = radio->configure_error ?: -EAGAIN;
-		goto unlock;
-	}
 	netdev = alloc_netdev(sizeof(*wdev), name, assign_type, ether_setup);
 	if (!netdev) {
 		ret = -ENOMEM;
