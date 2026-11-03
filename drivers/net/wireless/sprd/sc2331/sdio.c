@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/delay.h>
-#include <linux/completion.h>
 #include <linux/firmware.h>
 #include <linux/etherdevice.h>
 #include <linux/jiffies.h>
@@ -42,7 +41,6 @@ struct sc2331_wifi {
 	struct ieee80211_supported_band band;
 	struct ieee80211_channel channels[14];
 	struct mutex lock;
-	struct completion disconnect_done;
 	struct delayed_work rx_work;
 	int irq;
 	struct work_struct tx_work;
@@ -55,14 +53,12 @@ struct sc2331_wifi {
 	u32 sequence;
 	u32 packet_sequence;
 	unsigned long connect_deadline;
-	unsigned long disconnect_deadline;
 	u8 bssid[ETH_ALEN];
 	u8 *data;
 	bool stopping;
 	bool scan_done;
 	bool connecting;
 	bool connected;
-	bool disconnecting;
 	bool regulatory_ready;
 	unsigned int scan_frames;
 };
@@ -445,10 +441,7 @@ static void sc2331_runtime_event(void *context, const struct sc2331_record *reco
 	}
 	if (record->id == 0x81) {
 		if (record->len >= 2) {
-			sc2331_connection_down(wifi, get_unaligned_le16(record->data),
-					       wifi->disconnecting);
-			wifi->disconnecting = false;
-			complete_all(&wifi->disconnect_done);
+			sc2331_connection_down(wifi, get_unaligned_le16(record->data), false);
 			dev_info(&wifi->func->dev, "SC2331 station disconnected\n");
 		}
 		return;
@@ -502,31 +495,11 @@ static int sc2331_wifi_command(struct sc2331_wifi *wifi, u8 command,
 					    timeout, sc2331_runtime_event, wifi);
 }
 
-static int sc2331_station_disconnect(struct sc2331_wifi *wifi, u16 reason)
-{
-	u8 payload[2];
-	int ret;
-
-	if (wifi->stopping)
-		return -ENODEV;
-	if (wifi->disconnecting)
-		return -EBUSY;
-	reinit_completion(&wifi->disconnect_done);
-	wifi->disconnecting = true;
-	wifi->disconnect_deadline = jiffies + msecs_to_jiffies(3000);
-	put_unaligned_le16(reason, payload);
-	ret = sc2331_wifi_command(wifi, 0x10, payload, sizeof(payload), 3000);
-	if (!ret)
-		sc2331_connection_down(wifi, reason, true);
-	schedule_delayed_work(&wifi->rx_work, 0);
-	return ret;
-}
-
 static void sc2331_reg_work(struct wiphy *wiphy, struct wiphy_work *work)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
 	const struct ieee80211_reg_rule *rules[14], *rule;
-	u8 payload[8 + 14 * 24] = {};
+	u8 payload[8 + 14 * 24] = {}, reason[2];
 	unsigned int i, j, count = 0;
 	u8 *entry;
 	int ret;
@@ -578,7 +551,8 @@ static void sc2331_reg_work(struct wiphy *wiphy, struct wiphy_work *work)
 	goto unlock;
 failed:
 	if (wifi->connected || wifi->connecting) {
-		sc2331_station_disconnect(wifi, WLAN_REASON_UNSPECIFIED);
+		put_unaligned_le16(WLAN_REASON_UNSPECIFIED, reason);
+		sc2331_wifi_command(wifi, 0x10, reason, sizeof(reason), 3000);
 		sc2331_connection_down(wifi, WLAN_REASON_UNSPECIFIED, true);
 	}
 	dev_err(&wifi->func->dev, "SC2331 regulatory update failed: %d\n", ret);
@@ -605,8 +579,7 @@ static void sc2331_rx_work(struct work_struct *work)
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	if (wifi->stopping || (!wifi->scan && !wifi->connecting &&
-			       !wifi->connected && !wifi->disconnecting))
+	if (wifi->stopping || (!wifi->scan && !wifi->connecting && !wifi->connected))
 		goto unlock;
 	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 0,
 					   sc2331_runtime_event, wifi);
@@ -623,14 +596,7 @@ static void sc2331_rx_work(struct work_struct *work)
 		wifi->connecting = false;
 		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
 	}
-	if (wifi->disconnecting && time_after_eq(jiffies, wifi->disconnect_deadline)) {
-		if (wifi->scan)
-			sc2331_scan_finish(wifi, true);
-		dev_err_ratelimited(&wifi->func->dev,
-				    "Disconnect event missing; rebind required\n");
-		goto unlock;
-	}
-	if (wifi->scan || wifi->connecting || wifi->connected || wifi->disconnecting)
+	if (wifi->scan || wifi->connecting || wifi->connected)
 		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
 unlock:
 	mutex_unlock(&wifi->lock);
@@ -675,7 +641,7 @@ static int sc2331_scan(struct wiphy *wiphy, struct cfg80211_scan_request *reques
 		ret = -EAGAIN;
 		goto unlock;
 	}
-	if (wifi->scan || wifi->disconnecting) {
+	if (wifi->scan) {
 		ret = -EBUSY;
 		goto unlock;
 	}
@@ -737,8 +703,7 @@ static int sc2331_connect(struct wiphy *wiphy, struct net_device *netdev,
 		ret = -EAGAIN;
 		goto unlock;
 	}
-	if (wifi->stopping || wifi->scan || wifi->connecting || wifi->connected ||
-	    wifi->disconnecting) {
+	if (wifi->stopping || wifi->scan || wifi->connecting || wifi->connected) {
 		ret = wifi->stopping ? -ENODEV : -EBUSY;
 		goto unlock;
 	}
@@ -795,10 +760,14 @@ unlock:
 static int sc2331_disconnect(struct wiphy *wiphy, struct net_device *netdev, u16 reason)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	u8 payload[2];
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	ret = sc2331_station_disconnect(wifi, reason);
+	put_unaligned_le16(reason, payload);
+	ret = wifi->stopping ? -ENODEV : sc2331_wifi_command(wifi, 0x10, payload, 2, 3000);
+	if (!ret)
+		sc2331_connection_down(wifi, reason, true);
 	mutex_unlock(&wifi->lock);
 	return ret;
 }
@@ -1014,8 +983,6 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wifi->boot = boot;
 	wifi->sequence = 2;
 	mutex_init(&wifi->lock);
-	init_completion(&wifi->disconnect_done);
-	complete_all(&wifi->disconnect_done);
 	INIT_DELAYED_WORK(&wifi->rx_work, sc2331_rx_work);
 	INIT_WORK(&wifi->tx_work, sc2331_tx_work);
 	wiphy_work_init(&wifi->regulatory_work, sc2331_reg_work);
@@ -1258,9 +1225,6 @@ static int sc2331_sdio_suspend(struct device *dev)
 	struct sdio_func *func = dev_to_sdio_func(dev);
 	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
 	int ret;
-
-	if (!wait_for_completion_timeout(&wifi->disconnect_done, msecs_to_jiffies(3000)))
-		return -EBUSY;
 
 	ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 	if (ret)
