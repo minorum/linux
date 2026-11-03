@@ -144,6 +144,7 @@ static int mt6628_scan_send(struct mt6628_radio *radio, unsigned int mask, bool 
 	radio->scan_sequence = radio->scan_token++;
 	command[0] = radio->scan_sequence;
 	command[2] = active;
+	command[3] = BIT(0);
 	if (active) {
 		command[3] = request->ssids[0].ssid_len ? BIT(2) : BIT(0);
 		command[4] = request->ssids[0].ssid_len;
