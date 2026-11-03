@@ -852,6 +852,7 @@ static int sc2331_set_default_key(struct wiphy *wiphy, struct net_device *netdev
 static int sc2331_cfg_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wowlan)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	const u8 payload[] = { 6, 1 };
 	int ret = 0;
 
 	mutex_lock(&wifi->lock);
@@ -864,8 +865,10 @@ static int sc2331_cfg_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wowla
 		ret = -EBUSY;
 	else if (!wifi->connected)
 		ret = -ENOTCONN;
-	else
-		wifi->wowlan = true;
+	else {
+		ret = sc2331_wifi_command(wifi, 0x2d, payload, sizeof(payload), 3000);
+		wifi->wowlan = !ret;
+	}
 unlock:
 	mutex_unlock(&wifi->lock);
 	return ret;
@@ -874,11 +877,14 @@ unlock:
 static int sc2331_cfg_resume(struct wiphy *wiphy)
 {
 	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	const u8 payload[] = { 6, 0 };
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	wifi->wowlan = false;
 	ret = wifi->suspended ? -EIO : 0;
+	if (!ret && wifi->wowlan)
+		ret = sc2331_wifi_command(wifi, 0x2d, payload, sizeof(payload), 3000);
+	wifi->wowlan = false;
 	mutex_unlock(&wifi->lock);
 	return ret;
 }
