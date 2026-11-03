@@ -1301,6 +1301,7 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 	u16 status, aid;
 	int ret = 0;
 	u8 auth[30] = {};
+	bool disconnect;
 
 	if (!radio->auth_bss || radio->join_error || !radio->configured)
 		return;
@@ -1364,8 +1365,10 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 	len = 12 + (packet[4] & 3);
 	frame = packet + len;
 	len = skb->len - len;
+	disconnect = frame[0] == 0xc0 || frame[0] == 0xa0;
 	if (packet[8] != radio->join_peer || packet[10] != radio->join_channel ||
-	    !ether_addr_equal(frame + 4, radio->dev->mac_addr) ||
+	    (!ether_addr_equal(frame + 4, radio->dev->mac_addr) &&
+	     (!disconnect || !is_broadcast_ether_addr(frame + 4))) ||
 	    !ether_addr_equal(frame + 10, radio->auth_bss->bssid) ||
 	    !ether_addr_equal(frame + 16, radio->auth_bss->bssid))
 		return;
@@ -1409,7 +1412,12 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 		ret = mt6628_join_bss(radio, true);
 		if (!ret)
 			ret = mt6628_join_peer(radio, 2);
-	} else if ((frame[0] == 0xc0 || frame[0] == 0xa0) && len >= 26) {
+	} else if (disconnect && len >= 26) {
+		if (frame[0] == 0xa0 && radio->join_state != MT6628_JOIN_CONNECTED) {
+			if (radio->join_state == MT6628_JOIN_ACTIVATE)
+				mt6628_join_fail(radio);
+			return;
+		}
 		mt6628_data_stop(radio->dev);
 		cfg80211_rx_mlme_mgmt(radio->netdev, frame, len);
 		if (radio->join_state == MT6628_JOIN_CONNECTED)
