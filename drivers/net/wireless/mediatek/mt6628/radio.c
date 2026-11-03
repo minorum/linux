@@ -14,6 +14,8 @@ struct mt6628_radio {
 	struct ieee80211_supported_band band;
 	struct ieee80211_channel channels[14];
 	struct ieee80211_rate rates[12];
+	struct sk_buff_head rx;
+	struct wiphy_work rx_work;
 	/* Policy */
 	struct mutex policy_mutex;
 	char alpha2[2];
@@ -24,6 +26,69 @@ struct mt6628_radio {
 	int configure_error;
 	bool configured;
 };
+
+static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
+{
+	struct mt6628_radio *radio = wiphy_priv(wiphy);
+	struct sk_buff *skb;
+	unsigned int budget;
+
+	for (budget = 0; budget < 48; budget++) {
+		struct cfg80211_inform_bss data = {};
+		struct cfg80211_bss *bss;
+		unsigned int channel;
+
+		skb = skb_dequeue(&radio->rx);
+		if (!skb)
+			break;
+		channel = (u8)skb->cb[0];
+
+		mutex_lock(&radio->policy_mutex);
+		if (radio->configured && (radio->channel_mask & BIT(channel - 1))) {
+			data.chan = &radio->channels[channel - 1];
+			data.signal = (((u8)skb->cb[1] >> 1) - 110) * 100;
+			bss = cfg80211_inform_bss_frame_data(wiphy, &data,
+							     (void *)skb->data,
+							     skb->len, GFP_KERNEL);
+			if (bss)
+				cfg80211_put_bss(wiphy, bss);
+		}
+		mutex_unlock(&radio->policy_mutex);
+		dev_kfree_skb(skb);
+	}
+	if (!skb_queue_empty(&radio->rx))
+		wiphy_work_queue(wiphy, &radio->rx_work);
+}
+
+void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len)
+{
+	struct wiphy *wiphy = dev->wiphy;
+	struct mt6628_radio *radio;
+	struct sk_buff *skb;
+	unsigned int offset;
+	u16 fc;
+
+	if (!wiphy || len < 12 || (get_unaligned_le16(packet + 2) & 3) != 3)
+		return;
+	offset = 12 + (packet[4] & 3);
+	if (len < offset + 36 || !packet[10] || packet[10] > 14 || packet[9] > 220)
+		return;
+	fc = get_unaligned_le16(packet + offset);
+	if ((fc & 0xf) || ((fc & 0xfc) != 0x80 && (fc & 0xfc) != 0x50) ||
+	    !is_valid_ether_addr(packet + offset + 16))
+		return;
+	radio = wiphy_priv(wiphy);
+	if (skb_queue_len(&radio->rx) >= 48)
+		return;
+	skb = alloc_skb(len - offset, GFP_KERNEL);
+	if (!skb)
+		return;
+	skb_put_data(skb, packet + offset, len - offset);
+	skb->cb[0] = packet[10];
+	skb->cb[1] = packet[9];
+	skb_queue_tail(&radio->rx, skb);
+	wiphy_work_queue(wiphy, &radio->rx_work);
+}
 
 static bool mt6628_power_index(unsigned int index)
 {
@@ -213,6 +278,8 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 		return -ENOMEM;
 	radio = wiphy_priv(wiphy);
 	radio->dev = dev;
+	skb_queue_head_init(&radio->rx);
+	wiphy_work_init(&radio->rx_work, mt6628_radio_rx_work);
 	mutex_init(&radio->policy_mutex);
 	radio->policy_error = -EAGAIN;
 	radio->configure_error = -EAGAIN;
@@ -236,6 +303,7 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	wiphy->bands[NL80211_BAND_2GHZ] = &radio->band;
 	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
 	wiphy->reg_notifier = mt6628_reg_notifier;
+	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	ether_addr_copy(wiphy->perm_addr, dev->mac_addr);
 	set_wiphy_dev(wiphy, &dev->func->dev);
 	ret = wiphy_register(wiphy);
@@ -249,7 +317,9 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 		wiphy_unregister(wiphy);
 		goto free;
 	}
+	sdio_claim_host(dev->func);
 	dev->wiphy = wiphy;
+	sdio_release_host(dev->func);
 	return 0;
 free:
 	wiphy_free(wiphy);
@@ -258,9 +328,20 @@ free:
 
 void mt6628_radio_unregister(struct mt6628_dev *dev)
 {
-	if (!dev->wiphy)
-		return;
-	wiphy_unregister(dev->wiphy);
-	wiphy_free(dev->wiphy);
+	struct wiphy *wiphy;
+	struct mt6628_radio *radio;
+
+	sdio_claim_host(dev->func);
+	wiphy = dev->wiphy;
 	dev->wiphy = NULL;
+	sdio_release_host(dev->func);
+	if (!wiphy)
+		return;
+	radio = wiphy_priv(wiphy);
+	wiphy_lock(wiphy);
+	wiphy_work_cancel(wiphy, &radio->rx_work);
+	skb_queue_purge(&radio->rx);
+	wiphy_unlock(wiphy);
+	wiphy_unregister(wiphy);
+	wiphy_free(wiphy);
 }
