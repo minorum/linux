@@ -172,11 +172,6 @@ int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
 	if (ret)
 		goto out;
 	result.product_id = get_unaligned_le16(response + 8);
-	if (result.product_id != 0x6628) {
-		dev_err(&func->dev, "firmware product %#x\n", result.product_id);
-		ret = -ENODEV;
-		goto out;
-	}
 	result.firmware_version = get_unaligned_le16(response + 10);
 	result.peer_version = get_unaligned_le16(response + 12);
 	result.hw_5ghz_disabled = response[14];
