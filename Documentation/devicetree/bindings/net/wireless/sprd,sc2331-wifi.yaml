@@ -15,6 +15,15 @@ description: |
 
 allOf:
   - $ref: /schemas/net/wireless/wireless-controller.yaml#
+  - if:
+      required:
+        - wakeup-source
+    then:
+      anyOf:
+        - required:
+            - interrupts
+        - required:
+            - interrupts-extended
 
 properties:
   compatible:
@@ -26,6 +35,8 @@ properties:
   interrupts:
     maxItems: 1
     description: Receive data ready interrupt
+
+  wakeup-source: true
 
   nvmem-cells:
     maxItems: 1
