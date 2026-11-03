@@ -11,6 +11,8 @@
 #include <linux/nvmem-consumer.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_wakeirq.h>
+#include <linux/pm_wakeup.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
@@ -34,6 +36,7 @@
 #define SC27XX_FGU_STATUS		0xc
 #define SC27XX_FGU_INT_EN		0x10
 #define SC27XX_FGU_INT_CLR		0x14
+#define SC27XX_FGU_INT_RAW		0x18
 #define SC27XX_FGU_INT_STS		0x1c
 #define SC27XX_FGU_VOLTAGE		0x20
 #define SC27XX_FGU_OCV			0x24
@@ -618,6 +621,152 @@ static const struct power_supply_desc sc2723_fgu_desc = {
 	.external_power_changed = sc2723_fgu_external_power_changed,
 };
 
+static int sc2723_fgu_mask_low(struct sc27xx_fgu_data *data)
+{
+	return regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
+				  SC27XX_FGU_LOW_OVERLOAD_INT, 0);
+}
+
+static int sc2723_fgu_arm_low(struct sc27xx_fgu_data *data)
+{
+	u64 adc;
+	int ret, voltage;
+
+	if (data->min_volt <= 0 || data->vol_1000mv_adc <= 0)
+		return -EINVAL;
+	adc = DIV_ROUND_CLOSEST_ULL((u64)data->min_volt * data->vol_1000mv_adc,
+				    1000000);
+	if (!adc || adc > SC27XX_FGU_LOW_OVERLOAD_MASK)
+		return -ERANGE;
+	ret = sc2723_fgu_read_stable(data, SC27XX_FGU_VOLTAGE,
+				     SC27XX_FGU_LOW_OVERLOAD_MASK, &voltage);
+	if (ret)
+		return ret;
+	if (voltage <= adc)
+		return -EAGAIN;
+	ret = regmap_update_bits(data->regmap, data->base + SC27XX_FGU_LOW_OVERLOAD,
+				 SC27XX_FGU_LOW_OVERLOAD_MASK, adc);
+	if (ret)
+		return ret;
+	ret = regmap_write(data->regmap, data->base + SC27XX_FGU_INT_CLR,
+			   SC27XX_FGU_LOW_OVERLOAD_INT);
+	if (ret)
+		return ret;
+	return regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
+				  SC27XX_FGU_LOW_OVERLOAD_INT,
+				  SC27XX_FGU_LOW_OVERLOAD_INT);
+}
+
+static int sc2723_fgu_suspend(struct sc27xx_fgu_data *data)
+{
+	int ret, cleanup;
+
+	cancel_delayed_work_sync(&data->soc_work);
+	if (!device_may_wakeup(data->dev))
+		return 0;
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_arm_low(data);
+	if (ret) {
+		cleanup = sc2723_fgu_mask_low(data);
+		if (cleanup)
+			dev_err(data->dev, "failed to mask low voltage: %d\n", cleanup);
+	}
+	mutex_unlock(&data->lock);
+	if (ret) {
+		schedule_delayed_work(&data->soc_work, 0);
+		power_supply_changed(data->battery);
+	}
+	return ret;
+}
+
+static int sc2723_fgu_handle_low(struct sc27xx_fgu_data *data, bool *low)
+{
+	u32 status;
+	int ret;
+
+	*low = false;
+	ret = regmap_read(data->regmap, data->base + SC27XX_FGU_INT_RAW, &status);
+	if (ret || !(status & SC27XX_FGU_LOW_OVERLOAD_INT))
+		return ret;
+	*low = true;
+	pm_wakeup_event(data->dev, 0);
+	ret = sc2723_fgu_mask_low(data);
+	if (ret)
+		return ret;
+	return regmap_write(data->regmap, data->base + SC27XX_FGU_INT_CLR,
+			    SC27XX_FGU_LOW_OVERLOAD_INT);
+}
+
+static int sc2723_fgu_resume(struct sc27xx_fgu_data *data)
+{
+	bool low;
+	int ret, mask;
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_handle_low(data, &low);
+	mask = sc2723_fgu_mask_low(data);
+	mutex_unlock(&data->lock);
+	if (low)
+		power_supply_changed(data->battery);
+	schedule_delayed_work(&data->soc_work, 0);
+	return ret ?: mask;
+}
+
+static irqreturn_t sc2723_fgu_interrupt(int irq, void *arg)
+{
+	struct sc27xx_fgu_data *data = arg;
+	bool low;
+	int ret;
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_handle_low(data, &low);
+	if (ret)
+		dev_err_ratelimited(data->dev, "failed to clear low voltage: %d\n", ret);
+	mutex_unlock(&data->lock);
+	if (!low)
+		return IRQ_NONE;
+	mod_delayed_work(system_percpu_wq, &data->soc_work, 0);
+	power_supply_changed(data->battery);
+	return IRQ_HANDLED;
+}
+
+static void sc2723_fgu_stop_irq(void *arg)
+{
+	struct sc27xx_fgu_data *data = arg;
+	int ret;
+
+	mutex_lock(&data->lock);
+	ret = sc2723_fgu_mask_low(data);
+	mutex_unlock(&data->lock);
+	if (ret)
+		dev_err(data->dev, "failed to mask low voltage: %d\n", ret);
+}
+
+static int sc2723_fgu_setup_irq(struct platform_device *pdev,
+				struct sc27xx_fgu_data *data)
+{
+	struct device *dev = &pdev->dev;
+	int irq, ret;
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
+	ret = regmap_write(data->regmap, data->base + SC27XX_FGU_INT_EN, 0);
+	if (ret)
+		return ret;
+	ret = devm_request_threaded_irq(dev, irq, NULL, sc2723_fgu_interrupt,
+					IRQF_ONESHOT, dev_name(dev), data);
+	if (ret)
+		return ret;
+	ret = devm_add_action_or_reset(dev, sc2723_fgu_stop_irq, data);
+	if (ret)
+		return ret;
+	ret = devm_device_init_wakeup(dev);
+	if (ret)
+		return ret;
+	return devm_pm_set_wake_irq(dev, irq);
+}
+
 static int sc2723_fgu_probe(struct platform_device *pdev,
 			    struct sc27xx_fgu_data *data)
 {
@@ -690,6 +839,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 						     sizeof(*table), GFP_KERNEL);
 		ret = data->cap_table ? 0 : -ENOMEM;
 		data->total_cap = info->charge_full_design_uah / 1000;
+		data->min_volt = table[data->table_len - 1].ocv;
 	}
 	if (!ret && info->charge_full_table) {
 		for (i = 0; i < info->charge_full_table_size; i++) {
@@ -732,6 +882,9 @@ static int sc2723_fgu_probe(struct platform_device *pdev,
 	ret = devm_add_action_or_reset(dev, sc2723_fgu_stop_poll, data);
 	if (ret)
 		return ret;
+	ret = sc2723_fgu_setup_irq(pdev, data);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to set up FGU wake\n");
 	schedule_delayed_work(&data->soc_work, 30 * HZ);
 	return 0;
 }
@@ -1883,10 +2036,8 @@ static int sc27xx_fgu_resume(struct device *dev)
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret;
 
-	if (data->legacy) {
-		schedule_delayed_work(&data->soc_work, 0);
-		return 0;
-	}
+	if (data->legacy)
+		return sc2723_fgu_resume(data);
 
 	ret = regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
 				 SC27XX_FGU_LOW_OVERLOAD_INT |
@@ -1904,10 +2055,8 @@ static int sc27xx_fgu_suspend(struct device *dev)
 	struct sc27xx_fgu_data *data = dev_get_drvdata(dev);
 	int ret, status, ocv;
 
-	if (data->legacy) {
-		cancel_delayed_work_sync(&data->soc_work);
-		return 0;
-	}
+	if (data->legacy)
+		return sc2723_fgu_suspend(data);
 
 	ret = sc27xx_fgu_get_status(data, &status);
 	if (ret)
