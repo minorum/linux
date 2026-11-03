@@ -151,22 +151,23 @@ static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 	unsigned int budget;
 	int error;
 
+	mutex_lock(&radio->policy_mutex);
 	error = atomic_xchg(&radio->rx_error, 0);
-	if (error) {
-		mutex_lock(&radio->policy_mutex);
+	if (error)
 		mt6628_radio_fault(radio, error);
-		mutex_unlock(&radio->policy_mutex);
-	}
+	mutex_unlock(&radio->policy_mutex);
 
 	for (budget = 0; budget < 48; budget++) {
 		struct cfg80211_inform_bss data = {};
 		struct cfg80211_bss *bss;
 		unsigned int channel;
 
-		skb = skb_dequeue(&radio->rx);
-		if (!skb)
-			break;
 		mutex_lock(&radio->policy_mutex);
+		skb = skb_dequeue(&radio->rx);
+		if (!skb) {
+			mutex_unlock(&radio->policy_mutex);
+			break;
+		}
 		if (skb->cb[2]) {
 			mt6628_scan_event(radio, skb->data);
 			mutex_unlock(&radio->policy_mutex);
@@ -388,6 +389,37 @@ static int mt6628_radio_update(struct mt6628_radio *radio,
 	return 0;
 }
 
+static int mt6628_radio_restart(struct mt6628_radio *radio)
+{
+	int ret;
+
+	if (radio->policy_error)
+		return radio->policy_error;
+	ret = mt6628_sdio_stop(radio->dev);
+	if (ret)
+		dev_warn(&radio->dev->func->dev, "recovery stop failed: %d\n", ret);
+	radio->configured = false;
+	sdio_claim_host(radio->dev->func);
+	skb_queue_purge(&radio->rx);
+	atomic_set(&radio->rx_error, 0);
+	sdio_release_host(radio->dev->func);
+	ret = mt6628_hw_start(radio->dev);
+	if (ret)
+		goto fault;
+	if (radio->dev->factory.enable_5ghz && !radio->dev->info.hw_5ghz_disabled) {
+		ret = -EOPNOTSUPP;
+		goto fault;
+	}
+	ret = mt6628_radio_update(radio, radio->alpha2, radio->power_limit);
+	if (ret)
+		goto fault;
+	radio->scan_uncertain = false;
+	return 0;
+fault:
+	mt6628_radio_fault(radio, ret);
+	return ret;
+}
+
 static int mt6628_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       int radio_idx, enum nl80211_tx_power_setting type,
 			       int mbm)
@@ -422,6 +454,10 @@ static void mt6628_reg_notifier(struct wiphy *wiphy,
 	int ret;
 
 	mutex_lock(&radio->policy_mutex);
+	if (request) {
+		radio->alpha2[0] = request->alpha2[0];
+		radio->alpha2[1] = request->alpha2[1];
+	}
 	if (radio->scan_request || radio->scan_uncertain) {
 		ret = mt6628_scan_cancel(radio);
 		mt6628_radio_snapshot(radio);
@@ -431,8 +467,7 @@ static void mt6628_reg_notifier(struct wiphy *wiphy,
 		return;
 	}
 	mt6628_radio_snapshot(radio);
-	ret = mt6628_radio_update(radio, request ? request->alpha2 : radio->alpha2,
-				  radio->power_limit);
+	ret = mt6628_radio_update(radio, radio->alpha2, radio->power_limit);
 	if (ret)
 		mt6628_radio_fault(radio, ret);
 	mutex_unlock(&radio->policy_mutex);
@@ -449,17 +484,21 @@ static int mt6628_net_open(struct net_device *netdev)
 	mutex_lock(&radio->policy_mutex);
 	if (!radio->ready || radio->netdev != netdev) {
 		ret = -ESHUTDOWN;
-	} else if (!radio->configured) {
-		ret = radio->configure_error ?: -EAGAIN;
 	} else if (radio->active) {
 		ret = -EBUSY;
 	} else {
+		if (!radio->configured || radio->scan_uncertain) {
+			ret = mt6628_radio_restart(radio);
+			if (ret)
+				goto unlock;
+		}
 		ret = mt6628_sdio_set(radio->dev, 0x15, command, sizeof(command));
 		if (ret)
 			mt6628_radio_fault(radio, ret);
 		else
 			radio->active = true;
 	}
+unlock:
 	mutex_unlock(&radio->policy_mutex);
 	return ret;
 }

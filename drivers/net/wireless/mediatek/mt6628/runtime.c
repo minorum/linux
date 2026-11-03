@@ -175,9 +175,12 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	atomic_set(&dev->error, 0);
 	WRITE_ONCE(dev->initialized, true);
 	dev->sequence = 2;
-	dev->status_buf = devm_kmalloc(&dev->func->dev, 88, GFP_KERNEL);
-	dev->rx_buf = devm_kmalloc(&dev->func->dev, 37888, GFP_KERNEL);
-	dev->tx_buf = devm_kmalloc(&dev->func->dev, 4096, GFP_KERNEL);
+	if (!dev->status_buf)
+		dev->status_buf = devm_kmalloc(&dev->func->dev, 88, GFP_KERNEL);
+	if (!dev->rx_buf)
+		dev->rx_buf = devm_kmalloc(&dev->func->dev, 37888, GFP_KERNEL);
+	if (!dev->tx_buf)
+		dev->tx_buf = devm_kmalloc(&dev->func->dev, 4096, GFP_KERNEL);
 	if (!dev->status_buf || !dev->rx_buf || !dev->tx_buf) {
 		mt6628_sdio_fault(dev, -ENOMEM);
 		return -ENOMEM;
