@@ -12,6 +12,7 @@
 #include <linux/of_net.h>
 #include <linux/of_irq.h>
 #include <linux/pm.h>
+#include <linux/pm_wakeup.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 #include <linux/vmalloc.h>
@@ -60,6 +61,9 @@ struct sc2331_wifi {
 	bool connecting;
 	bool connected;
 	bool regulatory_ready;
+	bool suspended;
+	bool wowlan;
+	bool wake_armed;
 	unsigned int scan_frames;
 };
 
@@ -579,7 +583,7 @@ static void sc2331_rx_work(struct work_struct *work)
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	if (wifi->stopping || !netif_running(wifi->wdev.netdev))
+	if (wifi->stopping || wifi->suspended || !netif_running(wifi->wdev.netdev))
 		goto unlock;
 	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 0,
 					   sc2331_runtime_event, wifi);
@@ -845,7 +849,51 @@ static int sc2331_set_default_key(struct wiphy *wiphy, struct net_device *netdev
 	return ret;
 }
 
+static int sc2331_cfg_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wowlan)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	int ret = 0;
+
+	mutex_lock(&wifi->lock);
+	wifi->wowlan = false;
+	if (!wowlan)
+		goto unlock;
+	if (!wowlan->any || !wifi->irq || !device_may_wakeup(&wifi->func->dev))
+		ret = -EOPNOTSUPP;
+	else if (wifi->stopping || wifi->scan || wifi->connecting)
+		ret = -EBUSY;
+	else if (!wifi->connected)
+		ret = -ENOTCONN;
+	else
+		wifi->wowlan = true;
+unlock:
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
+static int sc2331_cfg_resume(struct wiphy *wiphy)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+	int ret;
+
+	mutex_lock(&wifi->lock);
+	wifi->wowlan = false;
+	ret = wifi->suspended ? -EIO : 0;
+	mutex_unlock(&wifi->lock);
+	return ret;
+}
+
+static void sc2331_set_wakeup(struct wiphy *wiphy, bool enabled)
+{
+	struct sc2331_wifi *wifi = wiphy_priv(wiphy);
+
+	device_set_wakeup_enable(&wifi->func->dev, enabled);
+}
+
 static const struct cfg80211_ops sc2331_cfg80211_ops = {
+	.suspend = sc2331_cfg_suspend,
+	.resume = sc2331_cfg_resume,
+	.set_wakeup = sc2331_set_wakeup,
 	.add_key = sc2331_add_key,
 	.del_key = sc2331_del_key,
 	.set_default_key = sc2331_set_default_key,
@@ -866,7 +914,7 @@ static void sc2331_tx_work(struct work_struct *work)
 	while (budget-- && (skb = skb_dequeue(&wifi->tx_queue))) {
 		mutex_lock(&wifi->lock);
 		ret = -ENOTCONN;
-		if (!wifi->stopping && wifi->connected) {
+		if (!wifi->stopping && !wifi->suspended && wifi->connected) {
 			ret = sc2331_boot_wake_device(wifi->boot);
 			if (!ret)
 				ret = skb_copy_bits(skb, 0, wifi->data + 102, skb->len);
@@ -890,9 +938,9 @@ static void sc2331_tx_work(struct work_struct *work)
 		mutex_unlock(&wifi->lock);
 	}
 	mutex_lock(&wifi->lock);
-	if (!wifi->stopping && wifi->connected)
+	if (!wifi->stopping && !wifi->suspended && wifi->connected)
 		netif_wake_queue(netdev);
-	if (!wifi->stopping && !skb_queue_empty(&wifi->tx_queue))
+	if (!wifi->stopping && !wifi->suspended && !skb_queue_empty(&wifi->tx_queue))
 		schedule_work(&wifi->tx_work);
 	mutex_unlock(&wifi->lock);
 }
@@ -901,7 +949,8 @@ static netdev_tx_t sc2331_start_xmit(struct sk_buff *skb, struct net_device *dev
 {
 	struct sc2331_wifi *wifi = *(struct sc2331_wifi **)netdev_priv(dev);
 
-	if (skb->len < ETH_HLEN || skb->len > 1518 || READ_ONCE(wifi->stopping)) {
+	if (skb->len < ETH_HLEN || skb->len > 1518 || READ_ONCE(wifi->stopping) ||
+	    READ_ONCE(wifi->suspended)) {
 		DEV_STATS_INC(dev, tx_dropped);
 		dev_kfree_skb(skb);
 		return NETDEV_TX_OK;
@@ -948,11 +997,20 @@ static struct ieee80211_rate sc2331_rates[] = {
 static const u32 sc2331_ciphers[] = { WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_TKIP };
 static const u32 sc2331_akm_suites[] = { WLAN_AKM_SUITE_PSK };
 
+#ifdef CONFIG_PM
+static const struct wiphy_wowlan_support sc2331_wowlan_support = {
+	.flags = WIPHY_WOWLAN_ANY,
+};
+#endif
+
 static irqreturn_t sc2331_rx_irq(int irq, void *data)
 {
 	struct sc2331_wifi *wifi = data;
 
-	mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
+	if (device_may_wakeup(&wifi->func->dev))
+		pm_wakeup_event(&wifi->func->dev, 0);
+	if (!READ_ONCE(wifi->suspended))
+		mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
 	return IRQ_HANDLED;
 }
 
@@ -1018,17 +1076,29 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	SET_NETDEV_DEV(netdev, &func->dev);
 	eth_hw_addr_set(netdev, mac);
 	netif_carrier_off(netdev);
-	ret = wiphy_register(wiphy);
-	if (ret)
-		goto free_netdev;
 	if (of_property_present(func->dev.of_node, "interrupts") ||
 	    of_property_present(func->dev.of_node, "interrupts-extended")) {
 		ret = of_irq_get(func->dev.of_node, 0);
 		if (ret <= 0) {
 			ret = ret ?: -EINVAL;
-			goto unregister_wiphy;
+			goto free_netdev;
 		}
 		wifi->irq = ret;
+	}
+#ifdef CONFIG_PM
+	if (wifi->irq && of_property_read_bool(func->dev.of_node, "wakeup-source") &&
+	    (sdio_get_host_pm_caps(func) & MMC_PM_KEEP_POWER)) {
+		ret = devm_device_init_wakeup(&func->dev);
+		if (ret)
+			goto free_netdev;
+		device_set_wakeup_enable(&func->dev, false);
+		wiphy->wowlan = &sc2331_wowlan_support;
+	}
+#endif
+	ret = wiphy_register(wiphy);
+	if (ret)
+		goto free_netdev;
+	if (wifi->irq) {
 		ret = request_irq(wifi->irq, sc2331_rx_irq, 0,
 				  dev_name(&func->dev), wifi);
 		if (ret)
@@ -1199,6 +1269,8 @@ static void sc2331_sdio_remove(struct sdio_func *func)
 	sc2331_scan_finish(wifi, true);
 	sc2331_connection_down(wifi, WLAN_REASON_DEAUTH_LEAVING, true);
 	mutex_unlock(&wifi->lock);
+	if (wifi->wake_armed)
+		disable_irq_wake(wifi->irq);
 	if (wifi->irq)
 		free_irq(wifi->irq, wifi);
 	cancel_delayed_work_sync(&wifi->rx_work);
@@ -1230,6 +1302,15 @@ static int sc2331_sdio_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
+	if (wifi->wowlan) {
+		ret = enable_irq_wake(wifi->irq);
+		if (ret)
+			return ret;
+		wifi->wake_armed = true;
+	}
+	mutex_lock(&wifi->lock);
+	WRITE_ONCE(wifi->suspended, true);
+	mutex_unlock(&wifi->lock);
 	netif_device_detach(wifi->wdev.netdev);
 	netif_tx_disable(wifi->wdev.netdev);
 	if (wifi->irq)
@@ -1238,6 +1319,8 @@ static int sc2331_sdio_suspend(struct device *dev)
 	cancel_work_sync(&wifi->tx_work);
 	skb_queue_purge(&wifi->tx_queue);
 	sc2331_boot_sleep_device(wifi->boot);
+	if (wifi->wake_armed)
+		enable_irq(wifi->irq);
 
 	return 0;
 }
@@ -1248,10 +1331,22 @@ static int sc2331_sdio_resume(struct device *dev)
 	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
 	int ret;
 
+	if (wifi->wake_armed) {
+		disable_irq(wifi->irq);
+		ret = disable_irq_wake(wifi->irq);
+		if (ret) {
+			enable_irq(wifi->irq);
+			return ret;
+		}
+		wifi->wake_armed = false;
+	}
 	ret = sc2331_boot_wake_device(wifi->boot);
 	if (ret)
 		return ret;
 
+	mutex_lock(&wifi->lock);
+	WRITE_ONCE(wifi->suspended, false);
+	mutex_unlock(&wifi->lock);
 	if (wifi->irq)
 		enable_irq(wifi->irq);
 	netif_device_attach(wifi->wdev.netdev);
