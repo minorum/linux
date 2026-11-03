@@ -662,13 +662,17 @@ static int mt6628_net_stop(struct net_device *netdev)
 	u8 command[4] = {};
 	int ret;
 
+	mt6628_data_stop(radio->dev);
 	netif_carrier_off(netdev);
 	netif_stop_queue(netdev);
 	mutex_lock(&radio->policy_mutex);
 	radio->rx_mode_applied = false;
 	mt6628_scan_cancel(radio);
-	if (radio->join_state)
-		mt6628_radio_fault(radio, -ESHUTDOWN);
+	if (radio->join_state) {
+		if (!radio->join_error)
+			radio->join_error = -ESHUTDOWN;
+		wiphy_work_queue(netdev->ieee80211_ptr->wiphy, &radio->rx_work);
+	}
 	if (radio->active) {
 		radio->active = false;
 		ret = mt6628_sdio_set(radio->dev, 0x15, command, sizeof(command));
