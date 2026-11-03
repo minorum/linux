@@ -579,7 +579,7 @@ static void sc2331_rx_work(struct work_struct *work)
 	int ret;
 
 	mutex_lock(&wifi->lock);
-	if (wifi->stopping || (!wifi->scan && !wifi->connecting && !wifi->connected))
+	if (wifi->stopping || !netif_running(wifi->wdev.netdev))
 		goto unlock;
 	ret = sc2331_sdio_runtime_response(wifi->func, wifi->data, 0xff, 0,
 					   sc2331_runtime_event, wifi);
@@ -596,7 +596,7 @@ static void sc2331_rx_work(struct work_struct *work)
 		wifi->connecting = false;
 		dev_info(&wifi->func->dev, "SC2331 station connection timed out\n");
 	}
-	if (wifi->scan || wifi->connecting || wifi->connected)
+	if (!ret || wifi->scan || wifi->connecting || wifi->connected)
 		schedule_delayed_work(&wifi->rx_work, msecs_to_jiffies(20));
 unlock:
 	mutex_unlock(&wifi->lock);
