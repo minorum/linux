@@ -327,8 +327,6 @@ static int sprd_adi_write(struct sprd_adi *sadi, u32 reg, u32 val)
 		if (!sprd_adi_fifo_is_full(sadi)) {
 			/* we need virtual register address to write. */
 			writel_relaxed(val, (void __iomem *)(sadi->slave_vbase + reg));
-			if (sadi->data->legacy)
-				ret = sprd_adi_drain_fifo(sadi);
 			break;
 		}
 
