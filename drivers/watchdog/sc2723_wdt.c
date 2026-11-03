@@ -174,7 +174,7 @@ static int sc2723_wdt_suspend(struct device *dev)
 		return ret;
 	if (!watchdog_active(&wdt->wdd))
 		return 0;
-	if (pm_suspend_target_state == PM_SUSPEND_MEM) {
+	if (pm_suspend_target_state != PM_SUSPEND_ON) {
 		if (wdt->wdd.timeout <= 5)
 			return -ETIME;
 		rtc = rtc_class_open("rtc0");
