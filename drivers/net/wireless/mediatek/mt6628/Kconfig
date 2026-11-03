@@ -6,8 +6,8 @@ config MT6628
 	select FW_LOADER
 	help
 	  Initialize WLAN firmware and radio policy on MediaTek MT6628 SDIO devices.
-	  This driver is under development. Station interface creation and
-	  activation are available; association and packet delivery are pending.
+	  This driver is under development. Station interfaces and scanning
+	  are available; association and packet delivery are pending.
 
 	  To compile this driver as a module, choose M here. The module
 	  will be called mt6628.

@@ -2,6 +2,7 @@
 #include <linux/bitops.h>
 #include <linux/etherdevice.h>
 #include <linux/limits.h>
+#include <linux/jiffies.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/rtnetlink.h>
 #include <linux/unaligned.h>
@@ -17,6 +18,14 @@ struct mt6628_radio {
 	struct sk_buff_head rx;
 	struct wiphy_work rx_work;
 	struct net_device *netdev;
+	struct cfg80211_scan_request *scan_request;
+	struct delayed_work scan_timeout;
+	unsigned long scan_deadline;
+	atomic_t rx_error;
+	unsigned int passive_mask;
+	unsigned int scan_passive;
+	u16 scan_token;
+	u8 scan_sequence;
 	/* Policy */
 	struct mutex policy_mutex;
 	char alpha2[2];
@@ -28,13 +37,126 @@ struct mt6628_radio {
 	bool configured;
 	bool ready;
 	bool active;
+	bool scan_uncertain;
 };
+
+static void mt6628_radio_fault(struct mt6628_radio *radio, int error);
+
+static void mt6628_scan_finish(struct mt6628_radio *radio, bool aborted)
+{
+	struct cfg80211_scan_request *request = radio->scan_request;
+	struct cfg80211_scan_info info = { .aborted = aborted };
+
+	if (!request)
+		return;
+	radio->scan_request = NULL;
+	radio->scan_passive = 0;
+	cancel_delayed_work(&radio->scan_timeout);
+	cfg80211_scan_done(request, &info);
+}
+
+static int mt6628_scan_send(struct mt6628_radio *radio, unsigned int mask, bool active)
+{
+	struct cfg80211_scan_request *request = radio->scan_request;
+	u8 command[710] = {};
+	unsigned int i, count = 0;
+	int ret;
+
+	if (radio->scan_token >= 256)
+		return -EOVERFLOW;
+	/* shortcut: no token reuse until qualified reset recovery */
+	radio->scan_sequence = radio->scan_token++;
+	command[0] = radio->scan_sequence;
+	command[2] = active;
+	if (active) {
+		command[3] = request->ssids[0].ssid_len ? BIT(2) : BIT(0);
+		command[4] = request->ssids[0].ssid_len;
+		memcpy(command + 8, request->ssids[0].ssid, command[4]);
+	}
+	command[42] = 4;
+	for (i = 0; i < 14; i++) {
+		if (!(mask & BIT(i)))
+			continue;
+		command[44 + count * 2] = 1;
+		command[45 + count * 2] = i + 1;
+		count++;
+	}
+	command[43] = count;
+	put_unaligned_le16(request->ie_len, command + 108);
+	if (request->ie_len)
+		memcpy(command + 110, request->ie, request->ie_len);
+	ret = mt6628_sdio_set(radio->dev, 0x1e, command, 110 + request->ie_len);
+	if (!ret) {
+		radio->scan_deadline = jiffies + msecs_to_jiffies(15000);
+		mod_delayed_work(system_wq, &radio->scan_timeout, msecs_to_jiffies(15000));
+	}
+	return ret;
+}
+
+static int mt6628_scan_cancel(struct mt6628_radio *radio)
+{
+	u8 command[4] = { radio->scan_sequence };
+	int ret;
+
+	if (!radio->scan_request)
+		return 0;
+	radio->scan_uncertain = true;
+	mt6628_scan_finish(radio, true);
+	ret = mt6628_sdio_set(radio->dev, 0x1f, command, sizeof(command));
+	if (ret) {
+		dev_warn(&radio->dev->func->dev, "scan cancel failed: %d\n", ret);
+		mt6628_radio_fault(radio, ret);
+	}
+	return ret;
+}
+
+static void mt6628_scan_timeout(struct work_struct *work)
+{
+	struct mt6628_radio *radio = container_of(to_delayed_work(work),
+						struct mt6628_radio, scan_timeout);
+
+	mutex_lock(&radio->policy_mutex);
+	if (radio->scan_request) {
+		if (time_before(jiffies, radio->scan_deadline))
+			mod_delayed_work(system_wq, &radio->scan_timeout,
+					 radio->scan_deadline - jiffies);
+		else
+			mt6628_radio_fault(radio, -ETIMEDOUT);
+	}
+	mutex_unlock(&radio->policy_mutex);
+}
+
+static void mt6628_scan_event(struct mt6628_radio *radio, const u8 *event)
+{
+	unsigned int passive;
+	int ret;
+
+	if (!radio->scan_request || event[8] != radio->scan_sequence)
+		return;
+	passive = radio->scan_passive;
+	radio->scan_passive = 0;
+	if (!passive) {
+		mt6628_scan_finish(radio, false);
+		return;
+	}
+	ret = mt6628_scan_send(radio, passive, false);
+	if (ret)
+		mt6628_radio_fault(radio, ret);
+}
 
 static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 {
 	struct mt6628_radio *radio = wiphy_priv(wiphy);
 	struct sk_buff *skb;
 	unsigned int budget;
+	int error;
+
+	error = atomic_xchg(&radio->rx_error, 0);
+	if (error) {
+		mutex_lock(&radio->policy_mutex);
+		mt6628_radio_fault(radio, error);
+		mutex_unlock(&radio->policy_mutex);
+	}
 
 	for (budget = 0; budget < 48; budget++) {
 		struct cfg80211_inform_bss data = {};
@@ -44,9 +166,14 @@ static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 		skb = skb_dequeue(&radio->rx);
 		if (!skb)
 			break;
-		channel = (u8)skb->cb[0];
-
 		mutex_lock(&radio->policy_mutex);
+		if (skb->cb[2]) {
+			mt6628_scan_event(radio, skb->data);
+			mutex_unlock(&radio->policy_mutex);
+			dev_kfree_skb(skb);
+			continue;
+		}
+		channel = (u8)skb->cb[0];
 		if (radio->configured && (radio->channel_mask & BIT(channel - 1))) {
 			data.chan = &radio->channels[channel - 1];
 			data.signal = (((u8)skb->cb[1] >> 1) - 110) * 100;
@@ -68,28 +195,55 @@ void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len)
 	struct wiphy *wiphy = dev->wiphy;
 	struct mt6628_radio *radio;
 	struct sk_buff *skb;
-	unsigned int offset;
+	unsigned int offset, type, limit;
+	int error = -EPROTO;
 	u16 fc;
 
-	if (!wiphy || len < 12 || (get_unaligned_le16(packet + 2) & 3) != 3)
-		return;
-	offset = 12 + (packet[4] & 3);
-	if (len < offset + 36 || !packet[10] || packet[10] > 14 || packet[9] > 220)
-		return;
-	fc = get_unaligned_le16(packet + offset);
-	if ((fc & 0xf) || ((fc & 0xfc) != 0x80 && (fc & 0xfc) != 0x50) ||
-	    !is_valid_ether_addr(packet + offset + 16))
+	if (!wiphy || len < 8)
 		return;
 	radio = wiphy_priv(wiphy);
-	if (skb_queue_len(&radio->rx) >= 48)
+	type = get_unaligned_le16(packet + 2) & 3;
+	if (type == 1) {
+		if (packet[4] != 0x15)
+			return;
+		if (len != 12)
+			goto fault;
+		offset = 0;
+		limit = 64;
+	} else if (type == 3 && len >= 12) {
+		offset = 12 + (packet[4] & 3);
+		if (len < offset + 36 || !packet[10] || packet[10] > 14 || packet[9] > 220)
+			return;
+		fc = get_unaligned_le16(packet + offset);
+		if ((fc & 0xf) || ((fc & 0xfc) != 0x80 && (fc & 0xfc) != 0x50) ||
+		    !is_valid_ether_addr(packet + offset + 16))
+			return;
+		limit = 48;
+	} else {
 		return;
+	}
+	if (skb_queue_len(&radio->rx) >= limit) {
+		error = -ENOBUFS;
+		goto drop;
+	}
 	skb = alloc_skb(len - offset, GFP_KERNEL);
-	if (!skb)
-		return;
+	if (!skb) {
+		error = -ENOMEM;
+		goto drop;
+	}
 	skb_put_data(skb, packet + offset, len - offset);
-	skb->cb[0] = packet[10];
-	skb->cb[1] = packet[9];
+	skb->cb[0] = type == 3 ? packet[10] : 0;
+	skb->cb[1] = type == 3 ? packet[9] : 0;
+	skb->cb[2] = type == 1;
 	skb_queue_tail(&radio->rx, skb);
+	wiphy_work_queue(wiphy, &radio->rx_work);
+	return;
+drop:
+	if (type != 1)
+		return;
+fault:
+	atomic_cmpxchg(&radio->rx_error, 0, error);
+	mt6628_sdio_fault(dev, error);
 	wiphy_work_queue(wiphy, &radio->rx_work);
 }
 
@@ -111,7 +265,7 @@ static int mt6628_radio_max_power(const struct mt6628_factory *factory)
 
 static void mt6628_radio_snapshot(struct mt6628_radio *radio)
 {
-	unsigned int mask = 0, i;
+	unsigned int mask = 0, passive = 0, i;
 	int budget = 127;
 
 	ASSERT_RTNL();
@@ -126,9 +280,13 @@ static void mt6628_radio_snapshot(struct mt6628_radio *radio)
 			return;
 		}
 		mask |= BIT(i);
+		if (channel->flags & (IEEE80211_CHAN_NO_IR | IEEE80211_CHAN_RADAR |
+				      IEEE80211_CHAN_NO_OFDM))
+			passive |= BIT(i);
 		budget = min(budget, min(channel->max_power, 63) * 2);
 	}
 	radio->channel_mask = mask;
+	radio->passive_mask = passive;
 	radio->regulatory_power = budget;
 	radio->policy_error = mask ? 0 : -EACCES;
 }
@@ -193,6 +351,7 @@ static void mt6628_radio_fault(struct mt6628_radio *radio, int error)
 {
 	int ret;
 
+	mt6628_scan_finish(radio, true);
 	radio->configured = false;
 	radio->configure_error = error;
 	radio->active = false;
@@ -245,6 +404,10 @@ static int mt6628_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
 	else
 		return -EINVAL;
 	mutex_lock(&radio->policy_mutex);
+	if (radio->scan_request || radio->scan_uncertain) {
+		mutex_unlock(&radio->policy_mutex);
+		return -EBUSY;
+	}
 	ret = mt6628_radio_update(radio, radio->alpha2, limit);
 	if (ret && !radio->configured)
 		mt6628_radio_fault(radio, ret);
@@ -259,6 +422,14 @@ static void mt6628_reg_notifier(struct wiphy *wiphy,
 	int ret;
 
 	mutex_lock(&radio->policy_mutex);
+	if (radio->scan_request || radio->scan_uncertain) {
+		ret = mt6628_scan_cancel(radio);
+		mt6628_radio_snapshot(radio);
+		if (!ret)
+			mt6628_radio_fault(radio, -EAGAIN);
+		mutex_unlock(&radio->policy_mutex);
+		return;
+	}
 	mt6628_radio_snapshot(radio);
 	ret = mt6628_radio_update(radio, request ? request->alpha2 : radio->alpha2,
 				  radio->power_limit);
@@ -302,6 +473,7 @@ static int mt6628_net_stop(struct net_device *netdev)
 	netif_carrier_off(netdev);
 	netif_stop_queue(netdev);
 	mutex_lock(&radio->policy_mutex);
+	mt6628_scan_cancel(radio);
 	if (radio->active) {
 		radio->active = false;
 		ret = mt6628_sdio_set(radio->dev, 0x15, command, sizeof(command));
@@ -399,10 +571,81 @@ static int mt6628_del_interface(struct wiphy *wiphy, struct wireless_dev *wdev)
 	return 0;
 }
 
+static int mt6628_scan(struct wiphy *wiphy, struct cfg80211_scan_request *request)
+{
+	struct mt6628_radio *radio = wiphy_priv(wiphy);
+	unsigned int mask = 0, active, passive, i, channel;
+	int ret;
+
+	if (request->n_ssids < 0 || request->n_ssids > 1 ||
+	    (request->n_ssids && (!request->ssids || request->ssids[0].ssid_len > 32)) ||
+	    request->ie_len > 600 || (request->ie_len && !request->ie) ||
+	    !request->n_channels || request->n_channels > 14)
+		return -EINVAL;
+	if ((request->flags & ~NL80211_SCAN_FLAG_FLUSH) || request->duration ||
+	    request->duration_mandatory || request->no_cck || request->scan_6ghz ||
+	    request->rates[NL80211_BAND_2GHZ] != BIT(12) - 1 ||
+	    !is_broadcast_ether_addr(request->bssid))
+		return -EOPNOTSUPP;
+	mutex_lock(&radio->policy_mutex);
+	if (!radio->ready || !radio->active || !radio->netdev ||
+	    request->wdev != radio->netdev->ieee80211_ptr) {
+		ret = -ENETDOWN;
+		goto unlock;
+	}
+	if (!radio->configured) {
+		ret = radio->configure_error ?: -EAGAIN;
+		goto unlock;
+	}
+	if (radio->scan_request) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+	for (i = 0; i < request->n_channels; i++) {
+		for (channel = 0; channel < 14; channel++)
+			if (request->channels[i] == &radio->channels[channel])
+				break;
+		if (channel == 14 || !(radio->channel_mask & BIT(channel))) {
+			ret = -EINVAL;
+			goto unlock;
+		}
+		mask |= BIT(channel);
+	}
+	active = request->n_ssids ? mask & ~radio->passive_mask : 0;
+	passive = mask & ~active;
+	if (radio->scan_token + !!active + !!passive > 256) {
+		ret = -EOVERFLOW;
+		goto unlock;
+	}
+	radio->scan_request = request;
+	radio->scan_passive = active ? passive : 0;
+	ret = mt6628_scan_send(radio, active ? active : passive, !!active);
+	if (ret) {
+		radio->scan_request = NULL;
+		radio->scan_passive = 0;
+		mt6628_radio_fault(radio, ret);
+	}
+unlock:
+	mutex_unlock(&radio->policy_mutex);
+	return ret;
+}
+
+static void mt6628_abort_scan(struct wiphy *wiphy, struct wireless_dev *wdev)
+{
+	struct mt6628_radio *radio = wiphy_priv(wiphy);
+
+	mutex_lock(&radio->policy_mutex);
+	if (radio->scan_request && radio->scan_request->wdev == wdev)
+		mt6628_scan_cancel(radio);
+	mutex_unlock(&radio->policy_mutex);
+}
+
 static const struct cfg80211_ops mt6628_cfg_ops = {
 	.add_virtual_intf = mt6628_add_interface,
 	.del_virtual_intf = mt6628_del_interface,
 	.set_tx_power = mt6628_set_tx_power,
+	.scan = mt6628_scan,
+	.abort_scan = mt6628_abort_scan,
 };
 
 int mt6628_radio_register(struct mt6628_dev *dev)
@@ -425,6 +668,8 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	radio->dev = dev;
 	skb_queue_head_init(&radio->rx);
 	wiphy_work_init(&radio->rx_work, mt6628_radio_rx_work);
+	INIT_DELAYED_WORK(&radio->scan_timeout, mt6628_scan_timeout);
+	atomic_set(&radio->rx_error, 0);
 	mutex_init(&radio->policy_mutex);
 	radio->policy_error = -EAGAIN;
 	radio->configure_error = -EAGAIN;
@@ -449,6 +694,8 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
 	wiphy->reg_notifier = mt6628_reg_notifier;
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
+	wiphy->max_scan_ssids = 1;
+	wiphy->max_scan_ie_len = 600;
 	ether_addr_copy(wiphy->perm_addr, dev->mac_addr);
 	set_wiphy_dev(wiphy, &dev->func->dev);
 	ret = wiphy_register(wiphy);
@@ -498,6 +745,7 @@ void mt6628_radio_unregister(struct mt6628_dev *dev)
 	skb_queue_purge(&radio->rx);
 	wiphy_unlock(wiphy);
 	rtnl_unlock();
+	cancel_delayed_work_sync(&radio->scan_timeout);
 	wiphy_unregister(wiphy);
 	wiphy_free(wiphy);
 }

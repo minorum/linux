@@ -61,7 +61,7 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 		ret = mt6628_runtime_packet(packet, count);
 		if (ret && ret != -EINVAL)
 			return ret;
-		if (!ret && (get_unaligned_le16(packet + 2) & 3) == 3)
+		if (!ret && (get_unaligned_le16(packet + 2) & 3))
 			mt6628_radio_rx(dev, packet, count);
 		offset += ALIGN(count + 4, 4);
 	}
