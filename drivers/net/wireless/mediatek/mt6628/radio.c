@@ -1098,7 +1098,7 @@ static int mt6628_auth(struct wiphy *wiphy, struct net_device *netdev,
 	    request->link_id >= 0 || request->key_len || request->auth_data_len ||
 	    request->ie_len || request->supported_selectors_len ||
 	    !(request->bss->capability & WLAN_CAPABILITY_ESS) ||
-	    request->bss->capability & (WLAN_CAPABILITY_PRIVACY | WLAN_CAPABILITY_IBSS))
+	    request->bss->capability & WLAN_CAPABILITY_IBSS)
 		return -EOPNOTSUPP;
 	mutex_lock(&radio->policy_mutex);
 	if (!radio->ready || !radio->active || !radio->configured || radio->netdev != netdev) {
