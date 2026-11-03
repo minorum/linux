@@ -1009,7 +1009,6 @@ static int sc2331_wifi_register(struct sdio_func *func, struct sc2331_boot *boot
 	wiphy->n_cipher_suites = ARRAY_SIZE(sc2331_ciphers);
 	wiphy->akm_suites = sc2331_akm_suites;
 	wiphy->n_akm_suites = ARRAY_SIZE(sc2331_akm_suites);
-	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	wiphy->reg_notifier = sc2331_reg_notify;
 	set_wiphy_dev(wiphy, &func->dev);
