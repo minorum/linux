@@ -23,6 +23,8 @@ properties:
   interrupts:
     maxItems: 1
 
+  wakeup-source: true
+
   led:
     type: object
     $ref: /schemas/leds/common.yaml#
