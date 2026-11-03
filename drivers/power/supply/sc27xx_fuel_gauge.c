@@ -631,13 +631,23 @@ static const struct power_supply_desc sc2723_fgu_desc = {
 
 static int sc2723_fgu_mask_low(struct sc27xx_fgu_data *data)
 {
-	return regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
-				  SC27XX_FGU_LOW_OVERLOAD_INT, 0);
+	u32 enabled;
+	int ret;
+
+	ret = regmap_write_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
+				SC27XX_FGU_LOW_OVERLOAD_INT, 0);
+	if (ret)
+		return ret;
+	usleep_range(60, 100);
+	return regmap_read_poll_timeout(data->regmap, data->base + SC27XX_FGU_INT_EN,
+					enabled, !(enabled & SC27XX_FGU_LOW_OVERLOAD_INT),
+					30, 1000);
 }
 
 static int sc2723_fgu_arm_low(struct sc27xx_fgu_data *data)
 {
 	u64 adc;
+	u32 enabled;
 	int ret, voltage;
 
 	if (data->min_volt <= 0 || data->vol_1000mv_adc <= 0)
@@ -660,9 +670,15 @@ static int sc2723_fgu_arm_low(struct sc27xx_fgu_data *data)
 			   SC27XX_FGU_LOW_OVERLOAD_INT);
 	if (ret)
 		return ret;
-	return regmap_update_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
-				  SC27XX_FGU_LOW_OVERLOAD_INT,
-				  SC27XX_FGU_LOW_OVERLOAD_INT);
+	usleep_range(60, 100);
+	ret = regmap_write_bits(data->regmap, data->base + SC27XX_FGU_INT_EN,
+				SC27XX_FGU_LOW_OVERLOAD_INT,
+				SC27XX_FGU_LOW_OVERLOAD_INT);
+	if (ret)
+		return ret;
+	return regmap_read_poll_timeout(data->regmap, data->base + SC27XX_FGU_INT_EN,
+					enabled, enabled & SC27XX_FGU_LOW_OVERLOAD_INT,
+					30, 1000);
 }
 
 static int sc2723_fgu_suspend(struct sc27xx_fgu_data *data)
