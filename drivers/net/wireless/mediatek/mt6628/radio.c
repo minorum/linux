@@ -329,7 +329,7 @@ void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len)
 		default:
 			return;
 		}
-		if (len != expected) {
+		if (len != expected && !(packet[4] == 0x17 && len == 12)) {
 			dev_dbg(&dev->func->dev, "event length id=%u actual=%zu expected=%u\n",
 				packet[4], len, expected);
 			goto fault;
