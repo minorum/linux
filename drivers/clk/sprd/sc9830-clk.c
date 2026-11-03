@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/bitfield.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/iopoll.h>
 #include <linux/math64.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
@@ -243,10 +245,22 @@ static struct sprd_clk_common mpll = {
 static CLK_FIXED_FACTOR_HW(mpll_32, "sc9830-mpll-div32", &mpll.hw,
 			   32, 1, CLK_GET_RATE_NOCACHE);
 
+#define SC9830_LTEPLL_CFG1_MASK	0x077f07ff
+#define SC9830_LTEPLL_CFG2_MASK	0x3f0fffff
+#define SC9830_LTEPLL_CFG1	0x052c002f
+#define SC9830_LTEPLL_CFG2	0x2f042f43
+
+static int sc9830_ltepll_prepare(struct clk_hw *hw);
+
+static const struct clk_ops sc9830_ltepll_ops = {
+	.prepare = sc9830_ltepll_prepare,
+	.recalc_rate = sc9830_twpll_recalc,
+};
+
 static struct sprd_clk_common ltepll = {
 	.reg = 0x5c,
 	.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ltepll", "ext-26m",
-				      &sc9830_twpll_ops, CLK_GET_RATE_NOCACHE),
+				      &sc9830_ltepll_ops, CLK_GET_RATE_NOCACHE),
 };
 
 static int sc9830_dpll_decode(u32 cfg1, u32 cfg2, unsigned long parent_rate,
@@ -530,8 +544,24 @@ static const struct sprd_clk_desc sc9830_aon_full_desc = {
 	.hw_clks = &sc9830_aon_full_hws,
 };
 
-static SPRD_SC_GATE_CLK_FW_NAME(ltepll_request, "sc9830-ltepll-request",
-			       "ltepll", 0x9c, 0x1000, BIT(0), 0, 0);
+static int sc9830_ltepll_request_enable(struct clk_hw *hw);
+static void sc9830_ltepll_request_disable(struct clk_hw *hw);
+static int sc9830_ltepll_request_is_enabled(struct clk_hw *hw);
+
+static const struct clk_ops sc9830_ltepll_request_ops = {
+	.enable = sc9830_ltepll_request_enable,
+	.disable = sc9830_ltepll_request_disable,
+	.is_enabled = sc9830_ltepll_request_is_enabled,
+};
+
+static struct sprd_gate ltepll_request = {
+	.enable_mask = BIT(0),
+	.sc_offset = 0x1000,
+	.common.reg = 0x9c,
+	.common.hw.init = CLK_HW_INIT_FW_NAME("sc9830-ltepll-request", "ltepll",
+					      &sc9830_ltepll_request_ops,
+					      CLK_GET_RATE_NOCACHE),
+};
 
 static CLK_FIXED_FACTOR_HW(ltepll_614m4, "sc9830-ltepll-614m4",
 			   &ltepll_request.common.hw, 2, 1,
@@ -1167,6 +1197,122 @@ static struct reset_simple_data sc9830_aon_reset = {
 	},
 	.reset_us = 2000,
 };
+
+static int sc9830_ltepll_initialize(void)
+{
+	u32 cfg[2], check[2], request, state, cpu, chip, gates, aux0, aux12;
+	int ret;
+
+	if (!ltepll.regmap || !ltepll_request.common.regmap ||
+	    !mcu_clk.regmap || !emc_clk.regmap)
+		return -EPROBE_DEFER;
+	ret = sc9830_twpll_read(&ltepll, cfg);
+	if (ret)
+		return ret;
+	if ((cfg[0] & SC9830_LTEPLL_CFG1_MASK) == SC9830_LTEPLL_CFG1 &&
+	    (cfg[1] & SC9830_LTEPLL_CFG2_MASK) == SC9830_LTEPLL_CFG2)
+		return 0;
+	ret = regmap_read(ltepll.regmap, 0xfc, &chip);
+	if (ret)
+		return ret;
+	if (chip != 0x6b4c5300)
+		return -EOPNOTSUPP;
+	ret = regmap_read(ltepll_request.common.regmap, 0x9c, &request);
+	if (ret)
+		return ret;
+	if (request || (cfg[0] & BIT(27)))
+		return -EBUSY;
+	ret = regmap_read(ltepll_request.common.regmap, 0xbc, &state);
+	if (ret)
+		return ret;
+	ret = regmap_read(mcu_clk.regmap, mcu_clk.reg, &cpu);
+	if (ret)
+		return ret;
+	if (FIELD_GET(GENMASK(27, 24), state) != 7 ||
+	    FIELD_GET(GENMASK(2, 0), cpu) == 4)
+		return -EBUSY;
+	ret = regmap_read(ltepll.regmap, 0x4, &gates);
+	if (ret)
+		return ret;
+	ret = regmap_read(ltepll.regmap, 0x88, &aux0);
+	if (ret)
+		return ret;
+	ret = regmap_read(emc_clk.regmap, 0x88, &aux12);
+	if (ret)
+		return ret;
+	if (((gates & BIT(2)) && FIELD_GET(GENMASK(3, 0), aux0) > 6) ||
+	    ((gates & BIT(3)) && (FIELD_GET(GENMASK(7, 4), aux12) == 7 ||
+				FIELD_GET(GENMASK(7, 4), aux12) > 8)) ||
+	    ((gates & BIT(4)) && (FIELD_GET(GENMASK(11, 8), aux12) == 7 ||
+				FIELD_GET(GENMASK(11, 8), aux12) > 8)))
+		return -EBUSY;
+	ret = regmap_update_bits(ltepll.regmap, ltepll.reg + 4,
+				 SC9830_LTEPLL_CFG2_MASK, SC9830_LTEPLL_CFG2);
+	if (ret)
+		return ret;
+	ret = regmap_update_bits(ltepll.regmap, ltepll.reg,
+				 SC9830_LTEPLL_CFG1_MASK, SC9830_LTEPLL_CFG1);
+	if (ret)
+		return ret;
+	ret = sc9830_twpll_read(&ltepll, check);
+	if (ret)
+		return ret;
+	if ((check[0] & SC9830_LTEPLL_CFG1_MASK) != SC9830_LTEPLL_CFG1 ||
+	    (check[1] & SC9830_LTEPLL_CFG2_MASK) != SC9830_LTEPLL_CFG2)
+		return -EIO;
+	pr_info("SC9830 LTEPLL initialized from %08x/%08x\n", cfg[0], cfg[1]);
+	return 0;
+}
+
+static int sc9830_ltepll_prepare(struct clk_hw *hw)
+{
+	struct clk *clk;
+	unsigned long rate;
+	int ret;
+
+	if (clk_hw_get_rate(clk_hw_get_parent(hw)) != 26000000)
+		return -EINVAL;
+	ret = sc9830_ltepll_initialize();
+	if (ret)
+		return ret;
+	clk = clk_hw_get_clk(hw, NULL);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+	rate = clk_get_rate(clk);
+	clk_put(clk);
+	return rate == 1228800000 ? 0 : -EIO;
+}
+
+static int sc9830_ltepll_request_enable(struct clk_hw *hw)
+{
+	u32 cfg;
+	int enabled, ret;
+
+	ret = sc9830_ltepll_initialize();
+	if (ret)
+		return ret;
+	enabled = sprd_sc_gate_ops.is_enabled(hw);
+	if (enabled < 0)
+		return enabled;
+	ret = sprd_sc_gate_ops.enable(hw);
+	if (ret)
+		return ret;
+	ret = regmap_read_poll_timeout_atomic(ltepll.regmap, ltepll.reg, cfg,
+					      cfg & BIT(27), 1, 1000);
+	if (ret && !enabled)
+		sprd_sc_gate_ops.disable(hw);
+	return ret;
+}
+
+static void sc9830_ltepll_request_disable(struct clk_hw *hw)
+{
+	sprd_sc_gate_ops.disable(hw);
+}
+
+static int sc9830_ltepll_request_is_enabled(struct clk_hw *hw)
+{
+	return sprd_sc_gate_ops.is_enabled(hw);
+}
 
 static int __init sc9830_clk_register(struct device_node *node,
 				      const struct sprd_clk_desc *desc)
