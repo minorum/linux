@@ -7,6 +7,7 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/pm.h>
+#include <linux/pm_wakeup.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
@@ -33,6 +34,7 @@ struct sm5701 {
 	int status;
 	int health;
 	int irq;
+	bool suspended;
 	struct led_classdev torch;
 	/* Torch transitions. */
 	struct mutex torch_lock;
@@ -332,7 +334,7 @@ static void sm5701_poll(struct work_struct *work)
 			power_supply_changed(data->psy);
 		}
 	}
-	schedule_delayed_work(&data->poll, msecs_to_jiffies(2000));
+	queue_delayed_work(system_freezable_wq, &data->poll, msecs_to_jiffies(2000));
 }
 
 static irqreturn_t sm5701_irq(int irq, void *arg)
@@ -340,10 +342,15 @@ static irqreturn_t sm5701_irq(int irq, void *arg)
 	struct sm5701 *data = arg;
 	int ret;
 
-	ret = sm5701_ack_irq(data);
-	if (ret)
-		dev_err_ratelimited(data->dev, "Failed to acknowledge interrupts: %d\n", ret);
-	mod_delayed_work(system_percpu_wq, &data->poll, 0);
+	if (device_may_wakeup(data->dev))
+		pm_wakeup_event(data->dev, 0);
+	if (!READ_ONCE(data->suspended)) {
+		ret = sm5701_ack_irq(data);
+		if (ret)
+			dev_err_ratelimited(data->dev,
+					    "Failed to acknowledge interrupts: %d\n", ret);
+	}
+	mod_delayed_work(system_freezable_wq, &data->poll, 0);
 
 	return IRQ_HANDLED;
 }
@@ -352,8 +359,13 @@ static int sm5701_suspend(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
-	if (data->irq)
-		disable_irq(data->irq);
+	WRITE_ONCE(data->suspended, true);
+	if (data->irq) {
+		if (device_may_wakeup(dev))
+			synchronize_irq(data->irq);
+		else
+			disable_irq(data->irq);
+	}
 	cancel_delayed_work_sync(&data->poll);
 	return 0;
 }
@@ -362,12 +374,10 @@ static int sm5701_resume(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
-	if (data->irq) {
-		sm5701_irq(data->irq, data);
+	WRITE_ONCE(data->suspended, false);
+	if (data->irq && !device_may_wakeup(dev))
 		enable_irq(data->irq);
-	} else {
-		schedule_delayed_work(&data->poll, 0);
-	}
+	mod_delayed_work(system_freezable_wq, &data->poll, 0);
 	return 0;
 }
 
@@ -421,7 +431,7 @@ static int sm5701_probe(struct i2c_client *client)
 	ret = sm5701_register_torch(data);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to register torch\n");
-	schedule_delayed_work(&data->poll, msecs_to_jiffies(2000));
+	queue_delayed_work(system_freezable_wq, &data->poll, msecs_to_jiffies(2000));
 
 	return 0;
 }
