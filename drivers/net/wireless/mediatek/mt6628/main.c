@@ -61,7 +61,7 @@ static int mt6628_probe(struct sdio_func *func,
 	ret = mt6628_radio_register(dev);
 	if (ret)
 		goto stop;
-	dev_info(&func->dev, "firmware %04x peer %04x; station frontend pending\n",
+	dev_info(&func->dev, "firmware %04x peer %04x; association pending\n",
 		 dev->info.firmware_version, dev->info.peer_version);
 	return 0;
 stop:

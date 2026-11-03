@@ -16,6 +16,7 @@ struct mt6628_radio {
 	struct ieee80211_rate rates[12];
 	struct sk_buff_head rx;
 	struct wiphy_work rx_work;
+	struct net_device *netdev;
 	/* Policy */
 	struct mutex policy_mutex;
 	char alpha2[2];
@@ -25,6 +26,8 @@ struct mt6628_radio {
 	int policy_error;
 	int configure_error;
 	bool configured;
+	bool ready;
+	bool active;
 };
 
 static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
@@ -186,6 +189,19 @@ static int mt6628_radio_build(struct mt6628_radio *radio, const char alpha2[2],
 	return 0;
 }
 
+static void mt6628_radio_fault(struct mt6628_radio *radio, int error)
+{
+	int ret;
+
+	radio->configured = false;
+	radio->configure_error = error;
+	radio->active = false;
+	mt6628_sdio_fault(radio->dev, error);
+	ret = mt6628_sdio_abort(radio->dev);
+	if (ret)
+		dev_warn(&radio->dev->func->dev, "terminal reset failed: %d\n", ret);
+}
+
 static int mt6628_radio_update(struct mt6628_radio *radio,
 			       const char alpha2[2], int limit)
 {
@@ -201,15 +217,8 @@ static int mt6628_radio_update(struct mt6628_radio *radio,
 	if (!ret)
 		ret = mt6628_sdio_set(radio->dev, 0x13, domain, sizeof(domain));
 	if (ret) {
-		int err;
-
 		radio->configure_error = ret;
 		radio->configured = false;
-		mt6628_sdio_fault(radio->dev, ret);
-		err = mt6628_sdio_abort(radio->dev);
-		if (err)
-			dev_warn(&radio->dev->func->dev,
-				 "terminal reset failed: %d\n", err);
 		return ret;
 	}
 	radio->alpha2[0] = alpha2[0];
@@ -237,6 +246,8 @@ static int mt6628_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
 		return -EINVAL;
 	mutex_lock(&radio->policy_mutex);
 	ret = mt6628_radio_update(radio, radio->alpha2, limit);
+	if (ret && !radio->configured)
+		mt6628_radio_fault(radio, ret);
 	mutex_unlock(&radio->policy_mutex);
 	return ret;
 }
@@ -251,12 +262,146 @@ static void mt6628_reg_notifier(struct wiphy *wiphy,
 	mt6628_radio_snapshot(radio);
 	ret = mt6628_radio_update(radio, request ? request->alpha2 : radio->alpha2,
 				  radio->power_limit);
-	mutex_unlock(&radio->policy_mutex);
 	if (ret)
-		mt6628_sdio_fault(radio->dev, ret);
+		mt6628_radio_fault(radio, ret);
+	mutex_unlock(&radio->policy_mutex);
+}
+
+static int mt6628_net_open(struct net_device *netdev)
+{
+	struct mt6628_radio *radio = wiphy_priv(netdev->ieee80211_ptr->wiphy);
+	u8 command[4] = { 0, 1 };
+	int ret;
+
+	netif_carrier_off(netdev);
+	netif_stop_queue(netdev);
+	mutex_lock(&radio->policy_mutex);
+	if (!radio->ready || radio->netdev != netdev) {
+		ret = -ESHUTDOWN;
+	} else if (!radio->configured) {
+		ret = radio->configure_error ?: -EAGAIN;
+	} else if (radio->active) {
+		ret = -EBUSY;
+	} else {
+		ret = mt6628_sdio_set(radio->dev, 0x15, command, sizeof(command));
+		if (ret)
+			mt6628_radio_fault(radio, ret);
+		else
+			radio->active = true;
+	}
+	mutex_unlock(&radio->policy_mutex);
+	return ret;
+}
+
+static int mt6628_net_stop(struct net_device *netdev)
+{
+	struct mt6628_radio *radio = wiphy_priv(netdev->ieee80211_ptr->wiphy);
+	u8 command[4] = {};
+	int ret;
+
+	netif_carrier_off(netdev);
+	netif_stop_queue(netdev);
+	mutex_lock(&radio->policy_mutex);
+	if (radio->active) {
+		radio->active = false;
+		ret = mt6628_sdio_set(radio->dev, 0x15, command, sizeof(command));
+		if (ret) {
+			dev_warn(&radio->dev->func->dev, "network stop failed: %d\n", ret);
+			mt6628_radio_fault(radio, ret);
+		}
+	}
+	mutex_unlock(&radio->policy_mutex);
+	return 0;
+}
+
+static netdev_tx_t mt6628_net_xmit(struct sk_buff *skb, struct net_device *netdev)
+{
+	dev_core_stats_tx_dropped_inc(netdev);
+	dev_kfree_skb_any(skb);
+	return NETDEV_TX_OK;
+}
+
+static const struct net_device_ops mt6628_net_ops = {
+	.ndo_open = mt6628_net_open,
+	.ndo_stop = mt6628_net_stop,
+	.ndo_start_xmit = mt6628_net_xmit,
+};
+
+static struct wireless_dev *
+mt6628_add_interface(struct wiphy *wiphy, const char *name, unsigned char assign_type,
+		     enum nl80211_iftype type, struct vif_params *params)
+{
+	struct mt6628_radio *radio = wiphy_priv(wiphy);
+	struct net_device *netdev;
+	struct wireless_dev *wdev;
+	int ret;
+
+	if (type != NL80211_IFTYPE_STATION ||
+	    (params && (params->flags || params->use_4addr ||
+			!is_zero_ether_addr(params->macaddr))))
+		return ERR_PTR(-EOPNOTSUPP);
+	mutex_lock(&radio->policy_mutex);
+	if (!radio->ready) {
+		ret = -ESHUTDOWN;
+		goto unlock;
+	}
+	if (radio->netdev) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+	if (!radio->configured) {
+		ret = radio->configure_error ?: -EAGAIN;
+		goto unlock;
+	}
+	netdev = alloc_netdev(sizeof(*wdev), name, assign_type, ether_setup);
+	if (!netdev) {
+		ret = -ENOMEM;
+		goto unlock;
+	}
+	wdev = netdev_priv(netdev);
+	wdev->wiphy = wiphy;
+	wdev->netdev = netdev;
+	wdev->iftype = NL80211_IFTYPE_STATION;
+	netdev->ieee80211_ptr = wdev;
+	netdev->netdev_ops = &mt6628_net_ops;
+	netdev->needs_free_netdev = true;
+	dev_net_set(netdev, wiphy_net(wiphy));
+	SET_NETDEV_DEV(netdev, &radio->dev->func->dev);
+	eth_hw_addr_set(netdev, radio->dev->mac_addr);
+	ether_addr_copy(netdev->perm_addr, radio->dev->mac_addr);
+	netif_carrier_off(netdev);
+	netif_stop_queue(netdev);
+	ret = cfg80211_register_netdevice(netdev);
+	if (ret) {
+		free_netdev(netdev);
+		goto unlock;
+	}
+	radio->netdev = netdev;
+	mutex_unlock(&radio->policy_mutex);
+	return wdev;
+unlock:
+	mutex_unlock(&radio->policy_mutex);
+	return ERR_PTR(ret);
+}
+
+static int mt6628_del_interface(struct wiphy *wiphy, struct wireless_dev *wdev)
+{
+	struct mt6628_radio *radio = wiphy_priv(wiphy);
+
+	mutex_lock(&radio->policy_mutex);
+	if (!radio->netdev || radio->netdev != wdev->netdev) {
+		mutex_unlock(&radio->policy_mutex);
+		return -ENODEV;
+	}
+	radio->netdev = NULL;
+	mutex_unlock(&radio->policy_mutex);
+	cfg80211_unregister_netdevice(wdev->netdev);
+	return 0;
 }
 
 static const struct cfg80211_ops mt6628_cfg_ops = {
+	.add_virtual_intf = mt6628_add_interface,
+	.del_virtual_intf = mt6628_del_interface,
 	.set_tx_power = mt6628_set_tx_power,
 };
 
@@ -312,14 +457,16 @@ int mt6628_radio_register(struct mt6628_dev *dev)
 	mutex_lock(&radio->policy_mutex);
 	if (!radio->configured)
 		ret = radio->configure_error;
-	mutex_unlock(&radio->policy_mutex);
 	if (ret) {
+		mutex_unlock(&radio->policy_mutex);
 		wiphy_unregister(wiphy);
 		goto free;
 	}
 	sdio_claim_host(dev->func);
 	dev->wiphy = wiphy;
 	sdio_release_host(dev->func);
+	radio->ready = true;
+	mutex_unlock(&radio->policy_mutex);
 	return 0;
 free:
 	wiphy_free(wiphy);
@@ -331,17 +478,26 @@ void mt6628_radio_unregister(struct mt6628_dev *dev)
 	struct wiphy *wiphy;
 	struct mt6628_radio *radio;
 
-	sdio_claim_host(dev->func);
 	wiphy = dev->wiphy;
-	dev->wiphy = NULL;
-	sdio_release_host(dev->func);
 	if (!wiphy)
 		return;
 	radio = wiphy_priv(wiphy);
+	rtnl_lock();
+	mutex_lock(&radio->policy_mutex);
+	radio->ready = false;
+	mutex_unlock(&radio->policy_mutex);
+	if (radio->netdev)
+		dev_close(radio->netdev);
 	wiphy_lock(wiphy);
+	sdio_claim_host(dev->func);
+	dev->wiphy = NULL;
+	sdio_release_host(dev->func);
+	if (radio->netdev)
+		mt6628_del_interface(wiphy, radio->netdev->ieee80211_ptr);
 	wiphy_work_cancel(wiphy, &radio->rx_work);
 	skb_queue_purge(&radio->rx);
 	wiphy_unlock(wiphy);
+	rtnl_unlock();
 	wiphy_unregister(wiphy);
 	wiphy_free(wiphy);
 }
