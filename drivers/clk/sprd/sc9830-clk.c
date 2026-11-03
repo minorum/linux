@@ -1229,7 +1229,8 @@ static int sc9830_ltepll_initialize(void)
 	if (ret)
 		return ret;
 	if (FIELD_GET(GENMASK(27, 24), state) != 7 ||
-	    FIELD_GET(GENMASK(2, 0), cpu) == 4)
+	    FIELD_GET(GENMASK(2, 0), cpu) == 4 ||
+	    FIELD_GET(GENMASK(2, 0), cpu) > 6)
 		return -EBUSY;
 	ret = regmap_read(ltepll.regmap, 0x4, &gates);
 	if (ret)
