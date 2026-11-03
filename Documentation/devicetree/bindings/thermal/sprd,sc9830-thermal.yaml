@@ -17,6 +17,9 @@ properties:
     const: sprd,sc9830-thermal
   reg:
     maxItems: 1
+  interrupts:
+    maxItems: 1
+  wakeup-source: true
   clocks:
     items:
       - description: Controller bus gate
