@@ -90,7 +90,7 @@ netdev_tx_t mt6628_data_xmit(struct mt6628_dev *dev, struct net_device *netdev,
 	__skb_queue_tail(&dev->data_tx, skb);
 	if (skb_queue_len(&dev->data_tx) == MT6628_DATA_QUEUE_LEN)
 		netif_stop_queue(dev->data_netdev);
-	mod_delayed_work(system_wq, &dev->io_work, 0);
+	mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
 	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
 	return NETDEV_TX_OK;
 drop:
@@ -177,7 +177,7 @@ static int mt6628_data_tx(struct mt6628_dev *dev)
 	if (skb_queue_len(&dev->data_tx) < MT6628_DATA_QUEUE_LEN)
 		netif_wake_queue(netdev);
 	if (!skb_queue_empty(&dev->data_tx))
-		queue_delayed_work(system_wq, &dev->io_work, msecs_to_jiffies(100));
+		queue_delayed_work(system_percpu_wq, &dev->io_work, msecs_to_jiffies(100));
 unlock:
 	spin_unlock_irqrestore(&dev->data_tx.lock, flags);
 	if (!selected)
@@ -215,7 +215,7 @@ unlock:
 void mt6628_sdio_fault(struct mt6628_dev *dev, int error)
 {
 	if (!atomic_cmpxchg(&dev->error, 0, error))
-		mod_delayed_work(system_wq, &dev->io_work, 0);
+		mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
 	complete_all(&dev->command_done);
 }
 
@@ -358,7 +358,7 @@ static void mt6628_runtime_work(struct work_struct *work)
 			goto out;
 		}
 	}
-	queue_delayed_work(system_wq, &dev->io_work, msecs_to_jiffies(10));
+	queue_delayed_work(system_percpu_wq, &dev->io_work, msecs_to_jiffies(10));
 out:
 	sdio_release_host(dev->func);
 	if (ret < 0)
@@ -382,7 +382,7 @@ static void mt6628_runtime_irq(struct sdio_func *func)
 		return;
 	}
 	if (!atomic_read(&dev->error))
-		mod_delayed_work(system_wq, &dev->io_work, 0);
+		mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
 }
 
 int mt6628_sdio_start(struct mt6628_dev *dev)
@@ -420,7 +420,7 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	}
 	sdio_release_host(dev->func);
 	if (!ret)
-		mod_delayed_work(system_wq, &dev->io_work, 0);
+		mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
 	else
 		mt6628_sdio_fault(dev, ret);
 	return ret;
@@ -437,7 +437,7 @@ static int mt6628_sdio_submit(struct mt6628_dev *dev, struct sk_buff *skb)
 		return ret;
 	}
 	skb_queue_tail(&dev->tx, skb);
-	mod_delayed_work(system_wq, &dev->io_work, 0);
+	mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
 	if (!wait_for_completion_timeout(&dev->command_done,
 					 msecs_to_jiffies(1000)))
 		mt6628_sdio_fault(dev, -ETIMEDOUT);

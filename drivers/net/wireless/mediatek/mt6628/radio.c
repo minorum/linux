@@ -107,7 +107,7 @@ static void mt6628_join_expire(struct work_struct *work)
 	if (radio->join_state != MT6628_JOIN_IDLE &&
 	    radio->join_state != MT6628_JOIN_CONNECTED) {
 		if (time_before(now, radio->join_deadline)) {
-			mod_delayed_work(system_wq, &radio->join_timeout,
+			mod_delayed_work(system_percpu_wq, &radio->join_timeout,
 					 radio->join_deadline - now);
 		} else {
 			if (!radio->join_error)
@@ -164,7 +164,7 @@ static int mt6628_scan_send(struct mt6628_radio *radio, unsigned int mask, bool 
 	ret = mt6628_sdio_set(radio->dev, 0x1e, command, 110 + request->ie_len);
 	if (!ret) {
 		radio->scan_deadline = jiffies + msecs_to_jiffies(15000);
-		mod_delayed_work(system_wq, &radio->scan_timeout, msecs_to_jiffies(15000));
+		mod_delayed_work(system_percpu_wq, &radio->scan_timeout, msecs_to_jiffies(15000));
 	}
 	return ret;
 }
@@ -194,7 +194,7 @@ static void mt6628_scan_timeout(struct work_struct *work)
 	mutex_lock(&radio->policy_mutex);
 	if (radio->scan_request) {
 		if (time_before(jiffies, radio->scan_deadline))
-			mod_delayed_work(system_wq, &radio->scan_timeout,
+			mod_delayed_work(system_percpu_wq, &radio->scan_timeout,
 					 radio->scan_deadline - jiffies);
 		else
 			mt6628_radio_fault(radio, -ETIMEDOUT);
@@ -1158,7 +1158,7 @@ static int mt6628_auth(struct wiphy *wiphy, struct net_device *netdev,
 	} else {
 		radio->channel_owned = true;
 		radio->join_deadline = jiffies + msecs_to_jiffies(2000);
-		mod_delayed_work(system_wq, &radio->join_timeout, msecs_to_jiffies(2000));
+		mod_delayed_work(system_percpu_wq, &radio->join_timeout, msecs_to_jiffies(2000));
 	}
 out:
 	mutex_unlock(&radio->policy_mutex);
@@ -1324,7 +1324,7 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 				break;
 			}
 			radio->join_deadline = jiffies + msecs_to_jiffies(interval - 10);
-			mod_delayed_work(system_wq, &radio->join_timeout,
+			mod_delayed_work(system_percpu_wq, &radio->join_timeout,
 					 msecs_to_jiffies(interval - 10));
 			ret = mt6628_join_peer(radio, 0);
 			if (ret)
