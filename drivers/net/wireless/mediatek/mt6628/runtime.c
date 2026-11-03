@@ -265,8 +265,14 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 		unsigned int count = status->rx_len[port][i];
 
 		ret = mt6628_runtime_packet(packet, count);
-		if (ret && ret != -EINVAL)
+		if (ret && ret != -EINVAL) {
+			dev_dbg(&dev->func->dev,
+				"runtime packet error=%d port=%u index=%u count=%u declared=%u flags=%u h4=%u\n",
+				ret, port, i, count, count >= 2 ? get_unaligned_le16(packet) : 0,
+				count >= 4 ? get_unaligned_le16(packet + 2) : 0,
+				count >= 5 ? packet[4] : 0);
 			return ret;
+		}
 		if (!ret && (get_unaligned_le16(packet + 2) & 3))
 			mt6628_radio_rx(dev, packet, count);
 		else if (!ret)
@@ -288,13 +294,23 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 	if (ret)
 		return ret;
 	ret = mt6628_sdio_decode_status(dev->status_buf, 88, &status);
-	if (ret)
+	if (ret) {
+		dev_dbg(&dev->func->dev,
+			"runtime status error=%d counts=%u,%u lengths=%*ph/%*ph\n",
+			ret, get_unaligned_le16(dev->status_buf + 12),
+			get_unaligned_le16(dev->status_buf + 14),
+			32, dev->status_buf + 16, 32, dev->status_buf + 48);
 		return ret;
+	}
 	if (status.isr & (BIT(3) | BIT(31)))
 		return -EIO;
 	work = mt6628_sdio_return_credits(dev->credits, status.tx);
-	if (work < 0)
+	if (work < 0) {
+		dev_dbg(&dev->func->dev,
+			"runtime credit error=%d available=%*ph returned=%*ph maximum=%*ph\n",
+			work, 6, dev->credits, 6, status.tx, 6, mt6628_sdio_tx_max);
 		return work;
+	}
 	for (port = 1; port >= 0; port--) {
 		ret = mt6628_runtime_rx(dev, port, &status);
 		if (ret < 0)
