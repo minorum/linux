@@ -243,6 +243,8 @@
 };
 
 &die_thermal {
+	interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
+	wakeup-source;
 	status = "okay";
 };
 
