@@ -95,16 +95,16 @@ static int mt6628_probe(struct sdio_func *func,
 	dev->func = func;
 	ret = mt6628_read_factory(&func->dev, &dev->factory);
 	if (ret)
-		return ret;
+		return dev_err_probe(&func->dev, ret, "factory calibration failed\n");
 	ret = mt6628_hw_start(dev);
 	if (ret) {
 		sdio_set_drvdata(func, NULL);
-		return ret;
+		return dev_err_probe(&func->dev, ret, "hardware startup failed\n");
 	}
 	ret = mt6628_radio_register(dev);
 	if (ret) {
 		mt6628_remove(func);
-		return ret;
+		return dev_err_probe(&func->dev, ret, "radio registration failed\n");
 	}
 	dev_info(&func->dev, "firmware %04x peer %04x; association pending\n",
 		 dev->info.firmware_version, dev->info.peer_version);
