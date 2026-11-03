@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/jiffies.h>
 #include <linux/mmc/core.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 
 #include "runtime.h"
+
+struct mt6628_tx_info {
+	unsigned long deadline;
+	bool management;
+};
 
 void mt6628_sdio_fault(struct mt6628_dev *dev, int error)
 {
@@ -71,6 +77,7 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 static int mt6628_runtime_step(struct mt6628_dev *dev)
 {
 	struct mt6628_sdio_status status;
+	struct mt6628_tx_info *info;
 	struct sk_buff *skb;
 	unsigned int wire;
 	int ret, work, port;
@@ -97,6 +104,11 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 	skb = skb_dequeue(&dev->tx);
 	if (!skb)
 		return work;
+	info = (void *)skb->cb;
+	if (info->management && !time_before(jiffies, info->deadline)) {
+		dev_kfree_skb(skb);
+		return -ETIMEDOUT;
+	}
 	wire = skb->len >= 512 ? roundup(skb->len, 512) : skb->len;
 	memset(dev->tx_buf, 0, wire);
 	memcpy(dev->tx_buf, skb->data, skb->len);
@@ -206,8 +218,26 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 	return ret;
 }
 
-int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
-		    const void *data, size_t len)
+static int mt6628_sdio_submit(struct mt6628_dev *dev, struct sk_buff *skb)
+{
+	int ret;
+
+	reinit_completion(&dev->command_done);
+	ret = atomic_read(&dev->error);
+	if (ret) {
+		dev_kfree_skb(skb);
+		return ret;
+	}
+	skb_queue_tail(&dev->tx, skb);
+	mod_delayed_work(system_wq, &dev->io_work, 0);
+	if (!wait_for_completion_timeout(&dev->command_done,
+					 msecs_to_jiffies(1000)))
+		mt6628_sdio_fault(dev, -ETIMEDOUT);
+	return atomic_read(&dev->error);
+}
+
+int mt6628_sdio_set_seq(struct mt6628_dev *dev, u8 command,
+			const void *data, size_t len, u8 *sequence)
 {
 	struct sk_buff *skb;
 	int ret;
@@ -217,7 +247,6 @@ int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 	if (len > 4084)
 		return -EMSGSIZE;
 	mutex_lock(&dev->command_mutex);
-	reinit_completion(&dev->command_done);
 	ret = atomic_read(&dev->error);
 	if (ret)
 		goto unlock;
@@ -233,17 +262,63 @@ int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 		dev_kfree_skb(skb);
 		goto unlock;
 	}
+	if (sequence)
+		*sequence = dev->sequence;
+	((struct mt6628_tx_info *)skb->cb)->management = false;
+	ret = mt6628_sdio_submit(dev, skb);
+unlock:
+	mutex_unlock(&dev->command_mutex);
+	return ret;
+}
+
+int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
+		    const void *data, size_t len)
+{
+	return mt6628_sdio_set_seq(dev, command, data, len, NULL);
+}
+
+int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
+		     u8 peer, u8 token, unsigned long deadline)
+{
+	struct sk_buff *skb;
+	struct mt6628_tx_info *info;
+	u8 *packet;
+	int ret;
+
+	if (!READ_ONCE(dev->initialized))
+		return -ESHUTDOWN;
+	if (len > 1536)
+		return -EMSGSIZE;
+	if (len < 24 || !frame || peer >= 20 || (get_unaligned_le16(frame) & 0xf))
+		return -EINVAL;
+	mutex_lock(&dev->command_mutex);
 	ret = atomic_read(&dev->error);
-	if (ret) {
-		dev_kfree_skb(skb);
+	if (ret)
+		goto unlock;
+	if (!time_before(jiffies, deadline)) {
+		ret = -ETIMEDOUT;
 		goto unlock;
 	}
-	skb_queue_tail(&dev->tx, skb);
-	mod_delayed_work(system_wq, &dev->io_work, 0);
-	if (!wait_for_completion_timeout(&dev->command_done,
-					 msecs_to_jiffies(1000)))
-		mt6628_sdio_fault(dev, -ETIMEDOUT);
-	ret = atomic_read(&dev->error);
+	skb = alloc_skb(ALIGN(16 + len, 4), GFP_KERNEL);
+	if (!skb) {
+		ret = -ENOMEM;
+		goto unlock;
+	}
+	packet = skb_put(skb, ALIGN(16 + len, 4));
+	memset(packet, 0, skb->len);
+	put_unaligned_le16(16 + len, packet);
+	packet[2] = 20;
+	packet[3] = 0xd0;
+	packet[4] = 24;
+	packet[5] = 0x80;
+	packet[10] = peer;
+	packet[12] = token;
+	packet[13] = 5;
+	memcpy(packet + 16, frame, len);
+	info = (void *)skb->cb;
+	info->management = true;
+	info->deadline = deadline;
+	ret = mt6628_sdio_submit(dev, skb);
 unlock:
 	mutex_unlock(&dev->command_mutex);
 	return ret;

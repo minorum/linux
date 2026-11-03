@@ -35,6 +35,10 @@ int mt6628_sdio_start(struct mt6628_dev *dev);
 int mt6628_hw_start(struct mt6628_dev *dev);
 int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 		    const void *data, size_t len);
+int mt6628_sdio_set_seq(struct mt6628_dev *dev, u8 command,
+			const void *data, size_t len, u8 *sequence);
+int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
+		     u8 peer, u8 token, unsigned long deadline);
 int mt6628_sdio_stop(struct mt6628_dev *dev);
 int mt6628_sdio_abort(struct mt6628_dev *dev);
 void mt6628_sdio_fault(struct mt6628_dev *dev, int error);
