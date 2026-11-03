@@ -238,6 +238,10 @@
 	status = "okay";
 };
 
+&charger {
+	wakeup-source;
+};
+
 &die_thermal {
 	status = "okay";
 };
