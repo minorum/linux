@@ -146,6 +146,12 @@ out:
 	sdio_release_host(dev->func);
 	if (ret < 0)
 		mt6628_sdio_fault(dev, ret);
+	ret = atomic_read(&dev->error);
+	if (ret && ret != -ESHUTDOWN) {
+		sdio_claim_host(dev->func);
+		mt6628_radio_error(dev, ret);
+		sdio_release_host(dev->func);
+	}
 }
 
 static void mt6628_runtime_irq(struct sdio_func *func)

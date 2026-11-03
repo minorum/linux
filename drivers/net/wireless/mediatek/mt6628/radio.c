@@ -153,7 +153,7 @@ static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 
 	mutex_lock(&radio->policy_mutex);
 	error = atomic_xchg(&radio->rx_error, 0);
-	if (error)
+	if (error && radio->configured)
 		mt6628_radio_fault(radio, error);
 	mutex_unlock(&radio->policy_mutex);
 
@@ -189,6 +189,18 @@ static void mt6628_radio_rx_work(struct wiphy *wiphy, struct wiphy_work *work)
 	}
 	if (!skb_queue_empty(&radio->rx))
 		wiphy_work_queue(wiphy, &radio->rx_work);
+}
+
+void mt6628_radio_error(struct mt6628_dev *dev, int error)
+{
+	struct wiphy *wiphy = dev->wiphy;
+	struct mt6628_radio *radio;
+
+	if (!wiphy)
+		return;
+	radio = wiphy_priv(wiphy);
+	atomic_cmpxchg(&radio->rx_error, 0, error);
+	wiphy_work_queue(wiphy, &radio->rx_work);
 }
 
 void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len)
@@ -243,9 +255,8 @@ drop:
 	if (type != 1)
 		return;
 fault:
-	atomic_cmpxchg(&radio->rx_error, 0, error);
 	mt6628_sdio_fault(dev, error);
-	wiphy_work_queue(wiphy, &radio->rx_work);
+	mt6628_radio_error(dev, error);
 }
 
 static bool mt6628_power_index(unsigned int index)

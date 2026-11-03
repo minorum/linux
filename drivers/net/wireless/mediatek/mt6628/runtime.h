@@ -41,5 +41,6 @@ void mt6628_sdio_fault(struct mt6628_dev *dev, int error);
 int mt6628_radio_register(struct mt6628_dev *dev);
 void mt6628_radio_unregister(struct mt6628_dev *dev);
 void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len);
+void mt6628_radio_error(struct mt6628_dev *dev, int error);
 
 #endif
