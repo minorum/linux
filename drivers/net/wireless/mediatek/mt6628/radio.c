@@ -919,12 +919,17 @@ static void mt6628_join_header(struct mt6628_radio *radio, u8 *frame, u8 subtype
 
 static int mt6628_join_tx(struct mt6628_radio *radio, const u8 *frame, size_t len)
 {
+	int ret;
+
 	if (radio->tx_next >= 256)
 		return -EOVERFLOW;
 	radio->join_tx = radio->tx_next++;
-	return mt6628_sdio_mgmt(radio->dev, frame, len, radio->join_peer, radio->join_tx,
-				 radio->join_state == MT6628_JOIN_CONNECTED ?
-				 jiffies + msecs_to_jiffies(1000) : radio->join_deadline);
+	ret = mt6628_sdio_mgmt(radio->dev, frame, len, radio->join_peer, radio->join_tx,
+			       radio->join_state == MT6628_JOIN_CONNECTED ?
+			       jiffies + msecs_to_jiffies(1000) : radio->join_deadline);
+	dev_dbg(&radio->dev->func->dev, "join queue state=%u token=%u error=%d\n",
+		radio->join_state, radio->join_tx, ret);
+	return ret;
 }
 
 static int mt6628_join_peer(struct mt6628_radio *radio, u8 state)
@@ -990,6 +995,8 @@ static void mt6628_join_fail(struct mt6628_radio *radio)
 
 	if (state == MT6628_JOIN_IDLE)
 		return;
+	dev_dbg(&radio->dev->func->dev, "join cleanup state=%u error=%d remaining=%ld\n",
+		state, radio->join_error, (long)(radio->join_deadline - jiffies));
 	mt6628_data_stop(radio->dev);
 	wiphy = radio->netdev->ieee80211_ptr->wiphy;
 	radio->join_state = MT6628_JOIN_IDLE;
@@ -1314,6 +1321,11 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 	if ((get_unaligned_le16(packet + 2) & 3) == 1) {
 		switch (packet[4]) {
 		case 0x18:
+			dev_dbg(&radio->dev->func->dev,
+				"join grant state=%u token=%u/%u fields=%u,%u,%u,%u,%u,%u interval=%u\n",
+				radio->join_state, packet[9], radio->join_token,
+				packet[8], packet[10], packet[11], packet[12], packet[13],
+				packet[14], get_unaligned_le32(packet + 16));
 			if (radio->join_state != MT6628_JOIN_CHANNEL || packet[8] ||
 			    packet[9] != radio->join_token)
 				return;
@@ -1327,6 +1339,7 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 			mod_delayed_work(system_percpu_wq, &radio->join_timeout,
 					 msecs_to_jiffies(interval - 10));
 			ret = mt6628_join_peer(radio, 0);
+			dev_dbg(&radio->dev->func->dev, "join peer error=%d\n", ret);
 			if (ret)
 				break;
 			radio->peer_created = true;
@@ -1337,6 +1350,9 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 				radio->join_state = MT6628_JOIN_AUTH;
 			break;
 		case 0x17:
+			dev_dbg(&radio->dev->func->dev,
+				"join txdone state=%u token=%u/%u status=%u\n",
+				radio->join_state, packet[8], radio->join_tx, packet[9]);
 			if ((radio->join_state == MT6628_JOIN_AUTH ||
 			     radio->join_state == MT6628_JOIN_ASSOC) &&
 			    packet[8] == radio->join_tx && packet[9])
