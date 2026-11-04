@@ -568,28 +568,36 @@ static int ncp1851_probe(struct i2c_client *client)
 	if (IS_ERR(chip->regmap))
 		return PTR_ERR(chip->regmap);
 	chip->voltage = devm_iio_channel_get(dev, "voltage");
-	if (IS_ERR(chip->voltage))
-		return dev_err_probe(dev, PTR_ERR(chip->voltage), "No battery voltage\n");
+	if (IS_ERR(chip->voltage)) {
+		ret = dev_err_probe(dev, PTR_ERR(chip->voltage), "No battery voltage\n");
+		goto fail;
+	}
 	chip->temperature = devm_iio_channel_get(dev, "temperature");
-	if (IS_ERR(chip->temperature))
-		return dev_err_probe(dev, PTR_ERR(chip->temperature), "No battery temperature\n");
+	if (IS_ERR(chip->temperature)) {
+		ret = dev_err_probe(dev, PTR_ERR(chip->temperature), "No battery temperature\n");
+		goto fail;
+	}
 	ret = device_property_read_u32(dev, "shunt-resistor-micro-ohms", &value);
-	if (ret || value != 68000)
-		return dev_err_probe(dev, -EINVAL, "Unsupported sense resistor\n");
+	if (ret || value != 68000) {
+		ret = dev_err_probe(dev, -EINVAL, "Unsupported sense resistor\n");
+		goto fail;
+	}
 	ret = device_property_read_u32(dev, "input-current-limit-microamp", &value);
 	if (ret || value > 1500000 || ncp1851_input_code(value) < 0 ||
-	    ncp1851_input_limits[ncp1851_input_code(value)] != value)
-		return dev_err_probe(dev, -EINVAL, "Invalid input current limit\n");
+	    ncp1851_input_limits[ncp1851_input_code(value)] != value) {
+		ret = dev_err_probe(dev, -EINVAL, "Invalid input current limit\n");
+		goto fail;
+	}
 	chip->input_max = value;
 	chip->input_budget = 100000;
 	chip->power_path = device_property_read_bool(dev, "onnn,power-path");
 	if (chip->power_path) {
 		ret = device_property_read_u32(dev, "onnn,system-voltage-microvolt", &value);
 		if (ret)
-			return ret;
+			goto fail;
 		ret = ncp1851_encode(&ncp1851_vsys, value, &chip->vsys);
 		if (ret)
-			return ret;
+			goto fail;
 	}
 	chip->stopped = true;
 	chip->status = POWER_SUPPLY_STATUS_UNKNOWN;
@@ -598,11 +606,15 @@ static int ncp1851_probe(struct i2c_client *client)
 	config.drv_data = chip;
 	config.fwnode = dev_fwnode(dev);
 	chip->psy = devm_power_supply_register(dev, &ncp1851_desc, &config);
-	if (IS_ERR(chip->psy))
-		return dev_err_probe(dev, PTR_ERR(chip->psy), "Cannot register charger\n");
+	if (IS_ERR(chip->psy)) {
+		ret = dev_err_probe(dev, PTR_ERR(chip->psy), "Cannot register charger\n");
+		goto fail;
+	}
 	ret = ncp1851_battery_info(chip);
-	if (ret)
-		return dev_err_probe(dev, ret, "Unsupported battery limits\n");
+	if (ret) {
+		ret = dev_err_probe(dev, ret, "Unsupported battery limits\n");
+		goto fail;
+	}
 	ret = devm_add_action_or_reset(dev, ncp1851_stop, chip);
 	if (ret)
 		return ret;
@@ -611,6 +623,9 @@ static int ncp1851_probe(struct i2c_client *client)
 	mutex_unlock(&chip->lock);
 	schedule_delayed_work(&chip->work, 0);
 	return 0;
+fail:
+	ncp1851_stop(chip);
+	return ret;
 }
 
 static int ncp1851_suspend(struct device *dev)
