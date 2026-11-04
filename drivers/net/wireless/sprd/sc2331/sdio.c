@@ -424,6 +424,8 @@ static void sc2331_runtime_event(void *context, const struct sc2331_record *reco
 	struct sk_buff *skb;
 	int ret;
 
+	if (device_may_wakeup(&wifi->func->dev))
+		pm_wakeup_event(&wifi->func->dev, 0);
 	if (record->type == 2) {
 		if (!wifi->connected || record->len > netdev->mtu + ETH_HLEN + VLAN_HLEN)
 			return;
@@ -1013,10 +1015,12 @@ static irqreturn_t sc2331_rx_irq(int irq, void *data)
 {
 	struct sc2331_wifi *wifi = data;
 
-	if (device_may_wakeup(&wifi->func->dev))
-		pm_wakeup_event(&wifi->func->dev, 0);
-	if (!READ_ONCE(wifi->suspended))
+	if (READ_ONCE(wifi->suspended)) {
+		if (device_may_wakeup(&wifi->func->dev))
+			pm_wakeup_event(&wifi->func->dev, 0);
+	} else {
 		mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
+	}
 	return IRQ_HANDLED;
 }
 
@@ -1302,20 +1306,32 @@ static int sc2331_sdio_suspend(struct device *dev)
 {
 	struct sdio_func *func = dev_to_sdio_func(dev);
 	struct sc2331_wifi *wifi = sdio_get_drvdata(func);
+	unsigned int budget;
 	int ret;
 
 	ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 	if (ret)
 		return ret;
 
-	if (wifi->wowlan) {
-		ret = enable_irq_wake(wifi->irq);
-		if (ret)
-			return ret;
-		wifi->wake_armed = true;
-	}
 	mutex_lock(&wifi->lock);
 	WRITE_ONCE(wifi->suspended, true);
+	if (wifi->wowlan) {
+		for (budget = 0; budget < 16; budget++) {
+			ret = sc2331_sdio_runtime_response(func, wifi->data, 0xff, 0,
+						   sc2331_runtime_event, wifi);
+			if (ret)
+				break;
+		}
+		if (ret != -EAGAIN) {
+			if (!ret)
+				ret = -EBUSY;
+			goto restore;
+		}
+		ret = enable_irq_wake(wifi->irq);
+		if (ret)
+			goto restore;
+		wifi->wake_armed = true;
+	}
 	mutex_unlock(&wifi->lock);
 	netif_device_detach(wifi->wdev.netdev);
 	netif_tx_disable(wifi->wdev.netdev);
@@ -1329,6 +1345,12 @@ static int sc2331_sdio_suspend(struct device *dev)
 		enable_irq(wifi->irq);
 
 	return 0;
+
+restore:
+	WRITE_ONCE(wifi->suspended, false);
+	mutex_unlock(&wifi->lock);
+	mod_delayed_work(system_percpu_wq, &wifi->rx_work, 0);
+	return ret;
 }
 
 static int sc2331_sdio_resume(struct device *dev)
