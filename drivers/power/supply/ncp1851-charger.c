@@ -364,9 +364,11 @@ static int ncp1851_get_property(struct power_supply *psy, enum power_supply_prop
 		val->intval = chip->online;
 		break;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
-		ret = ncp1851_input_code(chip->input_budget);
-		val->intval = ret < 0 ? 0 : ncp1851_input_limits[ret];
-		ret = 0;
+		if ((chip->regs[NCP1851_CTRL2] & 6) != 2) {
+			ret = -ENODATA;
+			break;
+		}
+		val->intval = ncp1851_input_limits[chip->regs[NCP1851_MISC] & 3];
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		val->intval = ncp1851_ichg.min + chip->ichg * ncp1851_ichg.step;
