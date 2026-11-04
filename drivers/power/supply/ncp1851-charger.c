@@ -23,6 +23,7 @@
 #define NCP1851_MISC		0x10
 #define NCP1851_MAX_REG		0x12
 #define NCP1851_CHGEN		BIT(6)
+#define NCP1851_TJ_WARN		BIT(3)
 #define NCP1851_RESTART		BIT(1)
 #define NCP1851_TIMER_FAULTS	0x0e
 #define NCP1851_INPUT_READY	0x0c
@@ -85,7 +86,7 @@ static int ncp1851_ctrl1(struct ncp1851 *chip, bool enabled, bool restart)
 	ret = regmap_read(chip->regmap, NCP1851_CTRL1, &old);
 	if (ret)
 		return ret;
-	value = (old & 0x0c) | BIT(0);
+	value = NCP1851_TJ_WARN | BIT(0);
 	if (enabled)
 		value |= NCP1851_CHGEN;
 	if (restart)
@@ -219,7 +220,7 @@ static bool ncp1851_configured(struct ncp1851 *chip, int input)
 		((chip->iweak << 5) | (chip->vsys << 2) | input) &&
 	       (chip->regs[NCP1851_CTRL2] & 0xef) ==
 		((chip->power_path ? BIT(5) : 0) | BIT(1)) &&
-	       !(chip->regs[NCP1851_CTRL1] & 0xb0);
+	       (chip->regs[NCP1851_CTRL1] & 0xbc) == NCP1851_TJ_WARN;
 }
 
 static int ncp1851_verify_config(struct ncp1851 *chip, int input, bool enabled)
