@@ -58,8 +58,8 @@ properties:
   input-current-limit-microamp:
     description: |
       Maximum input current permitted by the board. The available USB current
-      budget is supplied dynamically and initially limited to 100 mA. Budgets
-      below 100 mA inhibit charging.
+      budget comes from power-supplies when present, otherwise from USB
+      grants with an initial 100 mA limit. Budgets below 100 mA inhibit charging.
     enum: [100000, 500000, 900000, 1500000]
 
   shunt-resistor-micro-ohms:

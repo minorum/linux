@@ -22,6 +22,10 @@ properties:
       - const: bus
   vusb33-supply:
     description: 3.3V analog supply
+  mediatek,bc11:
+    type: boolean
+    description:
+      Enable BC1.1 source detection in the MT6329 PMIC supplying vusb33.
   '#phy-cells':
     const: 0
 

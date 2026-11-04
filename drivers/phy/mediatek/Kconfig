@@ -95,6 +95,8 @@ config PHY_MT6577_USB
 	tristate "MediaTek MT6577 USB PHY"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	depends on OF
+	depends on POWER_SUPPLY
+	select REGMAP
 	select GENERIC_PHY
 	help
 	  Enable the USB 2.0 PHY on MediaTek MT6577.

@@ -286,6 +286,7 @@
 				compatible = "onnn,ncp1851";
 				reg = <0x36>;
 				monitored-battery = <&battery>;
+				power-supplies = <&usb_phy>;
 				io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
 					      <&battery_thermistor>;
 				io-channel-names = "voltage", "temperature";
@@ -342,6 +343,7 @@
 			clocks = <&apmixedsys CLK_MT6577_UPLL>, <&pericfg CLK_MT6577_USB>;
 			clock-names = "upll", "bus";
 			vusb33-supply = <&vusb>;
+			mediatek,bc11;
 			#phy-cells = <0>;
 		};
 

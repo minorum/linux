@@ -45,6 +45,7 @@ struct ncp1851 {
 	struct device *dev;
 	struct regmap *regmap;
 	struct power_supply *psy;
+	struct power_supply *source;
 	struct iio_channel *voltage, *temperature;
 	struct mutex lock; /* Registers and policy */
 	struct delayed_work work;
@@ -236,9 +237,27 @@ static int ncp1851_verify_config(struct ncp1851 *chip, int input, bool enabled)
 	return 0;
 }
 
+static int ncp1851_input(struct ncp1851 *chip, int *input)
+{
+	union power_supply_propval val;
+	int budget = chip->input_budget;
+	int ret;
+
+	if (chip->source) {
+		ret = power_supply_get_property(chip->source, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
+		if (ret)
+			return ret;
+		if (val.intval < 0)
+			return -ERANGE;
+		budget = val.intval;
+	}
+	*input = ncp1851_input_code(min(budget, chip->input_max));
+	return 0;
+}
+
 static int ncp1851_update(struct ncp1851 *chip)
 {
-	int ret, mv, input, health;
+	int ret, mv, input, health, permission;
 	bool online, restart;
 
 	ret = ncp1851_read_regs(chip);
@@ -253,7 +272,9 @@ static int ncp1851_update(struct ncp1851 *chip)
 		chip->input_budget = min(chip->input_budget, 100000);
 	}
 	chip->online = online;
-	input = ncp1851_input_code(min(chip->input_budget, chip->input_max));
+	ret = ncp1851_input(chip, &input);
+	if (ret)
+		goto fail;
 	if (!online || chip->inhibit || input < 0 ||
 	    chip->health != POWER_SUPPLY_HEALTH_GOOD ||
 	    ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD ||
@@ -272,6 +293,9 @@ static int ncp1851_update(struct ncp1851 *chip)
 	chip->voltage_uv = mv * 1000;
 	ret = iio_read_channel_processed(chip->temperature, &chip->temp_mc);
 	if (ret < 0)
+		goto fail;
+	ret = ncp1851_input(chip, &input);
+	if (ret)
 		goto fail;
 	health = ncp1851_health(chip);
 	chip->health = health;
@@ -292,6 +316,13 @@ static int ncp1851_update(struct ncp1851 *chip)
 			goto fail;
 		if (ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD)
 			goto check_health;
+	}
+	ret = ncp1851_input(chip, &permission);
+	if (ret)
+		goto fail;
+	if (permission != input) {
+		ret = -EAGAIN;
+		goto fail;
 	}
 	restart = chip->cycle_pending;
 	chip->cycle_pending = false;
@@ -342,6 +373,8 @@ static enum power_supply_property ncp1851_properties[] = {
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_USB_TYPE,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX,
@@ -358,6 +391,8 @@ static int ncp1851_get_property(struct power_supply *psy, enum power_supply_prop
 	struct ncp1851 *chip = power_supply_get_drvdata(psy);
 	int ret = 0;
 
+	if (prop == POWER_SUPPLY_PROP_USB_TYPE || prop == POWER_SUPPLY_PROP_CURRENT_MAX)
+		return chip->source ? power_supply_get_property(chip->source, prop, val) : -ENODATA;
 	mutex_lock(&chip->lock);
 	if (chip->error && prop != POWER_SUPPLY_PROP_STATUS &&
 	    prop != POWER_SUPPLY_PROP_HEALTH) {
@@ -421,6 +456,16 @@ static int ncp1851_set_property(struct power_supply *psy, enum power_supply_prop
 	struct ncp1851 *chip = power_supply_get_drvdata(psy);
 	int ret;
 
+	if (prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT) {
+		if (val->intval < 0)
+			return -EINVAL;
+		if (chip->source) {
+			ret = power_supply_set_property(chip->source,
+							POWER_SUPPLY_PROP_CURRENT_MAX, val);
+			if (ret)
+				return ret;
+		}
+	}
 	mutex_lock(&chip->lock);
 	switch (prop) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
@@ -460,14 +505,28 @@ static int ncp1851_writeable(struct power_supply *psy, enum power_supply_propert
 	       prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
 }
 
+static void ncp1851_external_power_changed(struct power_supply *psy)
+{
+	struct ncp1851 *chip = power_supply_get_drvdata(psy);
+
+	mutex_lock(&chip->lock);
+	if (!chip->stopped)
+		mod_delayed_work(system_percpu_wq, &chip->work, 0);
+	mutex_unlock(&chip->lock);
+}
+
 static const struct power_supply_desc ncp1851_desc = {
 	.name = "ncp1851-charger",
 	.type = POWER_SUPPLY_TYPE_USB,
+	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
+		BIT(POWER_SUPPLY_USB_TYPE_SDP) | BIT(POWER_SUPPLY_USB_TYPE_DCP) |
+		BIT(POWER_SUPPLY_USB_TYPE_CDP),
 	.properties = ncp1851_properties,
 	.num_properties = ARRAY_SIZE(ncp1851_properties),
 	.get_property = ncp1851_get_property,
 	.set_property = ncp1851_set_property,
 	.property_is_writeable = ncp1851_writeable,
+	.external_power_changed = ncp1851_external_power_changed,
 	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO) |
 		BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
 };
@@ -567,6 +626,17 @@ static int ncp1851_probe(struct i2c_client *client)
 	chip->regmap = devm_regmap_init_i2c(client, &ncp1851_regmap);
 	if (IS_ERR(chip->regmap))
 		return PTR_ERR(chip->regmap);
+	if (device_property_present(dev, "power-supplies")) {
+		chip->source = devm_power_supply_get_by_reference(dev, "power-supplies");
+		if (IS_ERR(chip->source)) {
+			ret = dev_err_probe(dev, PTR_ERR(chip->source), "No USB source\n");
+			goto fail;
+		}
+		if (!chip->source) {
+			ret = -ENODEV;
+			goto fail;
+		}
+	}
 	chip->voltage = devm_iio_channel_get(dev, "voltage");
 	if (IS_ERR(chip->voltage)) {
 		ret = dev_err_probe(dev, PTR_ERR(chip->voltage), "No battery voltage\n");

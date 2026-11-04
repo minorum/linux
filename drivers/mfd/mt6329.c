@@ -11,6 +11,7 @@
 static bool mt6329_readable(struct device *dev, unsigned int reg)
 {
 	return reg == 0 || reg == 1 || reg == 0x21 || reg == 0x2e || reg == 0x30 ||
+	       reg == 0x33 || reg == 0x34 ||
 	       reg == MT6329_VUSB || reg == MT6329_VMC ||
 	       reg == 0x38 || reg == 0xe8 || reg == 0xe9 ||
 	       reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
@@ -19,6 +20,7 @@ static bool mt6329_readable(struct device *dev, unsigned int reg)
 static bool mt6329_writeable(struct device *dev, unsigned int reg)
 {
 	return reg == 0x21 || reg == 0x2e || reg == 0x30 ||
+	       reg == 0x33 || reg == 0x34 ||
 	       reg == MT6329_VUSB || reg == MT6329_VMC ||
 	       reg == 0x38 || reg == 0xe8 || reg == 0xe9;
 }
