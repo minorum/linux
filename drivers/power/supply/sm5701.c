@@ -16,6 +16,8 @@
 #define SM5701_INT3		0x02
 #define SM5701_STATUS1		0x06
 #define SM5701_STATUS2		0x07
+#define SM5701_CTRL		0x09
+#define SM5701_CHGEN		BIT(2)
 #define SM5701_VBUSOK		BIT(2)
 #define SM5701_VBUSUVLO		BIT(3)
 #define SM5701_VBUSOVP		BIT(4)
@@ -36,7 +38,7 @@ struct sm5701 {
 	int irq;
 	bool suspended;
 	struct led_classdev torch;
-	/* Torch transitions. */
+	/* Mode transitions. */
 	struct mutex torch_lock;
 	unsigned int saved_mode;
 	unsigned int saved_boost;
@@ -44,6 +46,8 @@ struct sm5701 {
 	unsigned int saved_timer;
 	bool torch_active;
 	bool torch_fault;
+	bool charge_inhibited;
+	unsigned int charge_restore;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
@@ -254,6 +258,67 @@ static int sm5701_read_state(struct sm5701 *data, bool *online, bool *present,
 	return 0;
 }
 
+static int sm5701_charge_behaviour(struct sm5701 *data, int behaviour)
+{
+	unsigned int mode, restore;
+	bool inhibit;
+	int ret = 0;
+
+	if (behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO &&
+	    behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
+		return -EINVAL;
+	inhibit = behaviour == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+	mutex_lock(&data->torch_lock);
+	if (inhibit == data->charge_inhibited)
+		goto out;
+	if (!inhibit && data->torch_active) {
+		ret = -EBUSY;
+		goto out;
+	}
+	ret = regmap_read(data->regmap, SM5701_CTRL, &mode);
+	if (ret)
+		goto out;
+	if (!data->torch_active && (mode & 7) != 0 && (mode & 7) != 4) {
+		ret = -EBUSY;
+		goto out;
+	}
+	restore = data->torch_active ? data->saved_mode : mode;
+	ret = regmap_update_bits(data->regmap, SM5701_CTRL, SM5701_CHGEN,
+				 inhibit ? 0 : data->charge_restore);
+	if (ret)
+		goto out;
+	if (inhibit) {
+		data->charge_restore = restore & SM5701_CHGEN;
+		if (data->torch_active)
+			data->saved_mode &= ~SM5701_CHGEN;
+	}
+	data->charge_inhibited = inhibit;
+out:
+	mutex_unlock(&data->torch_lock);
+	return ret;
+}
+
+static int sm5701_set_property(struct power_supply *psy,
+			       enum power_supply_property prop,
+			       const union power_supply_propval *val)
+{
+	struct sm5701 *data = power_supply_get_drvdata(psy);
+	int ret;
+
+	if (prop != POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR)
+		return -EINVAL;
+	ret = sm5701_charge_behaviour(data, val->intval);
+	if (!ret)
+		power_supply_changed(psy);
+	return ret;
+}
+
+static int sm5701_property_is_writeable(struct power_supply *psy,
+				       enum power_supply_property prop)
+{
+	return prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+}
+
 static int sm5701_get_property(struct power_supply *psy,
 			       enum power_supply_property prop,
 			       union power_supply_propval *val)
@@ -264,6 +329,14 @@ static int sm5701_get_property(struct power_supply *psy,
 	int state, health;
 	int ret;
 
+	if (prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR) {
+		mutex_lock(&data->torch_lock);
+		val->intval = data->charge_inhibited ?
+			POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE :
+			POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;
+		mutex_unlock(&data->torch_lock);
+		return 0;
+	}
 	if (prop == POWER_SUPPLY_PROP_STATUS) {
 		ret = sm5701_read_state(data, &online, &present, &state, &health);
 		if (!ret)
@@ -292,6 +365,7 @@ static const enum power_supply_property sm5701_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
 };
 
 static const struct power_supply_desc sm5701_desc = {
@@ -300,6 +374,10 @@ static const struct power_supply_desc sm5701_desc = {
 	.properties = sm5701_properties,
 	.num_properties = ARRAY_SIZE(sm5701_properties),
 	.get_property = sm5701_get_property,
+	.set_property = sm5701_set_property,
+	.property_is_writeable = sm5701_property_is_writeable,
+	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO) |
+			     BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
 };
 
 static int sm5701_ack_irq(struct sm5701 *data)
