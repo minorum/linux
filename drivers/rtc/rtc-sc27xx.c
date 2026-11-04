@@ -464,7 +464,8 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	 * should set normal alarm, if not, we should set auxiliary alarm which
 	 * means it is just a wake event.
 	 */
-	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time))
+	if (!rtc->sc2723 &&
+	    (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time)))
 		return sprd_rtc_set_aux_alarm(dev, alrm);
 
 	/* clear the alarm interrupt status firstly */
