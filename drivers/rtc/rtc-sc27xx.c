@@ -329,13 +329,17 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	time64_t secs = rtc_tm_to_time64(&alrm->time);
 	int ret;
 
-	/* clear the auxiliary alarm interrupt status */
-	ret = regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
-			   SPRD_RTC_AUXALM_EN);
+	ret = regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
+				 SPRD_RTC_AUXALM_EN, 0);
 	if (ret)
 		return ret;
 
 	ret = sprd_rtc_set_secs(rtc, SPRD_RTC_AUX_ALARM, secs);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+			   SPRD_RTC_AUXALM_EN);
 	if (ret)
 		return ret;
 
@@ -344,10 +348,6 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 					 rtc->base + SPRD_RTC_INT_EN,
 					 SPRD_RTC_AUXALM_EN,
 					 SPRD_RTC_AUXALM_EN);
-	} else {
-		ret = regmap_update_bits(rtc->regmap,
-					 rtc->base + SPRD_RTC_INT_EN,
-					 SPRD_RTC_AUXALM_EN, 0);
 	}
 
 	return ret;
