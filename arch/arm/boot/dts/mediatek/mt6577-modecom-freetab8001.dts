@@ -310,6 +310,7 @@
 			pmic@60 {
 				compatible = "mediatek,mt6329";
 				reg = <0x60>;
+				mediatek,external-charger;
 
 				pmic_adc: adc {
 					compatible = "mediatek,mt6329-auxadc";

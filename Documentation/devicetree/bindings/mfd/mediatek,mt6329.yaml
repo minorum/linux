@@ -19,6 +19,12 @@ properties:
     const: mediatek,mt6329
   reg:
     const: 0x60
+  mediatek,external-charger:
+    type: boolean
+    description:
+      Battery charging uses an external charger. Disable the internal
+      charger, current DAC and charger watchdog before enabling PMIC
+      function devices.
   adc:
     $ref: /schemas/iio/adc/mediatek,mt6359-auxadc.yaml#
     properties:

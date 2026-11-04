@@ -1141,11 +1141,12 @@ config MFD_MT6370
 config MFD_MT6329
 	tristate "MediaTek MT6329 PMIC Support"
 	depends on I2C
-	select MFD_SIMPLE_MFD_I2C
+	select MFD_CORE
+	select REGMAP_I2C
 	help
 	  Say yes here to enable shared register access for the MediaTek
-	  MT6329 power management IC over I2C. The existing simple MFD
-	  driver provides the transport and creates function devices.
+	  MT6329 power management IC over I2C. This driver initializes
+	  the PMIC and creates its regulator and ADC function devices.
 	  Enable the individual function drivers separately to use them.
 
 config MFD_MT6397

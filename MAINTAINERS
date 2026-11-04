@@ -16717,6 +16717,7 @@ MEDIATEK MT6329 PMIC SUPPORT
 M:	Michal Andrzejczak <mit.mis@gmail.com>
 S:	Maintained
 F:	Documentation/devicetree/bindings/mfd/mediatek,mt6329.yaml
+F:	drivers/mfd/mt6329.c
 F:	drivers/regulator/mt6329-regulator.c
 F:	include/dt-bindings/iio/adc/mediatek,mt6329-auxadc.h
 
