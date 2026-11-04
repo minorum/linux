@@ -21,6 +21,8 @@
 #define SM5701_STATUS1		0x06
 #define SM5701_STATUS2		0x07
 #define SM5701_CTRL		0x09
+#define SM5701_VBUS_CTRL		0x0a
+#define SM5701_INPUT_CURRENT_MASK	GENMASK(2, 0)
 #define SM5701_CHGEN		BIT(2)
 #define SM5701_VBUSOK		BIT(2)
 #define SM5701_VBUSUVLO		BIT(3)
@@ -31,6 +33,10 @@
 #define SM5701_CHGON		BIT(3)
 #define SM5701_TEMP_HYSTERESIS	5000
 #define SM5701_TEMP_INTERVAL_MS	30000
+
+static const int sm5701_input_current[] = {
+	100000, 500000, 700000, 800000, 900000, 1000000, 1100000, 1200000,
+};
 
 struct sm5701 {
 	struct device *dev;
@@ -78,7 +84,8 @@ static bool sm5701_precious_reg(struct device *dev, unsigned int reg)
 
 static bool sm5701_writeable_reg(struct device *dev, unsigned int reg)
 {
-	return reg == 0x09 || reg == 0x0f || reg == 0x12 || reg == 0x14;
+	return reg == 0x09 || reg == SM5701_VBUS_CTRL || reg == 0x0f ||
+	       reg == 0x12 || reg == 0x14;
 }
 
 static const struct regmap_config sm5701_regmap_config = {
@@ -407,6 +414,28 @@ static int sm5701_init_temperature(struct sm5701 *data)
 	return ret;
 }
 
+static int sm5701_set_input_current(struct sm5701 *data, int current_ua)
+{
+	unsigned int code;
+	int ret;
+
+	for (code = 0; code < ARRAY_SIZE(sm5701_input_current); code++)
+		if (sm5701_input_current[code] == current_ua)
+			break;
+	if (code == ARRAY_SIZE(sm5701_input_current))
+		return -EINVAL;
+
+	mutex_lock(&data->torch_lock);
+	if (READ_ONCE(data->stopping))
+		ret = -ESHUTDOWN;
+	else
+		ret = regmap_update_bits(data->regmap, SM5701_VBUS_CTRL,
+					 SM5701_INPUT_CURRENT_MASK, code);
+	mutex_unlock(&data->torch_lock);
+
+	return ret;
+}
+
 static int sm5701_set_property(struct power_supply *psy,
 			       enum power_supply_property prop,
 			       const union power_supply_propval *val)
@@ -414,9 +443,12 @@ static int sm5701_set_property(struct power_supply *psy,
 	struct sm5701 *data = power_supply_get_drvdata(psy);
 	int ret;
 
-	if (prop != POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR)
+	if (prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT)
+		ret = sm5701_set_input_current(data, val->intval);
+	else if (prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR)
+		ret = sm5701_charge_behaviour(data, val->intval);
+	else
 		return -EINVAL;
-	ret = sm5701_charge_behaviour(data, val->intval);
 	if (!ret)
 		power_supply_changed(psy);
 	return ret;
@@ -425,7 +457,8 @@ static int sm5701_set_property(struct power_supply *psy,
 static int sm5701_property_is_writeable(struct power_supply *psy,
 				       enum power_supply_property prop)
 {
-	return prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+	return prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR ||
+	       prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT;
 }
 
 static int sm5701_get_property(struct power_supply *psy,
@@ -438,6 +471,12 @@ static int sm5701_get_property(struct power_supply *psy,
 	int state, health;
 	int ret;
 
+	if (prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT) {
+		ret = regmap_read(data->regmap, SM5701_VBUS_CTRL, &status);
+		if (!ret)
+			val->intval = sm5701_input_current[status & SM5701_INPUT_CURRENT_MASK];
+		return ret;
+	}
 	if (prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR) {
 		mutex_lock(&data->torch_lock);
 		val->intval = data->charge_inhibited ?
@@ -475,6 +514,7 @@ static const enum power_supply_property sm5701_properties[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 };
 
 static const struct power_supply_desc sm5701_desc = {
