@@ -140,6 +140,7 @@
 };
 
 &battery {
+	alert-celsius = <(-5) 55>;
 	factory-internal-resistance-micro-ohms = <230000>;
 	resistance-temp-table = <25 100>, <10 187>, <0 217>;
 };
@@ -239,6 +240,9 @@
 };
 
 &charger {
+	io-channels = <&battery_thermistor>;
+	io-channel-names = "battery-temperature";
+	monitored-battery = <&battery>;
 	wakeup-source;
 };
 
