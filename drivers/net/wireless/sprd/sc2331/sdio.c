@@ -866,7 +866,7 @@ static int sc2331_cfg_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wowla
 	else if (wifi->stopping || wifi->scan || wifi->connecting)
 		ret = -EBUSY;
 	else if (!wifi->connected)
-		ret = -ENOTCONN;
+		ret = 1;
 	else {
 		ret = sc2331_wifi_command(wifi, 0x2d, payload, sizeof(payload), 3000);
 		wifi->wowlan = !ret;
