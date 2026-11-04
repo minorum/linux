@@ -114,7 +114,7 @@ static void mt6628_data_rx(struct mt6628_dev *dev, const u8 *packet,
 	if (!dev->data_enabled || atomic_read(&dev->error) ||
 	    (packet[5] & 0xf7) || (get_unaligned_le16(packet + 6) & BIT(15)) ||
 	    packet[8] != dev->data_peer || packet[10] != dev->data_channel ||
-	    (packet[4] >> 2) != ETH_HLEN || len > VLAN_ETH_FRAME_LEN ||
+	    len > VLAN_ETH_FRAME_LEN ||
 	    (!is_multicast_ether_addr(packet + offset) &&
 	     !ether_addr_equal(packet + offset, netdev->dev_addr))) {
 		spin_unlock_irqrestore(&dev->data_tx.lock, flags);
