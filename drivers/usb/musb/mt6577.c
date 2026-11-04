@@ -34,6 +34,7 @@ static void mt6577_budget_work(struct work_struct *work)
 		return;
 	val.intval = READ_ONCE(glue->budget_ma) * 1000;
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+	dev_dbg(glue->dev, "USB budget delivery: requested=%d uA result=%d\n", val.intval, ret);
 	if (ret) {
 		if (ret != -EAGAIN)
 			dev_err_ratelimited(glue->dev,
@@ -51,6 +52,7 @@ static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
 	if (mA > INT_MAX / 1000)
 		return -EINVAL;
 	WRITE_ONCE(glue->budget_ma, mA);
+	dev_dbg(glue->dev, "USB budget queued: %u mA\n", mA);
 	mod_delayed_work(system_wq, &glue->budget_work, 0);
 	return 0;
 }

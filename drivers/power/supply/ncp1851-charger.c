@@ -126,8 +126,11 @@ static int ncp1851_read_regs(struct ncp1851 *chip)
 
 	for (i = 0; i < ARRAY_SIZE(addresses); i++) {
 		ret = regmap_read(chip->regmap, addresses[i], &value);
-		if (ret)
+		if (ret) {
+			dev_dbg(chip->dev, "Snapshot read failed: reg=%02x error=%d\n",
+				addresses[i], ret);
 			return ret;
+		}
 		regs[addresses[i]] = value;
 		if (addresses[i] == NCP1851_CH2_INT)
 			chip->timer_fault |= value & NCP1851_TIMER_FAULTS;
@@ -135,6 +138,11 @@ static int ncp1851_read_regs(struct ncp1851 *chip)
 	memcpy(chip->regs, regs, sizeof(regs));
 	if ((regs[NCP1851_STATUS] >> 4) == 11 && (regs[NCP1851_CTRL1] & NCP1851_CHGEN))
 		chip->fault_latched = true;
+	dev_dbg(chip->dev,
+		"Snapshot: status=%02x ctrl1=%02x ctrl2=%02x vin=%02x misc=%02x timers=%02x fault=%u budget=%d\n",
+		regs[NCP1851_STATUS], regs[NCP1851_CTRL1], regs[NCP1851_CTRL2],
+		regs[NCP1851_VIN], regs[NCP1851_MISC], chip->timer_fault,
+		chip->fault_latched, chip->input_budget);
 	return 0;
 }
 
@@ -330,6 +338,7 @@ static void ncp1851_work(struct work_struct *work)
 static enum power_supply_property ncp1851_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
@@ -362,6 +371,9 @@ static int ncp1851_get_property(struct power_supply *psy, enum power_supply_prop
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
 		val->intval = chip->online;
+		break;
+	case POWER_SUPPLY_PROP_PRESENT:
+		val->intval = !!(chip->regs[NCP1851_VIN] & BIT(3));
 		break;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		if ((chip->regs[NCP1851_CTRL2] & 6) != 2) {
