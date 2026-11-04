@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/bitfield.h>
+#include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/iio/consumer.h>
+#include <linux/jiffies.h>
 #include <linux/limits.h>
 #include <linux/linear_range.h>
 #include <linux/module.h>
@@ -255,27 +257,53 @@ static int ncp1851_input(struct ncp1851 *chip, int *input)
 	return 0;
 }
 
+static int ncp1851_source_presence(struct ncp1851 *chip, int *present)
+{
+	union power_supply_propval val;
+	int ret;
+
+	*present = -1;
+	if (!chip->source)
+		return 0;
+	ret = power_supply_get_property(chip->source, POWER_SUPPLY_PROP_ONLINE, &val);
+	if (ret == -ENODATA)
+		return 0;
+	if (ret)
+		return ret;
+	if (val.intval != 0 && val.intval != 1)
+		return -ERANGE;
+	*present = val.intval;
+	return 0;
+}
+
 static int ncp1851_update(struct ncp1851 *chip)
 {
-	int ret, mv, input, health, permission;
-	bool online, restart;
+	unsigned long deadline;
+	int ret, mv, input, health, permission, present, status;
+	bool online, restart, startup;
 
 	ret = ncp1851_read_regs(chip);
 	if (ret)
 		goto fail;
+	ret = ncp1851_source_presence(chip, &present);
+	if (ret)
+		goto fail;
 	online = (chip->regs[NCP1851_VIN] & NCP1851_INPUT_READY) == NCP1851_INPUT_READY &&
 		 !(chip->regs[NCP1851_CTRL1] & BIT(5));
-	if (!(chip->regs[NCP1851_VIN] & BIT(3))) {
+	if (chip->source ? present == 0 : !(chip->regs[NCP1851_VIN] & BIT(3))) {
 		chip->timer_fault = 0;
 		chip->fault_latched = false;
 		chip->cycle_pending = true;
 		chip->input_budget = min(chip->input_budget, 100000);
 	}
+	startup = !online && chip->source && present == 1 &&
+		  !(chip->regs[NCP1851_STATUS] >> 4) &&
+		  !(chip->regs[NCP1851_CTRL1] & NCP1851_CHGEN);
 	chip->online = online;
 	ret = ncp1851_input(chip, &input);
 	if (ret)
 		goto fail;
-	if (!online || chip->inhibit || input < 0 ||
+	if (!online || (chip->source && present != 1) || chip->inhibit || input < 0 ||
 	    chip->health != POWER_SUPPLY_HEALTH_GOOD ||
 	    ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD ||
 	    !ncp1851_configured(chip, input)) {
@@ -297,9 +325,13 @@ static int ncp1851_update(struct ncp1851 *chip)
 	ret = ncp1851_input(chip, &input);
 	if (ret)
 		goto fail;
+	ret = ncp1851_source_presence(chip, &present);
+	if (ret)
+		goto fail;
 	health = ncp1851_health(chip);
 	chip->health = health;
-	if (!online || chip->inhibit || input < 0 || health != POWER_SUPPLY_HEALTH_GOOD) {
+	if ((!online && !startup) || (chip->source && present != 1) ||
+	    chip->inhibit || input < 0 || health != POWER_SUPPLY_HEALTH_GOOD) {
 		ret = ncp1851_inhibit(chip);
 		if (ret)
 			goto fail;
@@ -317,15 +349,19 @@ static int ncp1851_update(struct ncp1851 *chip)
 		if (ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD)
 			goto check_health;
 	}
+	ret = ncp1851_source_presence(chip, &present);
+	if (ret)
+		goto fail;
 	ret = ncp1851_input(chip, &permission);
 	if (ret)
 		goto fail;
-	if (permission != input) {
+	if (permission != input || (chip->source && present != 1)) {
 		ret = -EAGAIN;
 		goto fail;
 	}
 	restart = chip->cycle_pending;
 	chip->cycle_pending = false;
+	deadline = jiffies + msecs_to_jiffies(1000);
 	ret = ncp1851_ctrl1(chip, true, restart);
 	if (ret)
 		goto fail;
@@ -335,6 +371,41 @@ static int ncp1851_update(struct ncp1851 *chip)
 	ret = ncp1851_verify_config(chip, input, true);
 	if (ret)
 		goto fail;
+	if (startup) {
+		for (;;) {
+			if (time_after_eq(jiffies, deadline)) {
+				ret = -ETIMEDOUT;
+				goto fail;
+			}
+			ret = ncp1851_verify_config(chip, input, true);
+			if (ret)
+				goto fail;
+			if (ncp1851_health(chip) != POWER_SUPPLY_HEALTH_GOOD)
+				goto check_health;
+			ret = ncp1851_source_presence(chip, &present);
+			if (ret)
+				goto fail;
+			ret = ncp1851_input(chip, &permission);
+			if (ret)
+				goto fail;
+			if (present != 1 || permission != input) {
+				ret = -EAGAIN;
+				goto fail;
+			}
+			if (time_after_eq(jiffies, deadline)) {
+				ret = -ETIMEDOUT;
+				goto fail;
+			}
+			online = (chip->regs[NCP1851_VIN] & NCP1851_INPUT_READY) ==
+				 NCP1851_INPUT_READY && !(chip->regs[NCP1851_CTRL1] & BIT(5));
+			chip->online = online;
+			status = ncp1851_status(chip->regs[NCP1851_STATUS] >> 4, online, true);
+			if (status == POWER_SUPPLY_STATUS_CHARGING ||
+			    status == POWER_SUPPLY_STATUS_FULL)
+				break;
+			usleep_range(10000, 11000);
+		}
+	}
 check_health:
 	chip->health = ncp1851_health(chip);
 	if (chip->health != POWER_SUPPLY_HEALTH_GOOD) {

@@ -26,7 +26,7 @@ struct mt6577_usb_phy {
 	unsigned int generation;
 	int grant, source_error;
 	enum power_supply_usb_type type;
-	bool powered, suspended, online, detected, data_seen;
+	bool powered, suspended, online, detected, data_seen, presence_known;
 	bool failed, wait_detach;
 };
 
@@ -153,6 +153,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 	}
 	ret = regmap_read(usb->pmic, 0x21, &input);
 	spin_lock_irqsave(&usb->state_lock, flags);
+	usb->presence_known = !ret;
 	if (ret || !(input & BIT(5))) {
 		usb->online = false;
 		if (ret) {
@@ -181,6 +182,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 			ret = regmap_read(usb->pmic, 0x21, &input);
 	}
 	spin_lock_irqsave(&usb->state_lock, flags);
+	usb->presence_known = !ret;
 	if (ret || !(input & BIT(5))) {
 		if (ret) {
 			usb->generation++;
@@ -228,6 +230,10 @@ static int mt6577_bc11_get_property(struct power_supply *psy,
 	}
 	switch (prop) {
 	case POWER_SUPPLY_PROP_ONLINE:
+		if (!usb->powered || usb->suspended || !usb->presence_known) {
+			ret = -ENODATA;
+			break;
+		}
 		val->intval = usb->online;
 		break;
 	case POWER_SUPPLY_PROP_USB_TYPE:
@@ -402,6 +408,7 @@ static int mt6577_usb_power_on(struct phy *phy)
 	}
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->powered = false;
+	usb->presence_known = false;
 	mt6577_bc11_invalidate(usb);
 	spin_unlock_irqrestore(&usb->state_lock, flags);
 	mt6577_usb_save_current(usb);
@@ -430,6 +437,7 @@ static int mt6577_usb_power_off(struct phy *phy)
 	cancel_delayed_work(&usb->work);
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->powered = false;
+	usb->presence_known = false;
 	usb->online = false;
 	mt6577_bc11_invalidate(usb);
 	spin_unlock_irqrestore(&usb->state_lock, flags);
@@ -515,6 +523,7 @@ static int mt6577_bc11_suspend(struct device *dev)
 	mutex_lock(&usb->phy->mutex);
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->suspended = true;
+	usb->presence_known = false;
 	usb->generation++;
 	usb->detected = false;
 	spin_unlock_irqrestore(&usb->state_lock, flags);
