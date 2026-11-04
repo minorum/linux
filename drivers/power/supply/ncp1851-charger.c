@@ -132,12 +132,13 @@ static int ncp1851_read_regs(struct ncp1851 *chip)
 			return ret;
 		}
 		regs[addresses[i]] = value;
+		if (addresses[i] == NCP1851_CTRL1 &&
+		    (regs[NCP1851_STATUS] >> 4) == 11 && (value & NCP1851_CHGEN))
+			chip->fault_latched = true;
 		if (addresses[i] == NCP1851_CH2_INT)
 			chip->timer_fault |= value & NCP1851_TIMER_FAULTS;
 	}
 	memcpy(chip->regs, regs, sizeof(regs));
-	if ((regs[NCP1851_STATUS] >> 4) == 11 && (regs[NCP1851_CTRL1] & NCP1851_CHGEN))
-		chip->fault_latched = true;
 	dev_dbg(chip->dev,
 		"Snapshot: status=%02x ctrl1=%02x ctrl2=%02x vin=%02x misc=%02x timers=%02x fault=%u budget=%d\n",
 		regs[NCP1851_STATUS], regs[NCP1851_CTRL1], regs[NCP1851_CTRL2],
