@@ -456,15 +456,11 @@ static int ncp1851_set_property(struct power_supply *psy, enum power_supply_prop
 	struct ncp1851 *chip = power_supply_get_drvdata(psy);
 	int ret;
 
-	if (prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT) {
+	if (prop == POWER_SUPPLY_PROP_CURRENT_MAX) {
 		if (val->intval < 0)
 			return -EINVAL;
-		if (chip->source) {
-			ret = power_supply_set_property(chip->source,
-							POWER_SUPPLY_PROP_CURRENT_MAX, val);
-			if (ret)
-				return ret;
-		}
+		return chip->source ? power_supply_set_property_direct(chip->source,
+							POWER_SUPPLY_PROP_CURRENT_MAX, val) : 0;
 	}
 	mutex_lock(&chip->lock);
 	switch (prop) {
@@ -501,7 +497,10 @@ out:
 
 static int ncp1851_writeable(struct power_supply *psy, enum power_supply_property prop)
 {
+	struct ncp1851 *chip = power_supply_get_drvdata(psy);
+
 	return prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT ||
+	       (prop == POWER_SUPPLY_PROP_CURRENT_MAX && chip->source) ||
 	       prop == POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
 }
 

@@ -8,6 +8,7 @@
 #include <linux/phy/phy.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
+#include <linux/spinlock.h>
 #include <linux/workqueue.h>
 
 #include "musb_core.h"
@@ -21,6 +22,7 @@ struct mt6577_glue {
 	struct device *dev;
 	struct power_supply *charger;
 	struct delayed_work budget_work;
+	spinlock_t budget_lock; /* USB grants */
 	unsigned int budget_ma;
 };
 
@@ -29,12 +31,18 @@ static void mt6577_budget_work(struct work_struct *work)
 	struct mt6577_glue *glue = container_of(to_delayed_work(work),
 					     struct mt6577_glue, budget_work);
 	union power_supply_propval val;
+	unsigned long flags;
 	int ret;
 
 	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
 		return;
-	val.intval = READ_ONCE(glue->budget_ma) * 1000;
-	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+	spin_lock_irqsave(&glue->budget_lock, flags);
+	val.intval = glue->budget_ma * 1000;
+	ret = power_supply_set_property_direct(glue->charger, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
+	spin_unlock_irqrestore(&glue->budget_lock, flags);
+	if (!ret)
+		ret = power_supply_set_property(glue->charger,
+						POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	dev_dbg(glue->dev, "USB budget delivery: requested=%d uA result=%d\n", val.intval, ret);
 	if (ret) {
 		if (ret != -EAGAIN)
@@ -47,15 +55,22 @@ static void mt6577_budget_work(struct work_struct *work)
 static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
 {
 	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	union power_supply_propval val;
+	unsigned long flags;
+	int ret;
 
 	if (!glue->charger)
 		return 0;
 	if (mA > INT_MAX / 1000)
 		return -EINVAL;
-	WRITE_ONCE(glue->budget_ma, mA);
+	val.intval = mA * 1000;
+	spin_lock_irqsave(&glue->budget_lock, flags);
+	glue->budget_ma = mA;
+	ret = power_supply_set_property_direct(glue->charger, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
+	spin_unlock_irqrestore(&glue->budget_lock, flags);
 	dev_dbg(glue->dev, "USB budget queued: %u mA\n", mA);
 	mod_delayed_work(system_percpu_wq, &glue->budget_work, 0);
-	return 0;
+	return ret;
 }
 
 static void mt6577_budget_stop(void *data)
@@ -67,6 +82,9 @@ static void mt6577_budget_stop(void *data)
 	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
 		return;
 	cancel_delayed_work_sync(&glue->budget_work);
+	ret = power_supply_set_property_direct(glue->charger, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
+	if (ret)
+		dev_err(glue->dev, "Cannot revoke USB source permission: %d\n", ret);
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	if (ret)
 		dev_err(glue->dev, "Cannot revoke USB current budget: %d\n", ret);
@@ -77,6 +95,7 @@ static int mt6577_budget_init(struct mt6577_glue *glue)
 	union power_supply_propval val = { .intval = 0 };
 	int ret;
 
+	spin_lock_init(&glue->budget_lock);
 	if (!device_property_present(glue->dev, "power-supplies"))
 		return 0;
 	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
@@ -87,6 +106,9 @@ static int mt6577_budget_init(struct mt6577_glue *glue)
 	if (!glue->charger)
 		return -EPROBE_DEFER;
 	INIT_DELAYED_WORK(&glue->budget_work, mt6577_budget_work);
+	ret = power_supply_set_property_direct(glue->charger, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
+	if (ret)
+		return ret;
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	if (ret)
 		return ret;
