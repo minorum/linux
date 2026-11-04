@@ -2,6 +2,7 @@
 #include <linux/i2c.h>
 #include <linux/devm-helpers.h>
 #include <linux/interrupt.h>
+#include <linux/iio/consumer.h>
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -9,8 +10,10 @@
 #include <linux/pm.h>
 #include <linux/pm_wakeup.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/units.h>
 
 #define SM5701_INT1		0x00
 #define SM5701_INT3		0x02
@@ -25,6 +28,7 @@
 #define SM5701_TOPOFF		BIT(0)
 #define SM5701_DONE		BIT(1)
 #define SM5701_CHGON		BIT(3)
+#define SM5701_TEMP_HYSTERESIS	5000
 
 struct sm5701 {
 	struct device *dev;
@@ -47,7 +51,12 @@ struct sm5701 {
 	bool torch_active;
 	bool torch_fault;
 	bool charge_inhibited;
+	bool charge_manual;
+	bool temperature_inhibited;
 	unsigned int charge_restore;
+	struct iio_channel *temperature_channel;
+	int temp_min;
+	int temp_max;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
@@ -258,17 +267,11 @@ static int sm5701_read_state(struct sm5701 *data, bool *online, bool *present,
 	return 0;
 }
 
-static int sm5701_charge_behaviour(struct sm5701 *data, int behaviour)
+static int sm5701_update_charge(struct sm5701 *data, bool inhibit)
 {
 	unsigned int mode, restore;
-	bool inhibit;
 	int ret = 0;
 
-	if (behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO &&
-	    behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
-		return -EINVAL;
-	inhibit = behaviour == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
-	mutex_lock(&data->torch_lock);
 	if (inhibit == data->charge_inhibited)
 		goto out;
 	if (!inhibit && data->torch_active) {
@@ -294,7 +297,98 @@ static int sm5701_charge_behaviour(struct sm5701 *data, int behaviour)
 	}
 	data->charge_inhibited = inhibit;
 out:
+	return ret;
+}
+
+static bool sm5701_temperature_inhibit(struct sm5701 *data, int temperature)
+{
+	if (data->temperature_inhibited)
+		return temperature < data->temp_min + SM5701_TEMP_HYSTERESIS ||
+		       temperature > data->temp_max - SM5701_TEMP_HYSTERESIS;
+
+	return temperature <= data->temp_min || temperature >= data->temp_max;
+}
+
+static int sm5701_sample_temperature(struct sm5701 *data)
+{
+	bool changed;
+	int temperature, sample, ret;
+
+	sample = iio_read_channel_processed(data->temperature_channel, &temperature);
+	mutex_lock(&data->torch_lock);
+	changed = data->charge_inhibited;
+	data->temperature_inhibited = sample < 0 ||
+				     sm5701_temperature_inhibit(data, temperature);
+	ret = sm5701_update_charge(data, data->charge_manual || data->temperature_inhibited);
+	changed = changed != data->charge_inhibited;
 	mutex_unlock(&data->torch_lock);
+	if (changed)
+		power_supply_changed(data->psy);
+
+	return ret ?: (sample < 0 ? sample : 0);
+}
+
+static int sm5701_charge_behaviour(struct sm5701 *data, int behaviour)
+{
+	bool inhibit;
+	int ret;
+
+	if (behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO &&
+	    behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
+		return -EINVAL;
+	inhibit = behaviour == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+	mutex_lock(&data->torch_lock);
+	ret = sm5701_update_charge(data, inhibit || data->temperature_inhibited);
+	if (!ret)
+		data->charge_manual = inhibit;
+	mutex_unlock(&data->torch_lock);
+
+	return ret;
+}
+
+static int sm5701_init_temperature(struct sm5701 *data)
+{
+	struct power_supply_battery_info *info;
+	struct device *dev = data->dev;
+	enum iio_chan_type type;
+	bool channel, profile;
+	int ret;
+
+	channel = device_property_present(dev, "io-channels");
+	profile = device_property_present(dev, "monitored-battery");
+	if (!channel && !profile)
+		return 0;
+	if (!channel || !profile)
+		return -EINVAL;
+	data->temperature_channel = devm_iio_channel_get(dev, "battery-temperature");
+	if (IS_ERR(data->temperature_channel))
+		return dev_err_probe(dev, PTR_ERR(data->temperature_channel),
+				     "Failed to get battery temperature channel\n");
+	ret = iio_get_channel_type(data->temperature_channel, &type);
+	if (ret)
+		return ret;
+	if (type != IIO_TEMP)
+		return -EINVAL;
+	ret = power_supply_get_battery_info(data->psy, &info);
+	if (ret)
+		return ret;
+	if (info->temp_alert_min < -273 || info->temp_alert_min > 200 ||
+	    info->temp_alert_max < -273 || info->temp_alert_max > 200 ||
+	    info->temp_alert_max - info->temp_alert_min <=
+	    2 * SM5701_TEMP_HYSTERESIS / MILLIDEGREE_PER_DEGREE) {
+		ret = -EINVAL;
+	} else {
+		data->temp_min = info->temp_alert_min * MILLIDEGREE_PER_DEGREE;
+		data->temp_max = info->temp_alert_max * MILLIDEGREE_PER_DEGREE;
+	}
+	power_supply_put_battery_info(data->psy, info);
+	if (ret)
+		return ret;
+	ret = sm5701_sample_temperature(data);
+	if (ret && data->charge_inhibited) {
+		dev_warn(dev, "Battery temperature unavailable, charging inhibited\n");
+		return 0;
+	}
 	return ret;
 }
 
@@ -399,7 +493,14 @@ static void sm5701_poll(struct work_struct *work)
 	struct sm5701 *data = container_of(to_delayed_work(work), struct sm5701, poll);
 	bool online, present;
 	int state, health;
+	int ret;
 
+	if (data->temperature_channel) {
+		ret = sm5701_sample_temperature(data);
+		if (ret)
+			dev_err_ratelimited(data->dev,
+					    "Failed to supervise battery temperature: %d\n", ret);
+	}
 	if (data->irq)
 		sm5701_ack_irq(data);
 	if (!sm5701_read_state(data, &online, &present, &state, &health)) {
@@ -437,6 +538,8 @@ static int sm5701_suspend(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
+	if (data->temperature_channel)
+		return -EBUSY;
 	WRITE_ONCE(data->suspended, true);
 	if (data->irq) {
 		if (device_may_wakeup(dev))
@@ -493,6 +596,9 @@ static int sm5701_probe(struct i2c_client *client)
 	if (IS_ERR(psy))
 		return dev_err_probe(dev, PTR_ERR(psy), "Failed to register supply\n");
 	data->psy = psy;
+	ret = sm5701_init_temperature(data);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to initialize battery supervision\n");
 	ret = devm_delayed_work_autocancel(dev, &data->poll, sm5701_poll);
 	if (ret)
 		return ret;
