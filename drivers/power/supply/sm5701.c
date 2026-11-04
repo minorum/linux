@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/i2c.h>
+#include <linux/alarmtimer.h>
 #include <linux/devm-helpers.h>
 #include <linux/interrupt.h>
 #include <linux/iio/consumer.h>
@@ -29,6 +30,7 @@
 #define SM5701_DONE		BIT(1)
 #define SM5701_CHGON		BIT(3)
 #define SM5701_TEMP_HYSTERESIS	5000
+#define SM5701_TEMP_INTERVAL_MS	30000
 
 struct sm5701 {
 	struct device *dev;
@@ -57,6 +59,10 @@ struct sm5701 {
 	struct iio_channel *temperature_channel;
 	int temp_min;
 	int temp_max;
+	ktime_t temperature_sample;
+	struct alarm temperature_alarm;
+	struct wakeup_source *temperature_wake;
+	bool stopping;
 };
 
 static bool sm5701_readable_reg(struct device *dev, unsigned int reg)
@@ -120,6 +126,8 @@ static int sm5701_torch_set(struct sm5701 *data, unsigned int brightness)
 
 	if (!brightness)
 		return sm5701_torch_off(data);
+	if (READ_ONCE(data->stopping))
+		return -ESHUTDOWN;
 	if (data->torch_fault)
 		return -EIO;
 	if (data->torch_active) {
@@ -316,6 +324,8 @@ static int sm5701_sample_temperature(struct sm5701 *data)
 
 	sample = iio_read_channel_processed(data->temperature_channel, &temperature);
 	mutex_lock(&data->torch_lock);
+	if (sample >= 0)
+		data->temperature_sample = ktime_get_boottime();
 	changed = data->charge_inhibited;
 	data->temperature_inhibited = sample < 0 ||
 				     sm5701_temperature_inhibit(data, temperature);
@@ -338,9 +348,14 @@ static int sm5701_charge_behaviour(struct sm5701 *data, int behaviour)
 		return -EINVAL;
 	inhibit = behaviour == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
 	mutex_lock(&data->torch_lock);
+	if (READ_ONCE(data->stopping)) {
+		ret = -ESHUTDOWN;
+		goto out;
+	}
 	ret = sm5701_update_charge(data, inhibit || data->temperature_inhibited);
 	if (!ret)
 		data->charge_manual = inhibit;
+out:
 	mutex_unlock(&data->torch_lock);
 
 	return ret;
@@ -495,11 +510,17 @@ static void sm5701_poll(struct work_struct *work)
 	int state, health;
 	int ret;
 
+	if (READ_ONCE(data->stopping))
+		return;
 	if (data->temperature_channel) {
 		ret = sm5701_sample_temperature(data);
-		if (ret)
+		if (ret) {
+			__pm_stay_awake(data->temperature_wake);
 			dev_err_ratelimited(data->dev,
 					    "Failed to supervise battery temperature: %d\n", ret);
+		} else {
+			__pm_relax(data->temperature_wake);
+		}
 	}
 	if (data->irq)
 		sm5701_ack_irq(data);
@@ -513,7 +534,8 @@ static void sm5701_poll(struct work_struct *work)
 			power_supply_changed(data->psy);
 		}
 	}
-	queue_delayed_work(system_freezable_wq, &data->poll, msecs_to_jiffies(2000));
+	if (!READ_ONCE(data->stopping))
+		queue_delayed_work(system_freezable_wq, &data->poll, msecs_to_jiffies(2000));
 }
 
 static irqreturn_t sm5701_irq(int irq, void *arg)
@@ -521,6 +543,8 @@ static irqreturn_t sm5701_irq(int irq, void *arg)
 	struct sm5701 *data = arg;
 	int ret;
 
+	if (READ_ONCE(data->stopping))
+		return IRQ_HANDLED;
 	if (device_may_wakeup(data->dev))
 		pm_wakeup_event(data->dev, 0);
 	if (!READ_ONCE(data->suspended)) {
@@ -534,12 +558,62 @@ static irqreturn_t sm5701_irq(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+static void sm5701_temperature_alarm(struct alarm *alarm, ktime_t now)
+{
+	struct sm5701 *data = container_of(alarm, struct sm5701, temperature_alarm);
+
+	if (READ_ONCE(data->stopping))
+		return;
+	__pm_stay_awake(data->temperature_wake);
+	mod_delayed_work(system_freezable_wq, &data->poll, 0);
+}
+
+static int sm5701_prepare(struct device *dev)
+{
+	struct sm5701 *data = dev_get_drvdata(dev);
+	unsigned int status;
+	ktime_t deadline;
+	int ret;
+
+	if (!data->temperature_channel)
+		return 0;
+	ret = sm5701_sample_temperature(data);
+	if (ret)
+		goto fault;
+	ret = regmap_read(data->regmap, SM5701_STATUS1, &status);
+	if (ret)
+		goto fault;
+	if (!(status & SM5701_VBUSOK) && !data->temperature_inhibited)
+		return 0;
+	if (!alarmtimer_get_rtcdev()) {
+		ret = -ENODEV;
+		goto fault;
+	}
+	deadline = ktime_add_ms(data->temperature_sample, SM5701_TEMP_INTERVAL_MS);
+	if (!alarm_start_timer(&data->temperature_alarm, deadline, false)) {
+		ret = -ETIME;
+		goto fault;
+	}
+	return 0;
+fault:
+	__pm_stay_awake(data->temperature_wake);
+	return ret;
+}
+
+static void sm5701_complete(struct device *dev)
+{
+	struct sm5701 *data = dev_get_drvdata(dev);
+
+	if (!data->temperature_channel || READ_ONCE(data->stopping))
+		return;
+	alarm_cancel(&data->temperature_alarm);
+	mod_delayed_work(system_freezable_wq, &data->poll, 0);
+}
+
 static int sm5701_suspend(struct device *dev)
 {
 	struct sm5701 *data = dev_get_drvdata(dev);
 
-	if (data->temperature_channel)
-		return -EBUSY;
 	WRITE_ONCE(data->suspended, true);
 	if (data->irq) {
 		if (device_may_wakeup(dev))
@@ -562,7 +636,46 @@ static int sm5701_resume(struct device *dev)
 	return 0;
 }
 
-static DEFINE_SIMPLE_DEV_PM_OPS(sm5701_pm_ops, sm5701_suspend, sm5701_resume);
+static const struct dev_pm_ops sm5701_pm_ops = {
+	.prepare = sm5701_prepare,
+	.suspend = sm5701_suspend,
+	.resume = sm5701_resume,
+	.complete = sm5701_complete,
+};
+
+static void sm5701_stop_temperature(void *arg)
+{
+	struct sm5701 *data = arg;
+	int ret;
+
+	if (!data->temperature_channel || READ_ONCE(data->stopping))
+		return;
+	WRITE_ONCE(data->stopping, true);
+	alarm_cancel(&data->temperature_alarm);
+	if (data->irq)
+		synchronize_irq(data->irq);
+	cancel_delayed_work_sync(&data->poll);
+	mutex_lock(&data->torch_lock);
+	data->temperature_inhibited = true;
+	ret = sm5701_update_charge(data, true);
+	mutex_unlock(&data->torch_lock);
+	if (ret)
+		dev_err(data->dev, "Failed to inhibit charging at shutdown: %d\n", ret);
+	wakeup_source_unregister(data->temperature_wake);
+}
+
+static int sm5701_init_temperature_wake(struct sm5701 *data)
+{
+	if (!data->temperature_channel)
+		return 0;
+	alarm_init(&data->temperature_alarm, ALARM_BOOTTIME, sm5701_temperature_alarm);
+	data->temperature_wake = wakeup_source_register(data->dev, "sm5701-temperature");
+	if (!data->temperature_wake) {
+		sm5701_stop_temperature(data);
+		return -ENOMEM;
+	}
+	return devm_add_action_or_reset(data->dev, sm5701_stop_temperature, data);
+}
 
 static int sm5701_probe(struct i2c_client *client)
 {
@@ -602,6 +715,9 @@ static int sm5701_probe(struct i2c_client *client)
 	ret = devm_delayed_work_autocancel(dev, &data->poll, sm5701_poll);
 	if (ret)
 		return ret;
+	ret = sm5701_init_temperature_wake(data);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to initialize temperature wakeup\n");
 	if (client->irq) {
 		ret = sm5701_ack_irq(data);
 		if (ret)
@@ -628,7 +744,10 @@ MODULE_DEVICE_TABLE(of, sm5701_of_match);
 
 static void sm5701_shutdown(struct i2c_client *client)
 {
-	sm5701_torch_stop(i2c_get_clientdata(client));
+	struct sm5701 *data = i2c_get_clientdata(client);
+
+	sm5701_stop_temperature(data);
+	sm5701_torch_stop(data);
 }
 
 static struct i2c_driver sm5701_driver = {
