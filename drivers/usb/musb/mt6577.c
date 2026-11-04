@@ -8,6 +8,7 @@
 #include <linux/phy/phy.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
+#include <linux/workqueue.h>
 
 #include "musb_core.h"
 
@@ -39,7 +40,7 @@ static void mt6577_budget_work(struct work_struct *work)
 		if (ret != -EAGAIN)
 			dev_err_ratelimited(glue->dev,
 					    "Cannot update USB current budget: %d\n", ret);
-		queue_delayed_work(system_wq, &glue->budget_work, msecs_to_jiffies(1000));
+		queue_delayed_work(system_percpu_wq, &glue->budget_work, msecs_to_jiffies(1000));
 	}
 }
 
@@ -53,7 +54,7 @@ static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
 		return -EINVAL;
 	WRITE_ONCE(glue->budget_ma, mA);
 	dev_dbg(glue->dev, "USB budget queued: %u mA\n", mA);
-	mod_delayed_work(system_wq, &glue->budget_work, 0);
+	mod_delayed_work(system_percpu_wq, &glue->budget_work, 0);
 	return 0;
 }
 
