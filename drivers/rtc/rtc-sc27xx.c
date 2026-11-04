@@ -537,7 +537,13 @@ static const struct rtc_class_ops sprd_rtc_ops = {
 static irqreturn_t sprd_rtc_handler(int irq, void *dev_id)
 {
 	struct sprd_rtc *rtc = dev_id;
+	u32 status;
 	int ret;
+
+	ret = regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_MASK_STS,
+			  &status);
+	if (ret || !(status & SPRD_RTC_ALM_INT_MASK))
+		return IRQ_NONE;
 
 	ret = sprd_rtc_clear_alarm_ints(rtc);
 	if (ret)
