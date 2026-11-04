@@ -103,7 +103,8 @@ static const struct simple_mfd_data maxim_mon_max77705 = {
 
 static bool mt6329_readable(struct device *dev, unsigned int reg)
 {
-	return reg == 0 || reg == 1 || reg == MT6329_VUSB || reg == MT6329_VMC ||
+	return reg == 0 || reg == 1 || reg == 0x21 ||
+	       reg == MT6329_VUSB || reg == MT6329_VMC ||
 	       reg == 0x38 || reg == 0xe8 || reg == 0xe9 ||
 	       reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
 }
