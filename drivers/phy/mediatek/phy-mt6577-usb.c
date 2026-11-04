@@ -27,7 +27,7 @@ struct mt6577_usb_phy {
 	int grant, source_error;
 	enum power_supply_usb_type type;
 	bool powered, suspended, online, detected, data_seen;
-	bool failed;
+	bool failed, wait_detach;
 };
 
 static void mt6577_usb_update(struct mt6577_usb_phy *usb, unsigned int reg,
@@ -160,6 +160,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 			usb->detected = false;
 		} else {
 			mt6577_bc11_invalidate(usb);
+			usb->wait_detach = false;
 		}
 		usb->source_error = ret;
 		spin_unlock_irqrestore(&usb->state_lock, flags);
@@ -167,7 +168,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 	}
 	usb->online = true;
 	generation = usb->generation;
-	detect = !usb->detected && !usb->data_seen;
+	detect = !usb->detected && !usb->data_seen && !usb->wait_detach;
 	if (usb->data_seen && !usb->detected) {
 		if (usb->type != POWER_SUPPLY_USB_TYPE_CDP)
 			usb->type = POWER_SUPPLY_USB_TYPE_SDP;
@@ -186,6 +187,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 			usb->detected = false;
 		} else {
 			mt6577_bc11_invalidate(usb);
+			usb->wait_detach = false;
 		}
 		usb->online = !ret && (input & BIT(5));
 	} else if (detect && generation == usb->generation && !usb->data_seen) {
@@ -260,10 +262,13 @@ static int mt6577_bc11_set_property(struct power_supply *psy,
 		return -EINVAL;
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->generation++;
-	if (!val->intval)
+	if (!val->intval) {
 		mt6577_bc11_invalidate(usb);
+		usb->wait_detach = usb->powered;
+	}
 	usb->grant = val->intval;
 	if (usb->grant >= 100000) {
+		usb->wait_detach = false;
 		usb->data_seen = true;
 		if (usb->type != POWER_SUPPLY_USB_TYPE_CDP)
 			usb->type = POWER_SUPPLY_USB_TYPE_SDP;
@@ -410,6 +415,9 @@ disable_supply:
 		clk_disable_unprepare(usb->bus);
 disable_upll:
 	clk_disable_unprepare(usb->upll);
+	spin_lock_irqsave(&usb->state_lock, flags);
+	usb->wait_detach = false;
+	spin_unlock_irqrestore(&usb->state_lock, flags);
 	return ret;
 }
 
@@ -446,6 +454,9 @@ static int mt6577_usb_power_off(struct phy *phy)
 	}
 	clk_disable_unprepare(usb->bus);
 	clk_disable_unprepare(usb->upll);
+	spin_lock_irqsave(&usb->state_lock, flags);
+	usb->wait_detach = false;
+	spin_unlock_irqrestore(&usb->state_lock, flags);
 	return 0;
 }
 
