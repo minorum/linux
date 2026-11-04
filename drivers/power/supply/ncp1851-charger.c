@@ -633,7 +633,7 @@ static int ncp1851_probe(struct i2c_client *client)
 			goto fail;
 		}
 		if (!chip->source) {
-			ret = -ENODEV;
+			ret = -EPROBE_DEFER;
 			goto fail;
 		}
 	}
