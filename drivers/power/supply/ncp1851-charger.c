@@ -429,9 +429,13 @@ static int ncp1851_set_property(struct power_supply *psy, enum power_supply_prop
 		goto out;
 	}
 	ret = chip->stopped ? 0 : ncp1851_update(chip);
+	if (!ret && prop == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT &&
+	    ((chip->stopped && chip->input_budget > 100000) ||
+	     chip->input_budget != min(val->intval, chip->input_max)))
+		ret = -EAGAIN;
 out:
 	mutex_unlock(&chip->lock);
-	if (!ret)
+	if (!ret || ret == -EAGAIN)
 		power_supply_changed(psy);
 	return ret;
 }

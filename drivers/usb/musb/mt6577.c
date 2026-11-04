@@ -19,13 +19,14 @@ struct mt6577_glue {
 	struct phy *phy;
 	struct device *dev;
 	struct power_supply *charger;
-	struct work_struct budget_work;
+	struct delayed_work budget_work;
 	unsigned int budget_ma;
 };
 
 static void mt6577_budget_work(struct work_struct *work)
 {
-	struct mt6577_glue *glue = container_of(work, struct mt6577_glue, budget_work);
+	struct mt6577_glue *glue = container_of(to_delayed_work(work),
+					     struct mt6577_glue, budget_work);
 	union power_supply_propval val;
 	int ret;
 
@@ -33,8 +34,12 @@ static void mt6577_budget_work(struct work_struct *work)
 		return;
 	val.intval = READ_ONCE(glue->budget_ma) * 1000;
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
-	if (ret)
-		dev_err_ratelimited(glue->dev, "Cannot update USB current budget: %d\n", ret);
+	if (ret) {
+		if (ret != -EAGAIN)
+			dev_err_ratelimited(glue->dev,
+					    "Cannot update USB current budget: %d\n", ret);
+		queue_delayed_work(system_wq, &glue->budget_work, msecs_to_jiffies(1000));
+	}
 }
 
 static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
@@ -46,7 +51,7 @@ static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
 	if (mA > INT_MAX / 1000)
 		return -EINVAL;
 	WRITE_ONCE(glue->budget_ma, mA);
-	schedule_work(&glue->budget_work);
+	mod_delayed_work(system_wq, &glue->budget_work, 0);
 	return 0;
 }
 
@@ -58,7 +63,7 @@ static void mt6577_budget_stop(void *data)
 
 	if (!IS_ENABLED(CONFIG_POWER_SUPPLY))
 		return;
-	cancel_work_sync(&glue->budget_work);
+	cancel_delayed_work_sync(&glue->budget_work);
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	if (ret)
 		dev_err(glue->dev, "Cannot revoke USB current budget: %d\n", ret);
@@ -78,7 +83,7 @@ static int mt6577_budget_init(struct mt6577_glue *glue)
 		return PTR_ERR(glue->charger);
 	if (!glue->charger)
 		return -EPROBE_DEFER;
-	INIT_WORK(&glue->budget_work, mt6577_budget_work);
+	INIT_DELAYED_WORK(&glue->budget_work, mt6577_budget_work);
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	if (ret)
 		return ret;
