@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/clock/mediatek,mt6577-pericfg.yaml#
+$id: http://devicetree.org/schemas/clock/mediatek,mt8377-pericfg.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MT6577 peripheral clock controller
+title: MediaTek MT8377 peripheral clock controller
 
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
@@ -19,7 +19,9 @@ description:
 
 properties:
   compatible:
-    const: mediatek,mt6577-pericfg
+    enum:
+      - mediatek,mt8377-pericfg
+      - mediatek,mt6577-pericfg
   reg:
     maxItems: 1
   clocks:
@@ -44,13 +46,13 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/mediatek,mt6577-clk.h>
+    #include <dt-bindings/clock/mediatek,mt8377-clk.h>
     clock-controller@c1000000 {
-        compatible = "mediatek,mt6577-pericfg";
+        compatible = "mediatek,mt8377-pericfg";
         reg = <0xc1000000 0x1000>;
-        clocks = <&infracfg CLK_MT6577_AXI>, <&clk26m>,
-                 <&apmixedsys CLK_MT6577_WPLL197>,
-                 <&apmixedsys CLK_MT6577_WPLL61>;
+        clocks = <&infracfg CLK_MT8377_AXI>, <&clk26m>,
+                 <&apmixedsys CLK_MT8377_WPLL197>,
+                 <&apmixedsys CLK_MT8377_WPLL61>;
         clock-names = "axi", "clk26m", "wpll197", "wpll61";
         #clock-cells = <1>;
     };

@@ -15,7 +15,9 @@ allOf:
       properties:
         compatible:
           contains:
-            const: mediatek,mt6577-pwm
+            enum:
+              - mediatek,mt8377-pwm
+              - mediatek,mt6577-pwm
     then:
       properties:
         clocks:
@@ -30,6 +32,7 @@ properties:
     oneOf:
       - enum:
           - mediatek,mt2712-pwm
+          - mediatek,mt8377-pwm
           - mediatek,mt6577-pwm
           - mediatek,mt6795-pwm
           - mediatek,mt6991-pwm

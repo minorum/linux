@@ -13,7 +13,7 @@
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
 
-struct mt6577_usb_phy {
+struct mt8377_usb_phy {
 	void __iomem *base;
 	struct clk *upll;
 	struct clk *bus;
@@ -30,13 +30,13 @@ struct mt6577_usb_phy {
 	bool failed, wait_detach;
 };
 
-static void mt6577_usb_update(struct mt6577_usb_phy *usb, unsigned int reg,
+static void mt8377_usb_update(struct mt8377_usb_phy *usb, unsigned int reg,
 			      u8 mask, u8 value)
 {
 	writeb((readb(usb->base + reg) & ~mask) | value, usb->base + reg);
 }
 
-static int mt6577_bc11_update(struct mt6577_usb_phy *usb, unsigned int reg,
+static int mt8377_bc11_update(struct mt8377_usb_phy *usb, unsigned int reg,
 			      unsigned int mask, unsigned int value)
 {
 	unsigned int readback;
@@ -51,42 +51,42 @@ static int mt6577_bc11_update(struct mt6577_usb_phy *usb, unsigned int reg,
 	return (readback & mask) == value ? 0 : -EIO;
 }
 
-static int mt6577_bc11_cleanup(struct mt6577_usb_phy *usb)
+static int mt8377_bc11_cleanup(struct mt8377_usb_phy *usb)
 {
 	int ret, cleanup;
 
-	ret = mt6577_bc11_update(usb, 0x34, 0xff, 0);
-	cleanup = mt6577_bc11_update(usb, 0x33, 0x0f, 0);
+	ret = mt8377_bc11_update(usb, 0x34, 0xff, 0);
+	cleanup = mt8377_bc11_update(usb, 0x33, 0x0f, 0);
 	if (!ret)
 		ret = cleanup;
-	mt6577_usb_update(usb, 0x1c, BIT(7), 0);
+	mt8377_usb_update(usb, 0x1c, BIT(7), 0);
 	if (!ret && (readb(usb->base + 0x1c) & BIT(7)))
 		ret = -EIO;
 	return ret;
 }
 
-static int mt6577_bc11_detect(struct mt6577_usb_phy *usb,
+static int mt8377_bc11_detect(struct mt8377_usb_phy *usb,
 			      enum power_supply_usb_type *type)
 {
 	unsigned int value;
 	bool charging_port;
 	int ret, cleanup;
 
-	mt6577_usb_update(usb, 0x1c, BIT(7), BIT(7));
+	mt8377_usb_update(usb, 0x1c, BIT(7), BIT(7));
 	if (!(readb(usb->base + 0x1c) & BIT(7))) {
 		ret = -EIO;
 		goto out;
 	}
-	ret = mt6577_bc11_update(usb, 0x33, 0x0f, 3);
+	ret = mt8377_bc11_update(usb, 0x33, 0x0f, 3);
 	if (ret)
 		goto out;
-	ret = mt6577_bc11_update(usb, 0x34, 0xff, BIT(7));
+	ret = mt8377_bc11_update(usb, 0x34, 0xff, BIT(7));
 	if (ret)
 		goto out;
-	ret = mt6577_bc11_update(usb, 0x33, 0x0c, 2 << 2);
+	ret = mt8377_bc11_update(usb, 0x33, 0x0c, 2 << 2);
 	if (ret)
 		goto out;
-	ret = mt6577_bc11_update(usb, 0x34, 0x1f, (1 << 3) | (1 << 1));
+	ret = mt8377_bc11_update(usb, 0x34, 0x1f, (1 << 3) | (1 << 1));
 	if (ret)
 		goto out;
 	msleep(100);
@@ -94,14 +94,14 @@ static int mt6577_bc11_detect(struct mt6577_usb_phy *usb,
 	if (ret)
 		goto out;
 	charging_port = value & BIT(7);
-	ret = mt6577_bc11_update(usb, 0x33, 0x0c, 0);
+	ret = mt8377_bc11_update(usb, 0x33, 0x0c, 0);
 	if (ret)
 		goto out;
-	ret = mt6577_bc11_update(usb, 0x34, 0x1e, 0);
+	ret = mt8377_bc11_update(usb, 0x34, 0x1e, 0);
 	if (ret)
 		goto out;
 	msleep(50);
-	ret = mt6577_bc11_update(usb, 0x34, 0x7f,
+	ret = mt8377_bc11_update(usb, 0x34, 0x7f,
 				 charging_port ? 2 << 5 : (1 << 5) | (1 << 1));
 	if (ret)
 		goto out;
@@ -116,18 +116,18 @@ static int mt6577_bc11_detect(struct mt6577_usb_phy *usb,
 		*type = value & BIT(7) ? POWER_SUPPLY_USB_TYPE_UNKNOWN :
 			POWER_SUPPLY_USB_TYPE_SDP;
 		if (*type == POWER_SUPPLY_USB_TYPE_UNKNOWN) {
-			ret = mt6577_bc11_update(usb, 0x34, 0x60, 2 << 5);
+			ret = mt8377_bc11_update(usb, 0x34, 0x60, 2 << 5);
 			if (ret)
 				goto out;
 			msleep(80);
 		}
 	}
 out:
-	cleanup = mt6577_bc11_cleanup(usb);
+	cleanup = mt8377_bc11_cleanup(usb);
 	return ret ? ret : cleanup;
 }
 
-static void mt6577_bc11_invalidate(struct mt6577_usb_phy *usb)
+static void mt8377_bc11_invalidate(struct mt8377_usb_phy *usb)
 {
 	usb->generation++;
 	usb->detected = false;
@@ -136,7 +136,7 @@ static void mt6577_bc11_invalidate(struct mt6577_usb_phy *usb)
 	usb->type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 }
 
-static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
+static int mt8377_bc11_refresh(struct mt8377_usb_phy *usb)
 {
 	enum power_supply_usb_type type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 	unsigned int input, generation;
@@ -147,7 +147,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 	if (!usb->pmic)
 		return 0;
 	if (usb->source_error) {
-		ret = mt6577_bc11_cleanup(usb);
+		ret = mt8377_bc11_cleanup(usb);
 		if (ret)
 			return ret;
 	}
@@ -160,7 +160,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 			usb->generation++;
 			usb->detected = false;
 		} else {
-			mt6577_bc11_invalidate(usb);
+			mt8377_bc11_invalidate(usb);
 			usb->wait_detach = false;
 		}
 		usb->source_error = ret;
@@ -177,7 +177,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 	}
 	spin_unlock_irqrestore(&usb->state_lock, flags);
 	if (detect) {
-		ret = mt6577_bc11_detect(usb, &type);
+		ret = mt8377_bc11_detect(usb, &type);
 		if (!ret)
 			ret = regmap_read(usb->pmic, 0x21, &input);
 	}
@@ -188,7 +188,7 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 			usb->generation++;
 			usb->detected = false;
 		} else {
-			mt6577_bc11_invalidate(usb);
+			mt8377_bc11_invalidate(usb);
 			usb->wait_detach = false;
 		}
 		usb->online = !ret && (input & BIT(5));
@@ -201,25 +201,25 @@ static int mt6577_bc11_refresh(struct mt6577_usb_phy *usb)
 	return ret;
 }
 
-static void mt6577_bc11_work(struct work_struct *work)
+static void mt8377_bc11_work(struct work_struct *work)
 {
-	struct mt6577_usb_phy *usb = container_of(to_delayed_work(work),
-					       struct mt6577_usb_phy, work);
+	struct mt8377_usb_phy *usb = container_of(to_delayed_work(work),
+					       struct mt8377_usb_phy, work);
 
 	mutex_lock(&usb->phy->mutex);
 	if (usb->powered && !usb->suspended) {
-		mt6577_bc11_refresh(usb);
+		mt8377_bc11_refresh(usb);
 		schedule_delayed_work(&usb->work, HZ);
 	}
 	mutex_unlock(&usb->phy->mutex);
 	power_supply_changed(usb->psy);
 }
 
-static int mt6577_bc11_get_property(struct power_supply *psy,
+static int mt8377_bc11_get_property(struct power_supply *psy,
 				    enum power_supply_property prop,
 				    union power_supply_propval *val)
 {
-	struct mt6577_usb_phy *usb = power_supply_get_drvdata(psy);
+	struct mt8377_usb_phy *usb = power_supply_get_drvdata(psy);
 	unsigned long flags;
 	int ret = 0;
 
@@ -257,11 +257,11 @@ out:
 	return ret;
 }
 
-static int mt6577_bc11_set_property(struct power_supply *psy,
+static int mt8377_bc11_set_property(struct power_supply *psy,
 				    enum power_supply_property prop,
 				    const union power_supply_propval *val)
 {
-	struct mt6577_usb_phy *usb = power_supply_get_drvdata(psy);
+	struct mt8377_usb_phy *usb = power_supply_get_drvdata(psy);
 	unsigned long flags;
 
 	if (prop != POWER_SUPPLY_PROP_CURRENT_MAX || val->intval < 0)
@@ -269,7 +269,7 @@ static int mt6577_bc11_set_property(struct power_supply *psy,
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->generation++;
 	if (!val->intval) {
-		mt6577_bc11_invalidate(usb);
+		mt8377_bc11_invalidate(usb);
 		usb->wait_detach = usb->powered;
 	}
 	usb->grant = val->intval;
@@ -285,13 +285,13 @@ static int mt6577_bc11_set_property(struct power_supply *psy,
 	return 0;
 }
 
-static int mt6577_bc11_writeable(struct power_supply *psy,
+static int mt8377_bc11_writeable(struct power_supply *psy,
 				 enum power_supply_property prop)
 {
 	return prop == POWER_SUPPLY_PROP_CURRENT_MAX;
 }
 
-static int mt6577_usb_calibrate(struct mt6577_usb_phy *usb)
+static int mt8377_usb_calibrate(struct mt8377_usb_phy *usb)
 {
 	u8 saved = readb(usb->base + 0x12);
 	u8 control = readb(usb->base + 0x703);
@@ -334,28 +334,28 @@ restore:
 	return ret;
 }
 
-static void mt6577_usb_save_current(struct mt6577_usb_phy *usb)
+static void mt8377_usb_save_current(struct mt8377_usb_phy *usb)
 {
-	mt6577_usb_update(usb, 0x6b, 0x04, 0);
-	mt6577_usb_update(usb, 0x6e, 0x01, 0);
-	mt6577_usb_update(usb, 0x6a, 0x04, 0);
-	mt6577_usb_update(usb, 0x68, 0xc0, 0xc0);
-	mt6577_usb_update(usb, 0x68, 0x30, 0x10);
-	mt6577_usb_update(usb, 0x68, 0x04, 0x04);
-	mt6577_usb_update(usb, 0x69, 0x3c, 0);
-	mt6577_usb_update(usb, 0x6a, 0x3a, 0x3a);
-	mt6577_usb_update(usb, 0x1c, 0x80, 0);
-	mt6577_usb_update(usb, 0x1b, 0x08, 0);
+	mt8377_usb_update(usb, 0x6b, 0x04, 0);
+	mt8377_usb_update(usb, 0x6e, 0x01, 0);
+	mt8377_usb_update(usb, 0x6a, 0x04, 0);
+	mt8377_usb_update(usb, 0x68, 0xc0, 0xc0);
+	mt8377_usb_update(usb, 0x68, 0x30, 0x10);
+	mt8377_usb_update(usb, 0x68, 0x04, 0x04);
+	mt8377_usb_update(usb, 0x69, 0x3c, 0);
+	mt8377_usb_update(usb, 0x6a, 0x3a, 0x3a);
+	mt8377_usb_update(usb, 0x1c, 0x80, 0);
+	mt8377_usb_update(usb, 0x1b, 0x08, 0);
 	usleep_range(800, 1000);
-	mt6577_usb_update(usb, 0x63, 0x02, 0x02);
+	mt8377_usb_update(usb, 0x63, 0x02, 0x02);
 	udelay(1);
-	mt6577_usb_update(usb, 0x6a, 0x04, 0x04);
+	mt8377_usb_update(usb, 0x6a, 0x04, 0x04);
 	udelay(1);
 }
 
-static int mt6577_usb_power_on(struct phy *phy)
+static int mt8377_usb_power_on(struct phy *phy)
 {
-	struct mt6577_usb_phy *usb = phy_get_drvdata(phy);
+	struct mt8377_usb_phy *usb = phy_get_drvdata(phy);
 	unsigned long flags;
 	bool bus_on = false;
 	int ret, cleanup;
@@ -376,24 +376,24 @@ static int mt6577_usb_power_on(struct phy *phy)
 		goto disable_supply;
 	bus_on = true;
 	usleep_range(50, 100);
-	mt6577_usb_update(usb, 0x6b, 0x04, 0);
-	mt6577_usb_update(usb, 0x6e, 0x01, 0);
-	mt6577_usb_update(usb, 0x1c, 0x80, 0);
-	mt6577_usb_update(usb, 0x02, 0x7f, 0x09);
-	mt6577_usb_update(usb, 0x22, 0x03, 0);
-	mt6577_usb_update(usb, 0x6a, 0x04, 0);
-	mt6577_usb_update(usb, 0x1b, 0x08, 0x08);
+	mt8377_usb_update(usb, 0x6b, 0x04, 0);
+	mt8377_usb_update(usb, 0x6e, 0x01, 0);
+	mt8377_usb_update(usb, 0x1c, 0x80, 0);
+	mt8377_usb_update(usb, 0x02, 0x7f, 0x09);
+	mt8377_usb_update(usb, 0x22, 0x03, 0);
+	mt8377_usb_update(usb, 0x6a, 0x04, 0);
+	mt8377_usb_update(usb, 0x1b, 0x08, 0x08);
 	usleep_range(800, 1000);
-	mt6577_usb_update(usb, 0x68, 0xf4, 0);
-	mt6577_usb_update(usb, 0x69, 0x3c, 0);
-	mt6577_usb_update(usb, 0x6a, 0xbe, 0);
+	mt8377_usb_update(usb, 0x68, 0xf4, 0);
+	mt8377_usb_update(usb, 0x69, 0x3c, 0);
+	mt8377_usb_update(usb, 0x6a, 0xbe, 0);
 	usleep_range(800, 1000);
-	ret = mt6577_usb_calibrate(usb);
+	ret = mt8377_usb_calibrate(usb);
 	if (!ret) {
 		spin_lock_irqsave(&usb->state_lock, flags);
 		usb->powered = true;
 		spin_unlock_irqrestore(&usb->state_lock, flags);
-		ret = mt6577_bc11_refresh(usb);
+		ret = mt8377_bc11_refresh(usb);
 		if (usb->psy)
 			power_supply_changed(usb->psy);
 	}
@@ -402,16 +402,16 @@ static int mt6577_usb_power_on(struct phy *phy)
 			schedule_delayed_work(&usb->work, HZ);
 		return 0;
 	}
-	if (usb->pmic && mt6577_bc11_cleanup(usb)) {
+	if (usb->pmic && mt8377_bc11_cleanup(usb)) {
 		usb->failed = true;
 		return ret;
 	}
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->powered = false;
 	usb->presence_known = false;
-	mt6577_bc11_invalidate(usb);
+	mt8377_bc11_invalidate(usb);
 	spin_unlock_irqrestore(&usb->state_lock, flags);
-	mt6577_usb_save_current(usb);
+	mt8377_usb_save_current(usb);
 disable_supply:
 	cleanup = regulator_disable(usb->vusb);
 	if (cleanup) {
@@ -428,9 +428,9 @@ disable_upll:
 	return ret;
 }
 
-static int mt6577_usb_power_off(struct phy *phy)
+static int mt8377_usb_power_off(struct phy *phy)
 {
-	struct mt6577_usb_phy *usb = phy_get_drvdata(phy);
+	struct mt8377_usb_phy *usb = phy_get_drvdata(phy);
 	unsigned long flags;
 	int ret;
 
@@ -439,12 +439,12 @@ static int mt6577_usb_power_off(struct phy *phy)
 	usb->powered = false;
 	usb->presence_known = false;
 	usb->online = false;
-	mt6577_bc11_invalidate(usb);
+	mt8377_bc11_invalidate(usb);
 	spin_unlock_irqrestore(&usb->state_lock, flags);
 	if (usb->psy)
 		power_supply_changed(usb->psy);
 	if (usb->pmic) {
-		ret = mt6577_bc11_cleanup(usb);
+		ret = mt8377_bc11_cleanup(usb);
 		if (ret) {
 			spin_lock_irqsave(&usb->state_lock, flags);
 			usb->powered = true;
@@ -454,7 +454,7 @@ static int mt6577_usb_power_off(struct phy *phy)
 			return ret;
 		}
 	}
-	mt6577_usb_save_current(usb);
+	mt8377_usb_save_current(usb);
 	ret = regulator_disable(usb->vusb);
 	if (ret) {
 		usb->failed = true;
@@ -468,55 +468,55 @@ static int mt6577_usb_power_off(struct phy *phy)
 	return 0;
 }
 
-static int mt6577_usb_set_mode(struct phy *phy, enum phy_mode mode, int submode)
+static int mt8377_usb_set_mode(struct phy *phy, enum phy_mode mode, int submode)
 {
-	struct mt6577_usb_phy *usb = phy_get_drvdata(phy);
+	struct mt8377_usb_phy *usb = phy_get_drvdata(phy);
 
 	if (usb->failed)
 		return -EIO;
 	return mode == PHY_MODE_USB_DEVICE && !submode ? 0 : -EINVAL;
 }
 
-static const struct phy_ops mt6577_usb_ops = {
-	.power_on = mt6577_usb_power_on,
-	.power_off = mt6577_usb_power_off,
-	.set_mode = mt6577_usb_set_mode,
+static const struct phy_ops mt8377_usb_ops = {
+	.power_on = mt8377_usb_power_on,
+	.power_off = mt8377_usb_power_off,
+	.set_mode = mt8377_usb_set_mode,
 	.owner = THIS_MODULE,
 };
 
-static const enum power_supply_property mt6577_bc11_properties[] = {
+static const enum power_supply_property mt8377_bc11_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_USB_TYPE,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 };
 
-static const struct power_supply_desc mt6577_bc11_desc = {
-	.name = "mt6577-usb-source",
+static const struct power_supply_desc mt8377_bc11_desc = {
+	.name = "mt8377-usb-source",
 	.type = POWER_SUPPLY_TYPE_USB,
 	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
 		BIT(POWER_SUPPLY_USB_TYPE_SDP) | BIT(POWER_SUPPLY_USB_TYPE_DCP) |
 		BIT(POWER_SUPPLY_USB_TYPE_CDP),
-	.properties = mt6577_bc11_properties,
-	.num_properties = ARRAY_SIZE(mt6577_bc11_properties),
-	.get_property = mt6577_bc11_get_property,
-	.set_property = mt6577_bc11_set_property,
-	.property_is_writeable = mt6577_bc11_writeable,
+	.properties = mt8377_bc11_properties,
+	.num_properties = ARRAY_SIZE(mt8377_bc11_properties),
+	.get_property = mt8377_bc11_get_property,
+	.set_property = mt8377_bc11_set_property,
+	.property_is_writeable = mt8377_bc11_writeable,
 };
 
-static void mt6577_bc11_stop(void *data)
+static void mt8377_bc11_stop(void *data)
 {
-	struct mt6577_usb_phy *usb = data;
+	struct mt8377_usb_phy *usb = data;
 
 	cancel_delayed_work_sync(&usb->work);
 	mutex_lock(&usb->phy->mutex);
 	if (usb->powered)
-		mt6577_usb_power_off(usb->phy);
+		mt8377_usb_power_off(usb->phy);
 	mutex_unlock(&usb->phy->mutex);
 }
 
-static int mt6577_bc11_suspend(struct device *dev)
+static int mt8377_bc11_suspend(struct device *dev)
 {
-	struct mt6577_usb_phy *usb = dev_get_drvdata(dev);
+	struct mt8377_usb_phy *usb = dev_get_drvdata(dev);
 	unsigned long flags;
 	int ret = 0;
 
@@ -528,7 +528,7 @@ static int mt6577_bc11_suspend(struct device *dev)
 	usb->detected = false;
 	spin_unlock_irqrestore(&usb->state_lock, flags);
 	if (usb->pmic && usb->powered)
-		ret = mt6577_bc11_cleanup(usb);
+		ret = mt8377_bc11_cleanup(usb);
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->source_error = ret;
 	if (ret)
@@ -543,15 +543,15 @@ static int mt6577_bc11_suspend(struct device *dev)
 	return ret;
 }
 
-static int mt6577_bc11_resume(struct device *dev)
+static int mt8377_bc11_resume(struct device *dev)
 {
-	struct mt6577_usb_phy *usb = dev_get_drvdata(dev);
+	struct mt8377_usb_phy *usb = dev_get_drvdata(dev);
 	unsigned long flags;
 	int ret = 0;
 
 	mutex_lock(&usb->phy->mutex);
 	if (usb->pmic && usb->powered)
-		ret = mt6577_bc11_cleanup(usb);
+		ret = mt8377_bc11_cleanup(usb);
 	spin_lock_irqsave(&usb->state_lock, flags);
 	usb->source_error = ret;
 	usb->suspended = !!ret;
@@ -562,12 +562,12 @@ static int mt6577_bc11_resume(struct device *dev)
 	return ret;
 }
 
-static DEFINE_SIMPLE_DEV_PM_OPS(mt6577_bc11_pm, mt6577_bc11_suspend, mt6577_bc11_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(mt8377_bc11_pm, mt8377_bc11_suspend, mt8377_bc11_resume);
 
-static int mt6577_usb_phy_probe(struct platform_device *pdev)
+static int mt8377_usb_phy_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct mt6577_usb_phy *usb;
+	struct mt8377_usb_phy *usb;
 	struct phy_provider *provider;
 	struct phy *phy;
 	struct power_supply_config config = {};
@@ -578,7 +578,7 @@ static int mt6577_usb_phy_probe(struct platform_device *pdev)
 	if (!usb)
 		return -ENOMEM;
 	spin_lock_init(&usb->state_lock);
-	INIT_DELAYED_WORK(&usb->work, mt6577_bc11_work);
+	INIT_DELAYED_WORK(&usb->work, mt8377_bc11_work);
 	usb->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(usb->base))
 		return PTR_ERR(usb->base);
@@ -591,7 +591,7 @@ static int mt6577_usb_phy_probe(struct platform_device *pdev)
 	usb->vusb = devm_regulator_get(dev, "vusb33");
 	if (IS_ERR(usb->vusb))
 		return dev_err_probe(dev, PTR_ERR(usb->vusb), "Missing VUSB supply\n");
-	phy = devm_phy_create(dev, NULL, &mt6577_usb_ops);
+	phy = devm_phy_create(dev, NULL, &mt8377_usb_ops);
 	if (IS_ERR(phy))
 		return PTR_ERR(phy);
 	usb->phy = phy;
@@ -611,32 +611,33 @@ static int mt6577_usb_phy_probe(struct platform_device *pdev)
 			return -ENODEV;
 		config.drv_data = usb;
 		config.fwnode = dev_fwnode(dev);
-		usb->psy = devm_power_supply_register(dev, &mt6577_bc11_desc, &config);
+		usb->psy = devm_power_supply_register(dev, &mt8377_bc11_desc, &config);
 		if (IS_ERR(usb->psy))
 			return PTR_ERR(usb->psy);
 	}
-	ret = devm_add_action_or_reset(dev, mt6577_bc11_stop, usb);
+	ret = devm_add_action_or_reset(dev, mt8377_bc11_stop, usb);
 	if (ret)
 		return ret;
 	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
 	return PTR_ERR_OR_ZERO(provider);
 }
 
-static const struct of_device_id mt6577_usb_phy_match[] = {
+static const struct of_device_id mt8377_usb_phy_match[] = {
+	{ .compatible = "mediatek,mt8377-usb-phy" },
 	{ .compatible = "mediatek,mt6577-usb-phy" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, mt6577_usb_phy_match);
+MODULE_DEVICE_TABLE(of, mt8377_usb_phy_match);
 
-static struct platform_driver mt6577_usb_phy_driver = {
-	.probe = mt6577_usb_phy_probe,
+static struct platform_driver mt8377_usb_phy_driver = {
+	.probe = mt8377_usb_phy_probe,
 	.driver = {
-		.name = "mt6577-usb-phy",
-		.of_match_table = mt6577_usb_phy_match,
-		.pm = pm_sleep_ptr(&mt6577_bc11_pm),
+		.name = "mt8377-usb-phy",
+		.of_match_table = mt8377_usb_phy_match,
+		.pm = pm_sleep_ptr(&mt8377_bc11_pm),
 	},
 };
-module_platform_driver(mt6577_usb_phy_driver);
+module_platform_driver(mt8377_usb_phy_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 USB PHY");
+MODULE_DESCRIPTION("MediaTek MT8377 USB PHY");
 MODULE_LICENSE("GPL");

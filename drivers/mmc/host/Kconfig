@@ -1043,8 +1043,8 @@ config MMC_BCM2835
 
 	  If unsure, say N.
 
-config MMC_MT6577
-	tristate "MediaTek MT6577 MMC and SDIO host"
+config MMC_MT8377
+	tristate "MediaTek MT8377 MMC and SDIO host"
 	depends on OF && COMMON_CLK
 	depends on HAS_DMA
 	depends on ARCH_MEDIATEK || COMPILE_TEST

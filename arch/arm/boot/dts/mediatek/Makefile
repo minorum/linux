@@ -3,7 +3,7 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += \
 	mt2701-evb.dtb \
 	mt6572-jty-d101.dtb \
 	mt6572-lenovo-a369i.dtb \
-	mt6577-modecom-freetab8001.dtb \
+	mt8377-modecom-freetab8001.dtb \
 	mt6580-evbp1.dtb \
 	mt6582-alcatel-yarisxl.dtb \
 	mt6582-prestigio-pmt5008-3g.dtb \

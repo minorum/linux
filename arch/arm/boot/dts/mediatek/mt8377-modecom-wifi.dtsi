@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include <dt-bindings/clock/mediatek,mt6577-clk.h>
+#include <dt-bindings/clock/mediatek,mt8377-clk.h>
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/pinctrl/mt6577-pinfunc.h>
+#include <dt-bindings/pinctrl/mt8377-pinfunc.h>
 
 &pio {
 	combo_safe: combo-safe-pins {
@@ -56,9 +56,9 @@
 };
 
 &wifi_mmc {
-	compatible = "mediatek,mt6577-mmc";
+	compatible = "mediatek,mt8377-mmc";
 	reg = <0xc1240000 0x1000>;
-	clocks = <&pericfg CLK_MT6577_MSDC3>;
+	clocks = <&pericfg CLK_MT8377_MSDC3>;
 	clock-names = "source";
 	bus-width = <4>;
 	max-frequency = <26000000>;

@@ -19,7 +19,9 @@ allOf:
       properties:
         compatible:
           contains:
-            const: mediatek,mt6577-wdt
+            enum:
+              - mediatek,mt8377-wdt
+              - mediatek,mt6577-wdt
     then:
       properties:
         interrupts: false
@@ -35,6 +37,7 @@ properties:
     oneOf:
       - enum:
           - mediatek,mt2712-wdt
+          - mediatek,mt8377-wdt
           - mediatek,mt6577-wdt
           - mediatek,mt6589-wdt
           - mediatek,mt6735-wdt

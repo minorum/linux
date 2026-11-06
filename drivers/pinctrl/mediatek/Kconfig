@@ -18,13 +18,13 @@ config PINCTRL_MTK
 	select GPIOLIB
 	select EINT_MTK
 
-config PINCTRL_MT6577
-	tristate "MediaTek MT6577 pin control"
+config PINCTRL_MT8377
+	tristate "MediaTek MT8377 pin control"
 	depends on OF
 	select PINCTRL_MTK
 	select REGMAP_MMIO
 	help
-	  GPIO and pin configuration support for the MediaTek MT6577.
+	  GPIO and pin configuration support for the MediaTek MT8377.
 
 config PINCTRL_MTK_V2
 	tristate

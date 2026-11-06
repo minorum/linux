@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
-#ifndef _DT_BINDINGS_PINCTRL_MT6577_PINFUNC_H
-#define _DT_BINDINGS_PINCTRL_MT6577_PINFUNC_H
+#ifndef _DT_BINDINGS_PINCTRL_MT8377_PINFUNC_H
+#define _DT_BINDINGS_PINCTRL_MT8377_PINFUNC_H
 
 #include <dt-bindings/pinctrl/mt65xx.h>
 

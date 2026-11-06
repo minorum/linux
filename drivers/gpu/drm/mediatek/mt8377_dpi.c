@@ -49,7 +49,7 @@
 #define DPI_TMODE		0x94
 #define DPI_INT_VSYNC		BIT(8)
 
-struct mt6577_dpi {
+struct mt8377_dpi {
 	struct drm_device drm;
 	struct drm_simple_display_pipe pipe;
 	struct drm_bridge *bridge;
@@ -61,49 +61,49 @@ struct mt6577_dpi {
 	bool enabled;
 };
 
-#define to_mt6577_dpi(p) container_of(p, struct mt6577_dpi, pipe)
+#define to_mt8377_dpi(p) container_of(p, struct mt8377_dpi, pipe)
 
-struct mt6577_crtc_state {
+struct mt8377_crtc_state {
 	struct drm_crtc_state base;
 	u32 bus_flags;
 };
 
-#define to_mt6577_crtc_state(s) container_of(s, struct mt6577_crtc_state, base)
+#define to_mt8377_crtc_state(s) container_of(s, struct mt8377_crtc_state, base)
 
-static void mt6577_dpi_destroy_crtc_state(struct drm_simple_display_pipe *pipe,
+static void mt8377_dpi_destroy_crtc_state(struct drm_simple_display_pipe *pipe,
 					  struct drm_crtc_state *crtc_state)
 {
-	struct mt6577_crtc_state *state = to_mt6577_crtc_state(crtc_state);
+	struct mt8377_crtc_state *state = to_mt8377_crtc_state(crtc_state);
 
 	__drm_atomic_helper_crtc_destroy_state(crtc_state);
 	kfree(state);
 }
 
-static void mt6577_dpi_reset_crtc(struct drm_simple_display_pipe *pipe)
+static void mt8377_dpi_reset_crtc(struct drm_simple_display_pipe *pipe)
 {
-	struct mt6577_crtc_state *state;
+	struct mt8377_crtc_state *state;
 
 	if (pipe->crtc.state)
-		mt6577_dpi_destroy_crtc_state(pipe, pipe->crtc.state);
+		mt8377_dpi_destroy_crtc_state(pipe, pipe->crtc.state);
 	state = kzalloc_obj(*state);
 	__drm_atomic_helper_crtc_reset(&pipe->crtc, state ? &state->base : NULL);
 }
 
 static struct drm_crtc_state *
-mt6577_dpi_duplicate_crtc_state(struct drm_simple_display_pipe *pipe)
+mt8377_dpi_duplicate_crtc_state(struct drm_simple_display_pipe *pipe)
 {
-	struct mt6577_crtc_state *state;
+	struct mt8377_crtc_state *state;
 
 	if (!pipe->crtc.state)
 		return NULL;
-	state = kmemdup(to_mt6577_crtc_state(pipe->crtc.state), sizeof(*state), GFP_KERNEL);
+	state = kmemdup(to_mt8377_crtc_state(pipe->crtc.state), sizeof(*state), GFP_KERNEL);
 	if (!state)
 		return NULL;
 	__drm_atomic_helper_crtc_duplicate_state(&pipe->crtc, &state->base);
 	return &state->base;
 }
 
-static int mt6577_dpi_clock(struct mt6577_dpi *dpi, unsigned long rate,
+static int mt8377_dpi_clock(struct mt8377_dpi *dpi, unsigned long rate,
 			    unsigned long *pll_rate)
 {
 	unsigned long best_error = ULONG_MAX;
@@ -134,7 +134,7 @@ static int mt6577_dpi_clock(struct mt6577_dpi *dpi, unsigned long rate,
 	return best_div;
 }
 
-static enum drm_mode_status mt6577_dpi_mode_valid(struct drm_simple_display_pipe *pipe,
+static enum drm_mode_status mt8377_dpi_mode_valid(struct drm_simple_display_pipe *pipe,
 						  const struct drm_display_mode *mode)
 {
 	unsigned long pll_rate;
@@ -157,22 +157,22 @@ static enum drm_mode_status mt6577_dpi_mode_valid(struct drm_simple_display_pipe
 		return MODE_BAD_VVALUE;
 	if (mode->clock <= 0 || mode->clock > ULONG_MAX / 32000)
 		return MODE_CLOCK_RANGE;
-	if (mt6577_dpi_clock(to_mt6577_dpi(pipe), mode->clock * 1000UL, &pll_rate) < 0)
+	if (mt8377_dpi_clock(to_mt8377_dpi(pipe), mode->clock * 1000UL, &pll_rate) < 0)
 		return MODE_NOCLOCK;
 	return MODE_OK;
 }
 
-static int mt6577_dpi_check(struct drm_simple_display_pipe *pipe,
+static int mt8377_dpi_check(struct drm_simple_display_pipe *pipe,
 			    struct drm_plane_state *plane,
 			    struct drm_crtc_state *crtc)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 	struct drm_bridge_state *bridge;
-	struct mt6577_crtc_state *state = to_mt6577_crtc_state(crtc);
+	struct mt8377_crtc_state *state = to_mt8377_crtc_state(crtc);
 
 	if (!crtc->active)
 		return 0;
-	if (mt6577_dpi_mode_valid(pipe, &crtc->adjusted_mode) != MODE_OK)
+	if (mt8377_dpi_mode_valid(pipe, &crtc->adjusted_mode) != MODE_OK)
 		return -EINVAL;
 	bridge = drm_atomic_get_new_bridge_state(crtc->state, dpi->bridge);
 	if (bridge && bridge->input_bus_cfg.format != MEDIA_BUS_FMT_RGB888_1X24 &&
@@ -190,7 +190,7 @@ static int mt6577_dpi_check(struct drm_simple_display_pipe *pipe,
 	return 0;
 }
 
-static void mt6577_dpi_complete_event(struct drm_crtc *crtc)
+static void mt8377_dpi_complete_event(struct drm_crtc *crtc)
 {
 	unsigned long flags;
 
@@ -202,10 +202,10 @@ static void mt6577_dpi_complete_event(struct drm_crtc *crtc)
 	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 }
 
-static void mt6577_dpi_update(struct drm_simple_display_pipe *pipe,
+static void mt8377_dpi_update(struct drm_simple_display_pipe *pipe,
 			      struct drm_plane_state *old_state)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 	struct drm_plane_state *plane = pipe->plane.state;
 	struct drm_crtc *crtc = &pipe->crtc;
 	unsigned long flags;
@@ -213,7 +213,7 @@ static void mt6577_dpi_update(struct drm_simple_display_pipe *pipe,
 
 	if (!dpi->enabled) {
 		if (!crtc->state->active || !drm_atomic_crtc_needs_modeset(crtc->state))
-			mt6577_dpi_complete_event(crtc);
+			mt8377_dpi_complete_event(crtc);
 		return;
 	}
 	if (!plane->fb)
@@ -236,17 +236,17 @@ static void mt6577_dpi_update(struct drm_simple_display_pipe *pipe,
 	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 }
 
-static void mt6577_dpi_enable(struct drm_simple_display_pipe *pipe,
+static void mt8377_dpi_enable(struct drm_simple_display_pipe *pipe,
 			      struct drm_crtc_state *crtc,
 			      struct drm_plane_state *plane)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 	const struct drm_display_mode *m = &crtc->adjusted_mode;
 	unsigned long pll_rate;
-	u32 hsync, vsync, clock, bus_flags = to_mt6577_crtc_state(crtc)->bus_flags;
+	u32 hsync, vsync, clock, bus_flags = to_mt8377_crtc_state(crtc)->bus_flags;
 	int div, ret;
 
-	div = mt6577_dpi_clock(dpi, m->clock * 1000UL, &pll_rate);
+	div = mt8377_dpi_clock(dpi, m->clock * 1000UL, &pll_rate);
 	if (div < 0) {
 		ret = div;
 		goto fail;
@@ -305,7 +305,7 @@ static void mt6577_dpi_enable(struct drm_simple_display_pipe *pipe,
 	enable_irq(dpi->irq);
 	writel(1, dpi->regs + DPI_EN);
 	drm_crtc_vblank_on(&pipe->crtc);
-	mt6577_dpi_update(pipe, NULL);
+	mt8377_dpi_update(pipe, NULL);
 	return;
 
 disable_engine:
@@ -316,12 +316,12 @@ put_runtime:
 	pm_runtime_put(dpi->drm.dev);
 fail:
 	dev_err(dpi->drm.dev, "Cannot enable DPI: %d\n", ret);
-	mt6577_dpi_complete_event(&pipe->crtc);
+	mt8377_dpi_complete_event(&pipe->crtc);
 }
 
-static void mt6577_dpi_disable(struct drm_simple_display_pipe *pipe)
+static void mt8377_dpi_disable(struct drm_simple_display_pipe *pipe)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 
 	if (!dpi->enabled)
 		goto complete;
@@ -334,12 +334,12 @@ static void mt6577_dpi_disable(struct drm_simple_display_pipe *pipe)
 	pm_runtime_put(dpi->drm.dev);
 complete:
 	if (!pipe->crtc.state->active)
-		mt6577_dpi_complete_event(&pipe->crtc);
+		mt8377_dpi_complete_event(&pipe->crtc);
 }
 
-static int mt6577_dpi_enable_vblank(struct drm_simple_display_pipe *pipe)
+static int mt8377_dpi_enable_vblank(struct drm_simple_display_pipe *pipe)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 
 	if (!dpi->enabled)
 		return -EINVAL;
@@ -347,17 +347,17 @@ static int mt6577_dpi_enable_vblank(struct drm_simple_display_pipe *pipe)
 	return 0;
 }
 
-static void mt6577_dpi_disable_vblank(struct drm_simple_display_pipe *pipe)
+static void mt8377_dpi_disable_vblank(struct drm_simple_display_pipe *pipe)
 {
-	struct mt6577_dpi *dpi = to_mt6577_dpi(pipe);
+	struct mt8377_dpi *dpi = to_mt8377_dpi(pipe);
 
 	if (dpi->enabled)
 		writel(0, dpi->regs + DPI_INT_ENABLE);
 }
 
-static irqreturn_t mt6577_dpi_irq(int irq, void *data)
+static irqreturn_t mt8377_dpi_irq(int irq, void *data)
 {
-	struct mt6577_dpi *dpi = data;
+	struct mt8377_dpi *dpi = data;
 	u32 status = readl(dpi->regs + DPI_INT_STATUS);
 
 	if (!(status & DPI_INT_VSYNC))
@@ -367,46 +367,46 @@ static irqreturn_t mt6577_dpi_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static const struct drm_simple_display_pipe_funcs mt6577_dpi_pipe_funcs = {
-	.reset_crtc = mt6577_dpi_reset_crtc,
-	.duplicate_crtc_state = mt6577_dpi_duplicate_crtc_state,
-	.destroy_crtc_state = mt6577_dpi_destroy_crtc_state,
-	.mode_valid = mt6577_dpi_mode_valid,
-	.check = mt6577_dpi_check,
-	.enable = mt6577_dpi_enable,
-	.disable = mt6577_dpi_disable,
-	.update = mt6577_dpi_update,
-	.enable_vblank = mt6577_dpi_enable_vblank,
-	.disable_vblank = mt6577_dpi_disable_vblank,
+static const struct drm_simple_display_pipe_funcs mt8377_dpi_pipe_funcs = {
+	.reset_crtc = mt8377_dpi_reset_crtc,
+	.duplicate_crtc_state = mt8377_dpi_duplicate_crtc_state,
+	.destroy_crtc_state = mt8377_dpi_destroy_crtc_state,
+	.mode_valid = mt8377_dpi_mode_valid,
+	.check = mt8377_dpi_check,
+	.enable = mt8377_dpi_enable,
+	.disable = mt8377_dpi_disable,
+	.update = mt8377_dpi_update,
+	.enable_vblank = mt8377_dpi_enable_vblank,
+	.disable_vblank = mt8377_dpi_disable_vblank,
 };
 
-static const struct drm_mode_config_funcs mt6577_dpi_mode_config_funcs = {
+static const struct drm_mode_config_funcs mt8377_dpi_mode_config_funcs = {
 	.fb_create = drm_gem_fb_create,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = drm_atomic_helper_commit,
 };
 
-DEFINE_DRM_GEM_DMA_FOPS(mt6577_dpi_fops);
+DEFINE_DRM_GEM_DMA_FOPS(mt8377_dpi_fops);
 
-static const struct drm_driver mt6577_dpi_driver = {
+static const struct drm_driver mt8377_dpi_driver = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
-	.name = "mt6577-dpi",
-	.desc = "MediaTek MT6577 DPI",
+	.name = "mt8377-dpi",
+	.desc = "MediaTek MT8377 DPI",
 	.major = 1,
-	.fops = &mt6577_dpi_fops,
+	.fops = &mt8377_dpi_fops,
 	DRM_GEM_DMA_DRIVER_OPS,
 	DRM_FBDEV_DMA_DRIVER_OPS,
 };
 
-static int mt6577_dpi_probe(struct platform_device *pdev)
+static int mt8377_dpi_probe(struct platform_device *pdev)
 {
 	static const u32 formats[] = { DRM_FORMAT_RGB565, DRM_FORMAT_RGB888 };
 	struct device *dev = &pdev->dev;
 	struct drm_connector *connector;
-	struct mt6577_dpi *dpi;
+	struct mt8377_dpi *dpi;
 	int ret;
 
-	dpi = devm_drm_dev_alloc(dev, &mt6577_dpi_driver, struct mt6577_dpi, drm);
+	dpi = devm_drm_dev_alloc(dev, &mt8377_dpi_driver, struct mt8377_dpi, drm);
 	if (IS_ERR(dpi))
 		return PTR_ERR(dpi);
 	dpi->regs = devm_platform_ioremap_resource(pdev, 0);
@@ -436,10 +436,10 @@ static int mt6577_dpi_probe(struct platform_device *pdev)
 	ret = drmm_mode_config_init(&dpi->drm);
 	if (ret)
 		return ret;
-	dpi->drm.mode_config.funcs = &mt6577_dpi_mode_config_funcs;
+	dpi->drm.mode_config.funcs = &mt8377_dpi_mode_config_funcs;
 	dpi->drm.mode_config.max_width = U16_MAX / 3;
 	dpi->drm.mode_config.max_height = U16_MAX;
-	ret = drm_simple_display_pipe_init(&dpi->drm, &dpi->pipe, &mt6577_dpi_pipe_funcs,
+	ret = drm_simple_display_pipe_init(&dpi->drm, &dpi->pipe, &mt8377_dpi_pipe_funcs,
 					   formats, ARRAY_SIZE(formats), NULL, NULL);
 	if (ret)
 		return ret;
@@ -453,7 +453,7 @@ static int mt6577_dpi_probe(struct platform_device *pdev)
 	ret = drm_vblank_init(&dpi->drm, 1);
 	if (ret)
 		return ret;
-	ret = devm_request_irq(dev, dpi->irq, mt6577_dpi_irq, IRQF_NO_AUTOEN,
+	ret = devm_request_irq(dev, dpi->irq, mt8377_dpi_irq, IRQF_NO_AUTOEN,
 			       dev_name(dev), dpi);
 	if (ret)
 		return ret;
@@ -470,56 +470,57 @@ static int mt6577_dpi_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static void mt6577_dpi_shutdown(struct platform_device *pdev)
+static void mt8377_dpi_shutdown(struct platform_device *pdev)
 {
-	struct mt6577_dpi *dpi = platform_get_drvdata(pdev);
+	struct mt8377_dpi *dpi = platform_get_drvdata(pdev);
 
 	drm_atomic_helper_shutdown(&dpi->drm);
 }
 
-static void mt6577_dpi_remove(struct platform_device *pdev)
+static void mt8377_dpi_remove(struct platform_device *pdev)
 {
-	struct mt6577_dpi *dpi = platform_get_drvdata(pdev);
+	struct mt8377_dpi *dpi = platform_get_drvdata(pdev);
 
 	drm_dev_unregister(&dpi->drm);
-	mt6577_dpi_shutdown(pdev);
+	mt8377_dpi_shutdown(pdev);
 }
 
-static int mt6577_dpi_suspend(struct device *dev)
+static int mt8377_dpi_suspend(struct device *dev)
 {
-	struct mt6577_dpi *dpi = dev_get_drvdata(dev);
+	struct mt8377_dpi *dpi = dev_get_drvdata(dev);
 
 	return drm_mode_config_helper_suspend(&dpi->drm);
 }
 
-static int mt6577_dpi_resume(struct device *dev)
+static int mt8377_dpi_resume(struct device *dev)
 {
-	struct mt6577_dpi *dpi = dev_get_drvdata(dev);
+	struct mt8377_dpi *dpi = dev_get_drvdata(dev);
 
 	return drm_mode_config_helper_resume(&dpi->drm);
 }
 
-static DEFINE_SIMPLE_DEV_PM_OPS(mt6577_dpi_pm_ops, mt6577_dpi_suspend,
-			      mt6577_dpi_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(mt8377_dpi_pm_ops, mt8377_dpi_suspend,
+			      mt8377_dpi_resume);
 
-static const struct of_device_id mt6577_dpi_match[] = {
+static const struct of_device_id mt8377_dpi_match[] = {
+	{ .compatible = "mediatek,mt8377-dpi" },
 	{ .compatible = "mediatek,mt6577-dpi" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, mt6577_dpi_match);
+MODULE_DEVICE_TABLE(of, mt8377_dpi_match);
 
-static struct platform_driver mt6577_dpi_platform_driver = {
-	.probe = mt6577_dpi_probe,
-	.remove = mt6577_dpi_remove,
-	.shutdown = mt6577_dpi_shutdown,
+static struct platform_driver mt8377_dpi_platform_driver = {
+	.probe = mt8377_dpi_probe,
+	.remove = mt8377_dpi_remove,
+	.shutdown = mt8377_dpi_shutdown,
 	.driver = {
-		.name = "mt6577-dpi",
-		.of_match_table = mt6577_dpi_match,
-		.pm = pm_sleep_ptr(&mt6577_dpi_pm_ops),
+		.name = "mt8377-dpi",
+		.of_match_table = mt8377_dpi_match,
+		.pm = pm_sleep_ptr(&mt8377_dpi_pm_ops),
 	},
 };
 
-drm_module_platform_driver(mt6577_dpi_platform_driver);
+drm_module_platform_driver(mt8377_dpi_platform_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 DPI display controller");
+MODULE_DESCRIPTION("MediaTek MT8377 DPI display controller");
 MODULE_LICENSE("GPL");

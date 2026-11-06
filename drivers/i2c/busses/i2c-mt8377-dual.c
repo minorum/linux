@@ -21,14 +21,14 @@
 #define DUAL_IO		0x40
 #define DUAL_HS		0x48
 
-struct mt6577_dual {
+struct mt8377_dual {
 	struct i2c_adapter adapter;
 	void __iomem *base;
 	struct clk *clock;
 	bool push_pull;
 };
 
-static int mt6577_dual_timing(unsigned long rate)
+static int mt8377_dual_timing(unsigned long rate)
 {
 	u64 step;
 	unsigned int sample;
@@ -43,16 +43,16 @@ static int mt6577_dual_timing(unsigned long rate)
 	return -ERANGE;
 }
 
-static u16 mt6577_dual_control(u16 value, bool reading)
+static u16 mt8377_dual_control(u16 value, bool reading)
 {
 	return (value & ~0x7e) | (reading ? 0x3a : 0x28);
 }
 
-static s32 mt6577_dual_smbus(struct i2c_adapter *adapter, u16 address,
+static s32 mt8377_dual_smbus(struct i2c_adapter *adapter, u16 address,
 			     unsigned short flags, char direction, u8 command,
 			     int protocol, union i2c_smbus_data *data)
 {
-	struct mt6577_dual *dual = i2c_get_adapdata(adapter);
+	struct mt8377_dual *dual = i2c_get_adapdata(adapter);
 	void __iomem *base = dual->base;
 	bool reading = direction == I2C_SMBUS_READ;
 	u16 status, value;
@@ -71,7 +71,7 @@ static s32 mt6577_dual_smbus(struct i2c_adapter *adapter, u16 address,
 		ret = -EBUSY;
 		goto disable_clock;
 	}
-	timing = mt6577_dual_timing(clk_get_rate(dual->clock));
+	timing = mt8377_dual_timing(clk_get_rate(dual->clock));
 	if (timing < 0) {
 		ret = timing;
 		goto disable_clock;
@@ -80,7 +80,7 @@ static s32 mt6577_dual_smbus(struct i2c_adapter *adapter, u16 address,
 	writew((value & ~0x73f) | timing, base + DUAL_TIMING);
 	writew(dual->push_pull ? 0 : 3, base + DUAL_IO);
 	writew(readw(base + DUAL_HS) & ~1, base + DUAL_HS);
-	writew(mt6577_dual_control(readw(base + DUAL_CONTROL), reading),
+	writew(mt8377_dual_control(readw(base + DUAL_CONTROL), reading),
 	       base + DUAL_CONTROL);
 	writew(address << 1, base + DUAL_ADDR);
 	value = readw(base + DUAL_LENGTH) & ~0x1fff;
@@ -107,20 +107,20 @@ disable_clock:
 	return ret;
 }
 
-static u32 mt6577_dual_functionality(struct i2c_adapter *adapter)
+static u32 mt8377_dual_functionality(struct i2c_adapter *adapter)
 {
 	return I2C_FUNC_SMBUS_BYTE_DATA;
 }
 
-static const struct i2c_algorithm mt6577_dual_algorithm = {
-	.smbus_xfer = mt6577_dual_smbus,
-	.functionality = mt6577_dual_functionality,
+static const struct i2c_algorithm mt8377_dual_algorithm = {
+	.smbus_xfer = mt8377_dual_smbus,
+	.functionality = mt8377_dual_functionality,
 };
 
-static int mt6577_dual_probe(struct platform_device *pdev)
+static int mt8377_dual_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct mt6577_dual *dual;
+	struct mt8377_dual *dual;
 
 	dual = devm_kzalloc(dev, sizeof(*dual), GFP_KERNEL);
 	if (!dual)
@@ -133,28 +133,29 @@ static int mt6577_dual_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(dual->clock), "Missing controller clock\n");
 	dual->push_pull = device_property_read_bool(dev, "mediatek,use-push-pull");
 	dual->adapter.owner = THIS_MODULE;
-	dual->adapter.algo = &mt6577_dual_algorithm;
+	dual->adapter.algo = &mt8377_dual_algorithm;
 	dual->adapter.dev.parent = dev;
 	dual->adapter.dev.of_node = dev->of_node;
-	strscpy(dual->adapter.name, "MT6577 dual I2C channel1", sizeof(dual->adapter.name));
+	strscpy(dual->adapter.name, "MT8377 dual I2C channel1", sizeof(dual->adapter.name));
 	i2c_set_adapdata(&dual->adapter, dual);
 	return devm_i2c_add_adapter(dev, &dual->adapter);
 }
 
-static const struct of_device_id mt6577_dual_match[] = {
+static const struct of_device_id mt8377_dual_match[] = {
+	{ .compatible = "mediatek,mt8377-i2c-dual" },
 	{ .compatible = "mediatek,mt6577-i2c-dual" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, mt6577_dual_match);
+MODULE_DEVICE_TABLE(of, mt8377_dual_match);
 
-static struct platform_driver mt6577_dual_driver = {
-	.probe = mt6577_dual_probe,
+static struct platform_driver mt8377_dual_driver = {
+	.probe = mt8377_dual_probe,
 	.driver = {
-		.name = "mt6577-i2c-dual",
-		.of_match_table = mt6577_dual_match,
+		.name = "mt8377-i2c-dual",
+		.of_match_table = mt8377_dual_match,
 	},
 };
-module_platform_driver(mt6577_dual_driver);
+module_platform_driver(mt8377_dual_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 dual-controller SMBus adapter");
+MODULE_DESCRIPTION("MediaTek MT8377 dual-controller SMBus adapter");
 MODULE_LICENSE("GPL");

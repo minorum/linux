@@ -82,7 +82,7 @@
 #define FIFO_SIZE	128
 #define MAX_REQUEST	32768
 
-struct mt6577_host {
+struct mt8377_host {
 	void __iomem *base;
 	unsigned long rate;
 	u8 *buffer;
@@ -93,9 +93,9 @@ struct mt6577_host {
 	int clock_error;
 };
 
-static void mt6577_disable_clock(void *arg)
+static void mt8377_disable_clock(void *arg)
 {
-	struct mt6577_host *host = arg;
+	struct mt8377_host *host = arg;
 
 	if (host->clock_enabled) {
 		clk_disable_unprepare(host->clk);
@@ -103,7 +103,7 @@ static void mt6577_disable_clock(void *arg)
 	}
 }
 
-static int mt6577_reset(struct mt6577_host *host)
+static int mt8377_reset(struct mt8377_host *host)
 {
 	u32 val;
 	int ret;
@@ -123,7 +123,7 @@ static int mt6577_reset(struct mt6577_host *host)
 	return 0;
 }
 
-static int mt6577_init_hw(struct mt6577_host *host)
+static int mt8377_init_hw(struct mt8377_host *host)
 {
 	u32 val;
 	int ret;
@@ -132,7 +132,7 @@ static int mt6577_init_hw(struct mt6577_host *host)
 		return -ENODEV;
 	val = readl(host->base + MSDC_CFG) & ~CFG_CKPDN;
 	writel(val | CFG_MODE | CFG_PIO, host->base + MSDC_CFG);
-	ret = mt6577_reset(host);
+	ret = mt8377_reset(host);
 	if (ret)
 		return ret;
 	val = PAD_SMT | PAD_IES | FIELD_PREP(PAD_DRVN, 4) |
@@ -152,7 +152,7 @@ static int mt6577_init_hw(struct mt6577_host *host)
 	return 0;
 }
 
-static int mt6577_command(struct mt6577_host *host, struct mmc_command *cmd,
+static int mt8377_command(struct mt8377_host *host, struct mmc_command *cmd,
 			  struct mmc_data *data)
 {
 	u32 raw = cmd->opcode, response = 0, val;
@@ -201,7 +201,7 @@ static int mt6577_command(struct mt6577_host *host, struct mmc_command *cmd,
 	return 0;
 }
 
-static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
+static int mt8377_transfer(struct mt8377_host *host, struct mmc_data *data)
 {
 	unsigned int remaining = data->blocks * data->blksz;
 	bool write = data->flags & MMC_DATA_WRITE;
@@ -253,9 +253,9 @@ static int mt6577_transfer(struct mt6577_host *host, struct mmc_data *data)
 	}
 }
 
-static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios);
+static void mt8377_set_ios(struct mmc_host *mmc, struct mmc_ios *ios);
 
-static int mt6577_dma_transfer(struct mt6577_host *host, struct mmc_data *data)
+static int mt8377_dma_transfer(struct mt8377_host *host, struct mmc_data *data)
 {
 	u32 val, ctrl;
 	int ret, stop;
@@ -290,9 +290,9 @@ static int mt6577_dma_transfer(struct mt6577_host *host, struct mmc_data *data)
 	return ret;
 }
 
-static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
+static void mt8377_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
-	struct mt6577_host *host = mmc_priv(mmc);
+	struct mt8377_host *host = mmc_priv(mmc);
 	struct mmc_data *data = mrq->data;
 	unsigned int length = 0;
 	bool dma = host->dma_enabled;
@@ -317,13 +317,13 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			goto done;
 		}
 	}
-	ret = mt6577_reset(host);
+	ret = mt8377_reset(host);
 	if (ret) {
 		mrq->cmd->error = ret;
 		goto done;
 	}
 	if (mrq->sbc) {
-		mrq->sbc->error = mt6577_command(host, mrq->sbc, NULL);
+		mrq->sbc->error = mt8377_command(host, mrq->sbc, NULL);
 		if (mrq->sbc->error)
 			goto done;
 	}
@@ -331,25 +331,25 @@ static void mt6577_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		cfg = readl(host->base + MSDC_CFG) & ~CFG_PIO;
 		writel(cfg | (dma ? 0 : CFG_PIO), host->base + MSDC_CFG);
 	}
-	mrq->cmd->error = mt6577_command(host, mrq->cmd, data);
+	mrq->cmd->error = mt8377_command(host, mrq->cmd, data);
 	if (mrq->cmd->error)
 		goto done;
 	if (data) {
-		data->error = dma ? mt6577_dma_transfer(host, data) :
-			      mt6577_transfer(host, data);
+		data->error = dma ? mt8377_dma_transfer(host, data) :
+			      mt8377_transfer(host, data);
 		if (!data->error && data->flags & MMC_DATA_READ &&
 		    sg_copy_from_buffer(data->sg, data->sg_len, host->buffer, length) != length)
 			data->error = -EINVAL;
 		if (!data->error)
 			data->bytes_xfered = length;
 		if (mrq->stop && !host->clock_error)
-			mrq->stop->error = mt6577_command(host, mrq->stop, NULL);
+			mrq->stop->error = mt8377_command(host, mrq->stop, NULL);
 		if (!data->error && data->flags & MMC_DATA_WRITE)
 			data->error = readl_poll_timeout(host->base + MSDC_PS, ret,
 							 ret & PS_DAT0, 10, 1000000);
 		if (data->error && dma && host->clock_enabled) {
 			host->dma_enabled = false;
-			mt6577_set_ios(mmc, &mmc->ios);
+			mt8377_set_ios(mmc, &mmc->ios);
 			dev_warn(mmc_dev(mmc), "DMA error %d, using PIO at %u Hz\n",
 				 data->error, mmc->actual_clock);
 		}
@@ -358,9 +358,9 @@ done:
 	mmc_request_done(mmc, mrq);
 }
 
-static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+static void mt8377_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
-	struct mt6577_host *host = mmc_priv(mmc);
+	struct mt8377_host *host = mmc_priv(mmc);
 	u32 cfg, val, div, clock;
 
 	if (!host->clock_enabled)
@@ -398,15 +398,15 @@ static void mt6577_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	mmc->actual_clock = host->rate / (4 * div);
 }
 
-static const struct mmc_host_ops mt6577_ops = {
-	.request = mt6577_request,
-	.set_ios = mt6577_set_ios,
+static const struct mmc_host_ops mt8377_ops = {
+	.request = mt8377_request,
+	.set_ios = mt8377_set_ios,
 };
 
-static int mt6577_probe(struct platform_device *pdev)
+static int mt8377_probe(struct platform_device *pdev)
 {
 	struct mmc_host *mmc;
-	struct mt6577_host *host;
+	struct mt8377_host *host;
 	int ret;
 
 	mmc = devm_mmc_alloc_host(&pdev->dev, sizeof(*host));
@@ -423,7 +423,7 @@ static int mt6577_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 	host->clock_enabled = true;
-	ret = devm_add_action_or_reset(&pdev->dev, mt6577_disable_clock, host);
+	ret = devm_add_action_or_reset(&pdev->dev, mt8377_disable_clock, host);
 	if (ret)
 		return ret;
 	host->rate = clk_get_rate(host->clk);
@@ -437,7 +437,7 @@ static int mt6577_probe(struct platform_device *pdev)
 		host->buffer = devm_kmalloc(&pdev->dev, MAX_REQUEST, GFP_KERNEL);
 	if (!host->buffer)
 		return -ENOMEM;
-	mmc->ops = &mt6577_ops;
+	mmc->ops = &mt8377_ops;
 	mmc->f_min = DIV_ROUND_UP(host->rate, 4 * 255);
 	mmc->f_max = 52000000;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
@@ -455,7 +455,7 @@ static int mt6577_probe(struct platform_device *pdev)
 	    mmc->caps & (MMC_CAP_8_BIT_DATA | MMC_CAP_SDIO_IRQ))
 		return -EINVAL;
 	mmc->f_max = min(mmc->f_max, 52000000U);
-	ret = mt6577_init_hw(host);
+	ret = mt8377_init_hw(host);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Cannot initialize controller\n");
 	platform_set_drvdata(pdev, mmc);
@@ -463,32 +463,33 @@ static int mt6577_probe(struct platform_device *pdev)
 	return mmc_add_host(mmc);
 }
 
-static void mt6577_remove(struct platform_device *pdev)
+static void mt8377_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = platform_get_drvdata(pdev);
-	struct mt6577_host *host = mmc_priv(mmc);
+	struct mt8377_host *host = mmc_priv(mmc);
 
 	mmc_remove_host(mmc);
 	if (host->clock_enabled)
 		writel(0, host->base + MSDC_INTEN);
-	mt6577_disable_clock(host);
+	mt8377_disable_clock(host);
 }
 
-static const struct of_device_id mt6577_match[] = {
+static const struct of_device_id mt8377_match[] = {
+	{ .compatible = "mediatek,mt8377-mmc" },
 	{ .compatible = "mediatek,mt6577-mmc" },
 	{}
 };
-MODULE_DEVICE_TABLE(of, mt6577_match);
+MODULE_DEVICE_TABLE(of, mt8377_match);
 
-static struct platform_driver mt6577_driver = {
-	.probe = mt6577_probe,
-	.remove = mt6577_remove,
+static struct platform_driver mt8377_driver = {
+	.probe = mt8377_probe,
+	.remove = mt8377_remove,
 	.driver = {
-		.name = "mt6577-mmc",
-		.of_match_table = mt6577_match,
+		.name = "mt8377-mmc",
+		.of_match_table = mt8377_match,
 	},
 };
-module_platform_driver(mt6577_driver);
+module_platform_driver(mt8377_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 MMC and SDIO host");
+MODULE_DESCRIPTION("MediaTek MT8377 MMC and SDIO host");
 MODULE_LICENSE("GPL");

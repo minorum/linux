@@ -11,29 +11,29 @@ config COMMON_CLK_MEDIATEK
 	help
 	  MediaTek SoCs' clock support.
 
-config COMMON_CLK_MT6577
-	bool "MediaTek MT6577 bus and PWM clocks"
+config COMMON_CLK_MT8377
+	bool "MediaTek MT8377 bus and PWM clocks"
 	depends on OF
 	select COMMON_CLK_MEDIATEK
 	select MFD_SYSCON
 	help
 	  Read the inherited MAINPLL and AXI configuration and provide PWM clocks.
 
-config COMMON_CLK_MT6577_MIPI
-	tristate "MediaTek MT6577 MIPI TX PLL"
+config COMMON_CLK_MT8377_MIPI
+	tristate "MediaTek MT8377 MIPI TX PLL"
 	depends on OF
 	select MFD_SYSCON
 	help
-	  Support the MT6577 MIPI TX PLL used by the DPI display engine.
+	  Support the MT8377 MIPI TX PLL used by the DPI display engine.
 	  Currently the 32/3 divider setting is supported for rate changes.
 
-config COMMON_CLK_MT6577_MMSYS
-	tristate "MediaTek MT6577 display clock gates"
+config COMMON_CLK_MT8377_MMSYS
+	tristate "MediaTek MT8377 display clock gates"
 	depends on OF
 	select COMMON_CLK_MEDIATEK
 	select MFD_SYSCON
 	help
-	  Support clock gates used by the MT6577 DPI and SMI LARB1 blocks.
+	  Support clock gates used by the MT8377 DPI and SMI LARB1 blocks.
 
 config COMMON_CLK_MEDIATEK_FHCTL
 	bool "clock driver for MediaTek FHCTL hardware control"

@@ -907,11 +907,11 @@ config I2C_MPC
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-mpc.
 
-config I2C_MT6577_DUAL
-	tristate "MediaTek MT6577 dual-controller SMBus adapter"
+config I2C_MT8377_DUAL
+	tristate "MediaTek MT8377 dual-controller SMBus adapter"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	help
-	  SMBus byte-data access through channel1 of the MT6577 dual I2C
+	  SMBus byte-data access through channel1 of the MT8377 dual I2C
 	  controller. Shared channel2 state is retained.
 
 config I2C_MT65XX

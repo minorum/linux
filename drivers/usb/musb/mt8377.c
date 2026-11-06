@@ -13,10 +13,10 @@
 
 #include "musb_core.h"
 
-#define MT6577_SWRST 0x74
-#define MT6577_L1INTM 0xa4
+#define MT8377_SWRST 0x74
+#define MT8377_L1INTM 0xa4
 
-struct mt6577_glue {
+struct mt8377_glue {
 	struct clk *bus;
 	struct phy *phy;
 	struct device *dev;
@@ -26,10 +26,10 @@ struct mt6577_glue {
 	unsigned int budget_ma;
 };
 
-static void mt6577_budget_work(struct work_struct *work)
+static void mt8377_budget_work(struct work_struct *work)
 {
-	struct mt6577_glue *glue = container_of(to_delayed_work(work),
-					     struct mt6577_glue, budget_work);
+	struct mt8377_glue *glue = container_of(to_delayed_work(work),
+					     struct mt8377_glue, budget_work);
 	union power_supply_propval val;
 	unsigned long flags;
 	int ret;
@@ -52,9 +52,9 @@ static void mt6577_budget_work(struct work_struct *work)
 	}
 }
 
-static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
+static int mt8377_vbus_draw(struct musb *musb, unsigned int mA)
 {
-	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	struct mt8377_glue *glue = dev_get_drvdata(musb->controller->parent);
 	union power_supply_propval val;
 	unsigned long flags;
 	int ret;
@@ -73,9 +73,9 @@ static int mt6577_vbus_draw(struct musb *musb, unsigned int mA)
 	return ret;
 }
 
-static void mt6577_budget_stop(void *data)
+static void mt8377_budget_stop(void *data)
 {
-	struct mt6577_glue *glue = data;
+	struct mt8377_glue *glue = data;
 	union power_supply_propval val = { .intval = 0 };
 	int ret;
 
@@ -90,7 +90,7 @@ static void mt6577_budget_stop(void *data)
 		dev_err(glue->dev, "Cannot revoke USB current budget: %d\n", ret);
 }
 
-static int mt6577_budget_init(struct mt6577_glue *glue)
+static int mt8377_budget_init(struct mt8377_glue *glue)
 {
 	union power_supply_propval val = { .intval = 0 };
 	int ret;
@@ -105,17 +105,17 @@ static int mt6577_budget_init(struct mt6577_glue *glue)
 		return PTR_ERR(glue->charger);
 	if (!glue->charger)
 		return -EPROBE_DEFER;
-	INIT_DELAYED_WORK(&glue->budget_work, mt6577_budget_work);
+	INIT_DELAYED_WORK(&glue->budget_work, mt8377_budget_work);
 	ret = power_supply_set_property_direct(glue->charger, POWER_SUPPLY_PROP_CURRENT_MAX, &val);
 	if (ret)
 		return ret;
 	ret = power_supply_set_property(glue->charger, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
 	if (ret)
 		return ret;
-	return devm_add_action_or_reset(glue->dev, mt6577_budget_stop, glue);
+	return devm_add_action_or_reset(glue->dev, mt8377_budget_stop, glue);
 }
 
-static u8 mt6577_clearb(void __iomem *base, u32 offset)
+static u8 mt8377_clearb(void __iomem *base, u32 offset)
 {
 	u8 value = musb_readb(base, offset);
 
@@ -123,7 +123,7 @@ static u8 mt6577_clearb(void __iomem *base, u32 offset)
 	return value;
 }
 
-static u16 mt6577_clearw(void __iomem *base, u32 offset)
+static u16 mt8377_clearw(void __iomem *base, u32 offset)
 {
 	u16 value = musb_readw(base, offset);
 
@@ -131,7 +131,7 @@ static u16 mt6577_clearw(void __iomem *base, u32 offset)
 	return value;
 }
 
-static irqreturn_t mt6577_interrupt(int irq, void *data)
+static irqreturn_t mt8377_interrupt(int irq, void *data)
 {
 	struct musb *musb = data;
 	unsigned long flags;
@@ -155,9 +155,9 @@ static irqreturn_t mt6577_interrupt(int irq, void *data)
 	return result;
 }
 
-static int mt6577_init(struct musb *musb)
+static int mt8377_init(struct musb *musb)
 {
-	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	struct mt8377_glue *glue = dev_get_drvdata(musb->controller->parent);
 	int ret;
 
 	ret = clk_prepare_enable(glue->bus);
@@ -174,11 +174,11 @@ static int mt6577_init(struct musb *musb)
 		goto exit_phy;
 	musb_writeb(musb->mregs, MUSB_POWER, 0);
 	msleep(20);
-	musb_writew(musb->mregs, MT6577_SWRST,
-		    musb_readw(musb->mregs, MT6577_SWRST) | 3);
-	musb_writel(musb->mregs, MT6577_L1INTM, 7);
+	musb_writew(musb->mregs, MT8377_SWRST,
+		    musb_readw(musb->mregs, MT8377_SWRST) | 3);
+	musb_writel(musb->mregs, MT8377_L1INTM, 7);
 	musb->dyn_fifo = true;
-	musb->isr = mt6577_interrupt;
+	musb->isr = mt8377_interrupt;
 	return 0;
 exit_phy:
 	phy_exit(glue->phy);
@@ -187,12 +187,12 @@ disable_clock:
 	return ret;
 }
 
-static int mt6577_exit(struct musb *musb)
+static int mt8377_exit(struct musb *musb)
 {
-	struct mt6577_glue *glue = dev_get_drvdata(musb->controller->parent);
+	struct mt8377_glue *glue = dev_get_drvdata(musb->controller->parent);
 	int ret;
 
-	musb_writel(musb->mregs, MT6577_L1INTM, 0);
+	musb_writel(musb->mregs, MT8377_L1INTM, 0);
 	musb_writeb(musb->mregs, MUSB_POWER, 0);
 	ret = phy_power_off(glue->phy);
 	if (ret)
@@ -202,41 +202,41 @@ static int mt6577_exit(struct musb *musb)
 	return 0;
 }
 
-static const struct musb_platform_ops mt6577_ops = {
+static const struct musb_platform_ops mt8377_ops = {
 	.quirks = MUSB_INDEXED_EP,
-	.init = mt6577_init,
-	.exit = mt6577_exit,
-	.clearb = mt6577_clearb,
-	.clearw = mt6577_clearw,
-	.vbus_draw = mt6577_vbus_draw,
+	.init = mt8377_init,
+	.exit = mt8377_exit,
+	.clearb = mt8377_clearb,
+	.clearw = mt8377_clearw,
+	.vbus_draw = mt8377_vbus_draw,
 };
 
-static const struct musb_fifo_cfg mt6577_fifo[] = {
+static const struct musb_fifo_cfg mt8377_fifo[] = {
 	MUSB_EP_FIFO_SINGLE(1, FIFO_TX, 512),
 	MUSB_EP_FIFO_SINGLE(1, FIFO_RX, 512),
 	MUSB_EP_FIFO_SINGLE(2, FIFO_TX, 512),
 	MUSB_EP_FIFO_SINGLE(2, FIFO_RX, 512),
 };
 
-static const struct musb_hdrc_config mt6577_config = {
-	.fifo_cfg = mt6577_fifo,
-	.fifo_cfg_size = ARRAY_SIZE(mt6577_fifo),
+static const struct musb_hdrc_config mt8377_config = {
+	.fifo_cfg = mt8377_fifo,
+	.fifo_cfg_size = ARRAY_SIZE(mt8377_fifo),
 	.num_eps = 3,
 	.ram_bits = 11,
 };
 
-static const struct musb_hdrc_platform_data mt6577_pdata = {
+static const struct musb_hdrc_platform_data mt8377_pdata = {
 	.mode = MUSB_PERIPHERAL,
-	.config = &mt6577_config,
-	.platform_ops = &mt6577_ops,
+	.config = &mt8377_config,
+	.platform_ops = &mt8377_ops,
 };
 
-static void mt6577_unregister(void *data)
+static void mt8377_unregister(void *data)
 {
 	platform_device_unregister(data);
 }
 
-static int mt6577_probe(struct platform_device *pdev)
+static int mt8377_probe(struct platform_device *pdev)
 {
 	struct platform_device_info info = {
 		.parent = &pdev->dev,
@@ -244,14 +244,14 @@ static int mt6577_probe(struct platform_device *pdev)
 		.id = PLATFORM_DEVID_AUTO,
 		.res = pdev->resource,
 		.num_res = pdev->num_resources,
-		.data = &mt6577_pdata,
-		.size_data = sizeof(mt6577_pdata),
+		.data = &mt8377_pdata,
+		.size_data = sizeof(mt8377_pdata),
 		.dma_mask = DMA_BIT_MASK(32),
 		.fwnode = dev_fwnode(&pdev->dev),
 		.of_node_reused = true,
 	};
 	struct platform_device *musb;
-	struct mt6577_glue *glue;
+	struct mt8377_glue *glue;
 	int ret;
 
 	glue = devm_kzalloc(&pdev->dev, sizeof(*glue), GFP_KERNEL);
@@ -264,30 +264,31 @@ static int mt6577_probe(struct platform_device *pdev)
 	if (IS_ERR(glue->phy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(glue->phy), "Missing USB PHY\n");
 	glue->dev = &pdev->dev;
-	ret = mt6577_budget_init(glue);
+	ret = mt8377_budget_init(glue);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Cannot initialize USB current budget\n");
 	platform_set_drvdata(pdev, glue);
 	musb = platform_device_register_full(&info);
 	if (IS_ERR(musb))
 		return PTR_ERR(musb);
-	return devm_add_action_or_reset(&pdev->dev, mt6577_unregister, musb);
+	return devm_add_action_or_reset(&pdev->dev, mt8377_unregister, musb);
 }
 
-static const struct of_device_id mt6577_match[] = {
+static const struct of_device_id mt8377_match[] = {
+	{ .compatible = "mediatek,mt8377-musb" },
 	{ .compatible = "mediatek,mt6577-musb" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, mt6577_match);
+MODULE_DEVICE_TABLE(of, mt8377_match);
 
-static struct platform_driver mt6577_driver = {
-	.probe = mt6577_probe,
+static struct platform_driver mt8377_driver = {
+	.probe = mt8377_probe,
 	.driver = {
-		.name = "mt6577-musb",
-		.of_match_table = mt6577_match,
+		.name = "mt8377-musb",
+		.of_match_table = mt8377_match,
 	},
 };
-module_platform_driver(mt6577_driver);
+module_platform_driver(mt8377_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6577 MUSB glue");
+MODULE_DESCRIPTION("MediaTek MT8377 MUSB glue");
 MODULE_LICENSE("GPL");

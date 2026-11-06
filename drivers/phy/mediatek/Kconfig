@@ -91,15 +91,15 @@ config PHY_MTK_MIPI_DSI
 	help
 	  Support MIPI DSI for Mediatek SoCs.
 
-config PHY_MT6577_USB
-	tristate "MediaTek MT6577 USB PHY"
+config PHY_MT8377_USB
+	tristate "MediaTek MT8377 USB PHY"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	depends on OF
 	depends on POWER_SUPPLY
 	select REGMAP
 	select GENERIC_PHY
 	help
-	  Enable the USB 2.0 PHY on MediaTek MT6577.
+	  Enable the USB 2.0 PHY on MediaTek MT8377.
 
 config PHY_MTK_DP
 	tristate "MediaTek DP-PHY Driver"

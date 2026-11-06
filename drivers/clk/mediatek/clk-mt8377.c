@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include <dt-bindings/clock/mediatek,mt6577-clk.h>
+#include <dt-bindings/clock/mediatek,mt8377-clk.h>
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
@@ -14,17 +14,17 @@
 #include "clk-gate.h"
 #include "clk-mtk.h"
 
-struct mt6577_root_clk {
+struct mt8377_root_clk {
 	struct clk_hw hw;
 	struct regmap *map;
 	u8 shift;
 };
 
-#define to_mt6577_root(h) container_of(h, struct mt6577_root_clk, hw)
+#define to_mt8377_root(h) container_of(h, struct mt8377_root_clk, hw)
 
-static unsigned long mt6577_mainpll_rate(struct clk_hw *hw, unsigned long parent)
+static unsigned long mt8377_mainpll_rate(struct clk_hw *hw, unsigned long parent)
 {
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 con0, con1, fbsel, prediv, postdiv;
 	u64 rate;
 
@@ -39,11 +39,11 @@ static unsigned long mt6577_mainpll_rate(struct clk_hw *hw, unsigned long parent
 	return rate <= ULONG_MAX ? rate : 0;
 }
 
-static const struct clk_ops mt6577_mainpll_ops = {
-	.recalc_rate = mt6577_mainpll_rate,
+static const struct clk_ops mt8377_mainpll_ops = {
+	.recalc_rate = mt8377_mainpll_rate,
 };
 
-struct mt6577_wpll {
+struct mt8377_wpll {
 	struct clk_hw hw;
 	void __iomem *base;
 	u16 offset;
@@ -53,9 +53,9 @@ struct mt6577_wpll {
 	unsigned int delay;
 };
 
-static int mt6577_wpll_enable(struct clk_hw *hw)
+static int mt8377_wpll_enable(struct clk_hw *hw)
 {
-	struct mt6577_wpll *clk = container_of(hw, struct mt6577_wpll, hw);
+	struct mt8377_wpll *clk = container_of(hw, struct mt8377_wpll, hw);
 	u16 value = readw(clk->base + clk->offset);
 
 	writew((value & ~clk->mask) | clk->enabled, clk->base + clk->offset);
@@ -64,27 +64,27 @@ static int mt6577_wpll_enable(struct clk_hw *hw)
 	return 0;
 }
 
-static int mt6577_wpll_is_enabled(struct clk_hw *hw)
+static int mt8377_wpll_is_enabled(struct clk_hw *hw)
 {
-	struct mt6577_wpll *clk = container_of(hw, struct mt6577_wpll, hw);
+	struct mt8377_wpll *clk = container_of(hw, struct mt8377_wpll, hw);
 
 	return (readw(clk->base + clk->offset) & clk->mask) == clk->enabled;
 }
 
-static unsigned long mt6577_wpll_rate(struct clk_hw *hw, unsigned long parent)
+static unsigned long mt8377_wpll_rate(struct clk_hw *hw, unsigned long parent)
 {
-	struct mt6577_wpll *clk = container_of(hw, struct mt6577_wpll, hw);
+	struct mt8377_wpll *clk = container_of(hw, struct mt8377_wpll, hw);
 
 	return clk->rate;
 }
 
-static const struct clk_ops mt6577_wpll_ops = {
-	.enable = mt6577_wpll_enable,
-	.is_enabled = mt6577_wpll_is_enabled,
-	.recalc_rate = mt6577_wpll_rate,
+static const struct clk_ops mt8377_wpll_ops = {
+	.enable = mt8377_wpll_enable,
+	.is_enabled = mt8377_wpll_is_enabled,
+	.recalc_rate = mt8377_wpll_rate,
 };
 
-static struct clk_hw *mt6577_register_wpll(struct platform_device *pdev,
+static struct clk_hw *mt8377_register_wpll(struct platform_device *pdev,
 					   void __iomem *base, unsigned int index)
 {
 	static const struct {
@@ -93,20 +93,20 @@ static struct clk_hw *mt6577_register_wpll(struct platform_device *pdev,
 		unsigned long rate;
 		unsigned int delay;
 	} outputs[] = {
-		{ "mt6577_wpll197", 0x1c0, 3, 3, 197000000, 30 },
-		{ "mt6577_wpll61", 0x1c0, BIT(14) | BIT(0), BIT(14) | BIT(0), 61000000, 30 },
-		{ "mt6577_upll", 0x160, BIT(0), 0, 0, 20 },
+		{ "mt8377_wpll197", 0x1c0, 3, 3, 197000000, 30 },
+		{ "mt8377_wpll61", 0x1c0, BIT(14) | BIT(0), BIT(14) | BIT(0), 61000000, 30 },
+		{ "mt8377_upll", 0x160, BIT(0), 0, 0, 20 },
 	};
 	const struct clk_parent_data parent = { .index = 0 };
 	const struct clk_init_data init = {
 		.name = outputs[index].name,
-		.ops = &mt6577_wpll_ops,
+		.ops = &mt8377_wpll_ops,
 		.parent_data = &parent,
 		.num_parents = 1,
 		/* Shared firmware consumers */
 		.flags = CLK_IS_CRITICAL,
 	};
-	struct mt6577_wpll *clk;
+	struct mt8377_wpll *clk;
 	int ret;
 
 	clk = devm_kzalloc(&pdev->dev, sizeof(*clk), GFP_KERNEL);
@@ -123,9 +123,9 @@ static struct clk_hw *mt6577_register_wpll(struct platform_device *pdev,
 	return ret ? ERR_PTR(ret) : &clk->hw;
 }
 
-static u8 mt6577_msdc0_parent(struct clk_hw *hw)
+static u8 mt8377_msdc0_parent(struct clk_hw *hw)
 {
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 mux;
 
 	if (regmap_read(clk->map, 0x0c, &mux))
@@ -133,9 +133,9 @@ static u8 mt6577_msdc0_parent(struct clk_hw *hw)
 	return min_t(u32, (mux >> clk->shift) & 3, 2);
 }
 
-static int mt6577_msdc_prepare(struct clk_hw *hw)
+static int mt8377_msdc_prepare(struct clk_hw *hw)
 {
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 mux;
 	int ret;
 
@@ -145,14 +145,14 @@ static int mt6577_msdc_prepare(struct clk_hw *hw)
 	return ((mux >> clk->shift) & 3) < 2 ? 0 : -EINVAL;
 }
 
-static const struct clk_ops mt6577_msdc0_ops = {
-	.prepare = mt6577_msdc_prepare,
-	.get_parent = mt6577_msdc0_parent,
+static const struct clk_ops mt8377_msdc0_ops = {
+	.prepare = mt8377_msdc_prepare,
+	.get_parent = mt8377_msdc0_parent,
 };
 
-static unsigned long mt6577_usb_rate(struct clk_hw *hw, unsigned long parent)
+static unsigned long mt8377_usb_rate(struct clk_hw *hw, unsigned long parent)
 {
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 mux;
 
 	if (regmap_read(clk->map, 0x0c, &mux) || (mux & BIT(2)))
@@ -160,13 +160,13 @@ static unsigned long mt6577_usb_rate(struct clk_hw *hw, unsigned long parent)
 	return parent;
 }
 
-static const struct clk_ops mt6577_usb_ops = {
-	.recalc_rate = mt6577_usb_rate,
+static const struct clk_ops mt8377_usb_ops = {
+	.recalc_rate = mt8377_usb_rate,
 };
 
-static u8 mt6577_axi_parent(struct clk_hw *hw)
+static u8 mt8377_axi_parent(struct clk_hw *hw)
 {
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 mux;
 
 	if (regmap_read(clk->map, 0, &mux))
@@ -175,10 +175,10 @@ static u8 mt6577_axi_parent(struct clk_hw *hw)
 	return mux == 3 ? 1 : mux;
 }
 
-static unsigned long mt6577_axi_rate(struct clk_hw *hw, unsigned long parent)
+static unsigned long mt8377_axi_rate(struct clk_hw *hw, unsigned long parent)
 {
 	static const unsigned int divisors[] = { 1, 4, 5, 6 };
-	struct mt6577_root_clk *clk = to_mt6577_root(hw);
+	struct mt8377_root_clk *clk = to_mt8377_root(hw);
 	u32 divider;
 
 	if (regmap_read(clk->map, 4, &divider))
@@ -186,75 +186,75 @@ static unsigned long mt6577_axi_rate(struct clk_hw *hw, unsigned long parent)
 	return parent / divisors[FIELD_GET(GENMASK(4, 3), divider)];
 }
 
-static const struct clk_ops mt6577_axi_ops = {
-	.get_parent = mt6577_axi_parent,
-	.recalc_rate = mt6577_axi_rate,
+static const struct clk_ops mt8377_axi_ops = {
+	.get_parent = mt8377_axi_parent,
+	.recalc_rate = mt8377_axi_rate,
 };
 
-static const struct mtk_gate_regs mt6577_peri_regs = {
+static const struct mtk_gate_regs mt8377_peri_regs = {
 	.sta_ofs = 0x10,
 	.set_ofs = 0x10,
 	.clr_ofs = 0x10,
 };
 
-static const struct mtk_gate mt6577_peri_gates[] = {
-	GATE_MTK(CLK_MT6577_PWM1, "mt6577_pwm1", NULL,
-		 &mt6577_peri_regs, 2, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_PWM2, "mt6577_pwm2", NULL,
-		 &mt6577_peri_regs, 3, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_PWM3, "mt6577_pwm3", NULL,
-		 &mt6577_peri_regs, 4, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_PWM456, "mt6577_pwm456", NULL,
-		 &mt6577_peri_regs, 5, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_PWM7, "mt6577_pwm7", NULL,
-		 &mt6577_peri_regs, 6, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_MSDC0, "mt6577_msdc0", "mt6577_msdc0_sel",
-		 &mt6577_peri_regs, 15, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_MSDC3, "mt6577_msdc3", "mt6577_msdc3_sel",
-		 &mt6577_peri_regs, 18, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_USB, "mt6577_usb", "mt6577_usb_sel",
-		 &mt6577_peri_regs, 9, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK_FLAGS(CLK_MT6577_I2C_DUAL, "mt6577_i2c_dual", NULL,
-		       &mt6577_peri_regs, 30, &mtk_clk_gate_ops_no_setclr,
+static const struct mtk_gate mt8377_peri_gates[] = {
+	GATE_MTK(CLK_MT8377_PWM1, "mt8377_pwm1", NULL,
+		 &mt8377_peri_regs, 2, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_PWM2, "mt8377_pwm2", NULL,
+		 &mt8377_peri_regs, 3, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_PWM3, "mt8377_pwm3", NULL,
+		 &mt8377_peri_regs, 4, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_PWM456, "mt8377_pwm456", NULL,
+		 &mt8377_peri_regs, 5, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_PWM7, "mt8377_pwm7", NULL,
+		 &mt8377_peri_regs, 6, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_MSDC0, "mt8377_msdc0", "mt8377_msdc0_sel",
+		 &mt8377_peri_regs, 15, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_MSDC3, "mt8377_msdc3", "mt8377_msdc3_sel",
+		 &mt8377_peri_regs, 18, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_USB, "mt8377_usb", "mt8377_usb_sel",
+		 &mt8377_peri_regs, 9, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK_FLAGS(CLK_MT8377_I2C_DUAL, "mt8377_i2c_dual", NULL,
+		       &mt8377_peri_regs, 30, &mtk_clk_gate_ops_no_setclr,
 		       CLK_IS_CRITICAL),
-	GATE_MTK(CLK_MT6577_I2C0, "mt6577_i2c0", NULL,
-		 &mt6577_peri_regs, 28, &mtk_clk_gate_ops_no_setclr),
-	GATE_MTK(CLK_MT6577_UART2, "mt6577_uart2", "mt6577_pwm_ref",
-		 &mt6577_peri_regs, 26, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_I2C0, "mt8377_i2c0", NULL,
+		 &mt8377_peri_regs, 28, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_UART2, "mt8377_uart2", "mt8377_pwm_ref",
+		 &mt8377_peri_regs, 26, &mtk_clk_gate_ops_no_setclr),
 };
 
-struct mt6577_peri {
-	struct mtk_gate gates[ARRAY_SIZE(mt6577_peri_gates)];
+struct mt8377_peri {
+	struct mtk_gate gates[ARRAY_SIZE(mt8377_peri_gates)];
 	struct clk_hw_onecell_data *data;
 };
 
-static void mt6577_free_data(void *data)
+static void mt8377_free_data(void *data)
 {
 	mtk_free_clk_data(data);
 }
 
-static void mt6577_unregister_gates(void *data)
+static void mt8377_unregister_gates(void *data)
 {
-	struct mt6577_peri *peri = data;
+	struct mt8377_peri *peri = data;
 
 	mtk_clk_unregister_gates(peri->gates, ARRAY_SIZE(peri->gates), peri->data);
 }
 
-static int mt6577_peri_probe(struct platform_device *pdev)
+static int mt8377_peri_probe(struct platform_device *pdev)
 {
-	static const char * const msdc_names[] = { "mt6577_msdc0_sel", "mt6577_msdc3_sel" };
+	static const char * const msdc_names[] = { "mt8377_msdc0_sel", "mt8377_msdc3_sel" };
 	const struct clk_parent_data parents[] = { { .index = 1 }, { .index = 2 } };
 	struct clk_init_data init = {
-		.ops = &mt6577_msdc0_ops,
+		.ops = &mt8377_msdc0_ops,
 		.parent_data = parents,
 		.num_parents = ARRAY_SIZE(parents),
 		.flags = CLK_GET_RATE_NOCACHE,
 	};
 	struct device *dev = &pdev->dev;
 	struct clk_bulk_data *inputs;
-	struct mt6577_peri *peri;
-	struct mt6577_root_clk *mux;
-	struct mt6577_root_clk *usb;
+	struct mt8377_peri *peri;
+	struct mt8377_root_clk *mux;
+	struct mt8377_root_clk *usb;
 	struct clk_hw *reference;
 	int i, ret;
 
@@ -266,16 +266,16 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 	peri = devm_kzalloc(dev, sizeof(*peri), GFP_KERNEL);
 	if (!peri)
 		return -ENOMEM;
-	peri->data = mtk_alloc_clk_data(CLK_MT6577_PERI_NR_CLK);
+	peri->data = mtk_alloc_clk_data(CLK_MT8377_PERI_NR_CLK);
 	if (!peri->data)
 		return -ENOMEM;
-	ret = devm_add_action_or_reset(dev, mt6577_free_data, peri->data);
+	ret = devm_add_action_or_reset(dev, mt8377_free_data, peri->data);
 	if (ret)
 		return ret;
-	reference = devm_clk_hw_register_fixed_factor_index(dev, "mt6577_pwm_ref", 0, 0, 1, 4);
+	reference = devm_clk_hw_register_fixed_factor_index(dev, "mt8377_pwm_ref", 0, 0, 1, 4);
 	if (IS_ERR(reference))
 		return PTR_ERR(reference);
-	peri->data->hws[CLK_MT6577_PWM_REF] = reference;
+	peri->data->hws[CLK_MT8377_PWM_REF] = reference;
 	for (i = 0; i < ARRAY_SIZE(msdc_names); i++) {
 		mux = devm_kzalloc(dev, sizeof(*mux), GFP_KERNEL);
 		if (!mux)
@@ -295,8 +295,8 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	usb->map = mux->map;
 	usb->hw.init = &(const struct clk_init_data) {
-		.name = "mt6577_usb_sel",
-		.ops = &mt6577_usb_ops,
+		.name = "mt8377_usb_sel",
+		.ops = &mt8377_usb_ops,
 		.parent_data = &(const struct clk_parent_data) { .index = 3 },
 		.num_parents = 1,
 		.flags = CLK_GET_RATE_NOCACHE,
@@ -304,45 +304,45 @@ static int mt6577_peri_probe(struct platform_device *pdev)
 	ret = devm_clk_hw_register(dev, &usb->hw);
 	if (ret)
 		return ret;
-	memcpy(peri->gates, mt6577_peri_gates, sizeof(peri->gates));
+	memcpy(peri->gates, mt8377_peri_gates, sizeof(peri->gates));
 	for (i = 0; i < ARRAY_SIZE(peri->gates); i++) {
-		if (peri->gates[i].id >= CLK_MT6577_PWM1 &&
-		    peri->gates[i].id <= CLK_MT6577_PWM7)
+		if (peri->gates[i].id >= CLK_MT8377_PWM1 &&
+		    peri->gates[i].id <= CLK_MT8377_PWM7)
 			peri->gates[i].parent_name = clk_hw_get_name(reference);
-		else if (peri->gates[i].id == CLK_MT6577_I2C_DUAL ||
-			 peri->gates[i].id == CLK_MT6577_I2C0)
+		else if (peri->gates[i].id == CLK_MT8377_I2C_DUAL ||
+			 peri->gates[i].id == CLK_MT8377_I2C0)
 			peri->gates[i].parent_name = __clk_get_name(inputs[0].clk);
 	}
 	ret = mtk_clk_register_gates(dev, dev->of_node, peri->gates,
 				     ARRAY_SIZE(peri->gates), peri->data);
 	if (ret)
 		return ret;
-	ret = devm_add_action_or_reset(dev, mt6577_unregister_gates, peri);
+	ret = devm_add_action_or_reset(dev, mt8377_unregister_gates, peri);
 	if (ret)
 		return ret;
 	return devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, peri->data);
 }
 
-struct mt6577_root_data {
+struct mt8377_root_data {
 	const struct clk_ops *ops;
 	unsigned int parents;
 };
 
-static const struct mt6577_root_data mt6577_mainpll_data = {
-	.ops = &mt6577_mainpll_ops,
+static const struct mt8377_root_data mt8377_mainpll_data = {
+	.ops = &mt8377_mainpll_ops,
 	.parents = 1,
 };
 
-static const struct mt6577_root_data mt6577_axi_data = {
-	.ops = &mt6577_axi_ops,
+static const struct mt8377_root_data mt8377_axi_data = {
+	.ops = &mt8377_axi_ops,
 	.parents = 3,
 };
 
-static const struct mt6577_root_data mt6577_peri_data;
+static const struct mt8377_root_data mt8377_peri_data;
 
-static int mt6577_clk_probe(struct platform_device *pdev)
+static int mt8377_clk_probe(struct platform_device *pdev)
 {
-	const struct mt6577_root_data *data = of_device_get_match_data(&pdev->dev);
+	const struct mt8377_root_data *data = of_device_get_match_data(&pdev->dev);
 	struct clk_parent_data parents[] = { { .index = 0 }, { .index = 1 }, { .index = 2 } };
 	struct clk_init_data init = {
 		.name = dev_name(&pdev->dev),
@@ -351,13 +351,13 @@ static int mt6577_clk_probe(struct platform_device *pdev)
 	};
 	struct device *dev = &pdev->dev;
 	struct clk_hw_onecell_data *provider;
-	struct mt6577_root_clk *clk;
+	struct mt8377_root_clk *clk;
 	void __iomem *base;
-	unsigned int count = data == &mt6577_mainpll_data ? CLK_MT6577_APMIXED_NR_CLK : 1;
+	unsigned int count = data == &mt8377_mainpll_data ? CLK_MT8377_APMIXED_NR_CLK : 1;
 	int i, ret;
 
 	if (!data->ops)
-		return mt6577_peri_probe(pdev);
+		return mt8377_peri_probe(pdev);
 	clk = devm_kzalloc(dev, sizeof(*clk), GFP_KERNEL);
 	if (!clk)
 		return -ENOMEM;
@@ -380,7 +380,7 @@ static int mt6577_clk_probe(struct platform_device *pdev)
 		if (IS_ERR(base))
 			return PTR_ERR(base);
 		for (i = 1; i < count; i++) {
-			provider->hws[i] = mt6577_register_wpll(pdev, base, i - 1);
+			provider->hws[i] = mt8377_register_wpll(pdev, base, i - 1);
 			if (IS_ERR(provider->hws[i]))
 				return PTR_ERR(provider->hws[i]);
 		}
@@ -388,19 +388,22 @@ static int mt6577_clk_probe(struct platform_device *pdev)
 	return devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, provider);
 }
 
-static const struct of_device_id mt6577_clk_match[] = {
-	{ .compatible = "mediatek,mt6577-apmixedsys", .data = &mt6577_mainpll_data },
-	{ .compatible = "mediatek,mt6577-infracfg", .data = &mt6577_axi_data },
-	{ .compatible = "mediatek,mt6577-pericfg", .data = &mt6577_peri_data },
+static const struct of_device_id mt8377_clk_match[] = {
+	{ .compatible = "mediatek,mt8377-apmixedsys", .data = &mt8377_mainpll_data },
+	{ .compatible = "mediatek,mt6577-apmixedsys", .data = &mt8377_mainpll_data },
+	{ .compatible = "mediatek,mt8377-infracfg", .data = &mt8377_axi_data },
+	{ .compatible = "mediatek,mt6577-infracfg", .data = &mt8377_axi_data },
+	{ .compatible = "mediatek,mt8377-pericfg", .data = &mt8377_peri_data },
+	{ .compatible = "mediatek,mt6577-pericfg", .data = &mt8377_peri_data },
 	{ }
 };
 
-static struct platform_driver mt6577_clk_driver = {
-	.probe = mt6577_clk_probe,
+static struct platform_driver mt8377_clk_driver = {
+	.probe = mt8377_clk_probe,
 	.driver = {
-		.name = "mt6577-clock",
-		.of_match_table = mt6577_clk_match,
+		.name = "mt8377-clock",
+		.of_match_table = mt8377_clk_match,
 		.suppress_bind_attrs = true,
 	},
 };
-builtin_platform_driver(mt6577_clk_driver);
+builtin_platform_driver(mt8377_clk_driver);

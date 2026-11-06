@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/clock/mediatek,mt6577-infracfg.yaml#
+$id: http://devicetree.org/schemas/clock/mediatek,mt8377-infracfg.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MT6577 infrastructure clock controller
+title: MediaTek MT8377 infrastructure clock controller
 
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
@@ -15,7 +15,9 @@ description:
 
 properties:
   compatible:
-    const: mediatek,mt6577-infracfg
+    enum:
+      - mediatek,mt8377-infracfg
+      - mediatek,mt6577-infracfg
   reg:
     maxItems: 1
   clocks:
@@ -41,11 +43,11 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/mediatek,mt6577-clk.h>
+    #include <dt-bindings/clock/mediatek,mt8377-clk.h>
     clock-controller@c0001000 {
-        compatible = "mediatek,mt6577-infracfg";
+        compatible = "mediatek,mt8377-infracfg";
         reg = <0xc0001000 0x1000>;
-        clocks = <&clk26m>, <&apmixedsys CLK_MT6577_MAINPLL>;
+        clocks = <&clk26m>, <&apmixedsys CLK_MT8377_MAINPLL>;
         clock-names = "clk26m", "mainpll";
         #clock-cells = <1>;
     };

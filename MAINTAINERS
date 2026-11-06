@@ -21577,7 +21577,7 @@ F:	Documentation/devicetree/bindings/pinctrl/mediatek,mt6779-pinctrl.yaml
 F:	Documentation/devicetree/bindings/pinctrl/mediatek,mt7622-pinctrl.yaml
 F:	Documentation/devicetree/bindings/pinctrl/mediatek,mt8183-pinctrl.yaml
 F:	drivers/pinctrl/mediatek/
-F:	include/dt-bindings/pinctrl/mt6577-pinfunc.h
+F:	include/dt-bindings/pinctrl/mt8377-pinfunc.h
 
 PIN CONTROLLER - MEDIATEK MIPS
 M:	Chester A. Unal <chester.a.unal@arinc9.com>

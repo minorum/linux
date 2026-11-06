@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
+#ifndef _DT_BINDINGS_CLOCK_MT8377_H
+#define _DT_BINDINGS_CLOCK_MT8377_H
+
+#define CLK_MT8377_MAINPLL	0
+#define CLK_MT8377_WPLL197	1
+#define CLK_MT8377_WPLL61		2
+#define CLK_MT8377_UPLL		3
+#define CLK_MT8377_APMIXED_NR_CLK	4
+#define CLK_MT8377_AXI		0
+
+#define CLK_MT8377_PWM_REF	0
+#define CLK_MT8377_PWM1		1
+#define CLK_MT8377_PWM2		2
+#define CLK_MT8377_PWM3		3
+#define CLK_MT8377_PWM456		4
+#define CLK_MT8377_PWM7		5
+#define CLK_MT8377_MSDC0		6
+#define CLK_MT8377_I2C_DUAL	7
+#define CLK_MT8377_USB		8
+#define CLK_MT8377_I2C0		9
+#define CLK_MT8377_MSDC3		10
+#define CLK_MT8377_UART2		11
+#define CLK_MT8377_PERI_NR_CLK	12
+
+#endif

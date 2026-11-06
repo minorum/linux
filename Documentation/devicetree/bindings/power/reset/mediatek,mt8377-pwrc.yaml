@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/power/reset/mediatek,mt6577-pwrc.yaml#
+$id: http://devicetree.org/schemas/power/reset/mediatek,mt8377-pwrc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MT6577 RTC power controller
+title: MediaTek MT8377 RTC power controller
 
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
@@ -17,7 +17,9 @@ description:
 
 properties:
   compatible:
-    const: mediatek,mt6577-pwrc
+    enum:
+      - mediatek,mt8377-pwrc
+      - mediatek,mt6577-pwrc
 
   reg:
     maxItems: 1
@@ -34,7 +36,7 @@ additionalProperties: false
 examples:
   - |
     power-controller@c1003000 {
-        compatible = "mediatek,mt6577-pwrc";
+        compatible = "mediatek,mt8377-pwrc";
         reg = <0xc1003000 0x7c>;
         #clock-cells = <0>;
     };

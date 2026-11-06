@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/usb/mediatek,mt6577-musb.yaml#
+$id: http://devicetree.org/schemas/usb/mediatek,mt8377-musb.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MT6577 MUSB controller
+title: MediaTek MT8377 MUSB controller
 
 maintainers:
   - Michal Andrzejczak <mit.mis@gmail.com>
@@ -18,7 +18,9 @@ allOf:
 
 properties:
   compatible:
-    const: mediatek,mt6577-musb
+    enum:
+      - mediatek,mt8377-musb
+      - mediatek,mt6577-musb
 
   reg:
     maxItems: 1

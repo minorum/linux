@@ -3,14 +3,14 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
-#include <dt-bindings/clock/mediatek,mt6577-clk.h>
-#include <dt-bindings/clock/mediatek,mt6577-mmsys.h>
+#include <dt-bindings/clock/mediatek,mt8377-clk.h>
+#include <dt-bindings/clock/mediatek,mt8377-mmsys.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/iio/adc/mediatek,mt6329-auxadc.h>
 
 / {
 	model = "MODECOM FreeTAB 8001";
-	compatible = "modecom,freetab8001", "mediatek,mt6577";
+	compatible = "modecom,freetab8001", "mediatek,mt8377";
 	#address-cells = <1>;
 	#size-cells = <1>;
 	interrupt-parent = <&sysirq>;
@@ -143,25 +143,25 @@
 		ranges;
 
 		watchdog@c0000000 {
-			compatible = "mediatek,mt6577-wdt";
+			compatible = "mediatek,mt8377-wdt";
 			reg = <0xc0000000 0x1c>;
 			timeout-sec = <31>;
 		};
 
 		rtc_clock: power-controller@c1003000 {
-			compatible = "mediatek,mt6577-pwrc";
+			compatible = "mediatek,mt8377-pwrc";
 			reg = <0xc1003000 0x7c>;
 			#clock-cells = <0>;
 		};
 
 		mmsys: clock-controller@c2080000 {
-			compatible = "mediatek,mt6577-mmsys", "syscon";
+			compatible = "mediatek,mt8377-mmsys", "syscon";
 			reg = <0xc2080000 0x1000>;
 			#clock-cells = <1>;
 		};
 
 		mipi_tx: clock-controller@c20a3800 {
-			compatible = "mediatek,mt6577-mipi-tx";
+			compatible = "mediatek,mt8377-mipi-tx";
 			reg = <0xc20a3800 0x34>;
 			clocks = <&clk26m>;
 			#clock-cells = <0>;
@@ -171,12 +171,12 @@
 		};
 
 		display-controller@c208c000 {
-			compatible = "mediatek,mt6577-dpi";
+			compatible = "mediatek,mt8377-dpi";
 			reg = <0xc208c000 0xb8>;
 			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&mmsys CLK_MT6577_MM_DPI>,
-				 <&mmsys CLK_MT6577_MM_LARB1>,
-				 <&mmsys CLK_MT6577_MM_LARB1_EMI>, <&mipi_tx>;
+			clocks = <&mmsys CLK_MT8377_MM_DPI>,
+				 <&mmsys CLK_MT8377_MM_LARB1>,
+				 <&mmsys CLK_MT8377_MM_LARB1_EMI>, <&mipi_tx>;
 			clock-names = "engine", "larb", "larb-emi", "pll";
 			mediatek,mmsys = <&mmsys>;
 
@@ -188,16 +188,16 @@
 		};
 
 		infracfg: clock-controller@c0001000 {
-			compatible = "mediatek,mt6577-infracfg";
+			compatible = "mediatek,mt8377-infracfg";
 			reg = <0xc0001000 0x1000>;
-			clocks = <&clk26m>, <&apmixedsys CLK_MT6577_MAINPLL>,
-				 <&apmixedsys CLK_MT6577_WPLL197>;
+			clocks = <&clk26m>, <&apmixedsys CLK_MT8377_MAINPLL>,
+				 <&apmixedsys CLK_MT8377_WPLL197>;
 			clock-names = "clk26m", "mainpll", "wpll";
 			#clock-cells = <1>;
 		};
 
 		apmixedsys: clock-controller@c0007000 {
-			compatible = "mediatek,mt6577-apmixedsys";
+			compatible = "mediatek,mt8377-apmixedsys";
 			reg = <0xc0007000 0x1000>;
 			clocks = <&clk26m>;
 			clock-names = "clk26m";
@@ -205,24 +205,24 @@
 		};
 
 		pericfg: clock-controller@c1000000 {
-			compatible = "mediatek,mt6577-pericfg";
+			compatible = "mediatek,mt8377-pericfg";
 			reg = <0xc1000000 0x1000>;
-			clocks = <&infracfg CLK_MT6577_AXI>, <&clk26m>,
-				 <&apmixedsys CLK_MT6577_WPLL197>,
-				 <&apmixedsys CLK_MT6577_WPLL61>;
+			clocks = <&infracfg CLK_MT8377_AXI>, <&clk26m>,
+				 <&apmixedsys CLK_MT8377_WPLL197>,
+				 <&apmixedsys CLK_MT8377_WPLL61>;
 			clock-names = "axi", "clk26m", "wpll197", "wpll61";
 			#clock-cells = <1>;
 		};
 
 		pwm: pwm@c1008000 {
-			compatible = "mediatek,mt6577-pwm";
+			compatible = "mediatek,mt8377-pwm";
 			reg = <0xc1008000 0x210>;
 			#pwm-cells = <2>;
-			clocks = <&infracfg CLK_MT6577_AXI>, <&pericfg CLK_MT6577_PWM456>,
-				 <&pericfg CLK_MT6577_PWM1>, <&pericfg CLK_MT6577_PWM2>,
-				 <&pericfg CLK_MT6577_PWM3>, <&pericfg CLK_MT6577_PWM456>,
-				 <&pericfg CLK_MT6577_PWM456>, <&pericfg CLK_MT6577_PWM456>,
-				 <&pericfg CLK_MT6577_PWM7>;
+			clocks = <&infracfg CLK_MT8377_AXI>, <&pericfg CLK_MT8377_PWM456>,
+				 <&pericfg CLK_MT8377_PWM1>, <&pericfg CLK_MT8377_PWM2>,
+				 <&pericfg CLK_MT8377_PWM3>, <&pericfg CLK_MT8377_PWM456>,
+				 <&pericfg CLK_MT8377_PWM456>, <&pericfg CLK_MT8377_PWM456>,
+				 <&pericfg CLK_MT8377_PWM7>;
 			clock-names = "top", "main", "pwm1", "pwm2", "pwm3",
 				      "pwm4", "pwm5", "pwm6", "pwm7";
 		};
@@ -232,14 +232,14 @@
 			reg = <0xc100b000 0x100>;
 			interrupt-parent = <&sysirq>;
 			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&pericfg CLK_MT6577_UART2>,
-				 <&pericfg CLK_MT6577_UART2>;
+			clocks = <&pericfg CLK_MT8377_UART2>,
+				 <&pericfg CLK_MT8377_UART2>;
 			clock-names = "baud", "bus";
 			status = "disabled";
 		};
 
 		pio: pinctrl@c0005000 {
-			compatible = "mediatek,mt6577-pinctrl";
+			compatible = "mediatek,mt8377-pinctrl";
 			reg = <0xc0005000 0x1000>;
 			gpio-controller;
 			#gpio-cells = <2>;
@@ -275,7 +275,7 @@
 			compatible = "mediatek,mt6577-i2c";
 			reg = <0xc1012000 0x70>;
 			interrupts = <GIC_SPI 49 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&pericfg CLK_MT6577_I2C0>;
+			clocks = <&pericfg CLK_MT8377_I2C0>;
 			clock-names = "main";
 			clock-div = <16>;
 			clock-frequency = <100000>;
@@ -298,10 +298,10 @@
 		};
 
 		pmic_i2c: i2c@c1014000 {
-			compatible = "mediatek,mt6577-i2c-dual";
+			compatible = "mediatek,mt8377-i2c-dual";
 			reg = <0xc1014000 0xc0>;
 			interrupts = <GIC_SPI 73 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&pericfg CLK_MT6577_I2C_DUAL>;
+			clocks = <&pericfg CLK_MT8377_I2C_DUAL>;
 			clock-names = "main";
 			clock-frequency = <100000>;
 			mediatek,use-push-pull;
@@ -338,9 +338,9 @@
 		};
 
 		usb_phy: phy@c1260800 {
-			compatible = "mediatek,mt6577-usb-phy";
+			compatible = "mediatek,mt8377-usb-phy";
 			reg = <0xc1260800 0x800>;
-			clocks = <&apmixedsys CLK_MT6577_UPLL>, <&pericfg CLK_MT6577_USB>;
+			clocks = <&apmixedsys CLK_MT8377_UPLL>, <&pericfg CLK_MT8377_USB>;
 			clock-names = "upll", "bus";
 			vusb33-supply = <&vusb>;
 			mediatek,bc11;
@@ -348,11 +348,11 @@
 		};
 
 		usb@c1210000 {
-			compatible = "mediatek,mt6577-musb";
+			compatible = "mediatek,mt8377-musb";
 			reg = <0xc1210000 0x1000>;
 			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_LOW>;
 			interrupt-names = "mc";
-			clocks = <&pericfg CLK_MT6577_USB>;
+			clocks = <&pericfg CLK_MT8377_USB>;
 			clock-names = "bus";
 			phys = <&usb_phy>;
 			phy-names = "usb2-phy";
@@ -364,9 +364,9 @@
 		};
 
 		mmc@c1220000 {
-			compatible = "mediatek,mt6577-mmc";
+			compatible = "mediatek,mt8377-mmc";
 			reg = <0xc1220000 0x1000>;
-			clocks = <&pericfg CLK_MT6577_MSDC0>;
+			clocks = <&pericfg CLK_MT8377_MSDC0>;
 			clock-names = "source";
 			bus-width = <4>;
 			max-frequency = <52000000>;
@@ -377,4 +377,4 @@
 	};
 };
 
-#include "mt6577-modecom-wifi.dtsi"
+#include "mt8377-modecom-wifi.dtsi"

@@ -533,7 +533,7 @@ static int pwm_mediatek_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct pwm_mediatek_of_data mt6577_pwm_data = {
+static const struct pwm_mediatek_of_data mt8377_pwm_data = {
 	.num_pwms = 7,
 	.needs_wave_init = true,
 	.valid_pwms = BIT(0) | BIT(1) | BIT(2) | BIT(6),
@@ -653,7 +653,8 @@ static const struct pwm_mediatek_of_data mt6991_pwm_data = {
 };
 
 static const struct of_device_id pwm_mediatek_of_match[] = {
-	{ .compatible = "mediatek,mt6577-pwm", .data = &mt6577_pwm_data },
+	{ .compatible = "mediatek,mt8377-pwm", .data = &mt8377_pwm_data },
+	{ .compatible = "mediatek,mt6577-pwm", .data = &mt8377_pwm_data },
 	{ .compatible = "mediatek,mt2712-pwm", .data = &mt2712_pwm_data },
 	{ .compatible = "mediatek,mt6795-pwm", .data = &mt6795_pwm_data },
 	{ .compatible = "mediatek,mt6991-pwm", .data = &mt6991_pwm_data },

@@ -34,7 +34,9 @@ properties:
           - const: mediatek,mt6572
       - items:
           - const: modecom,freetab8001
-          - const: mediatek,mt6577
+          - enum:
+              - mediatek,mt8377
+              - mediatek,mt6577
       - items:
           - enum:
               - mediatek,mt6580-evbp1
