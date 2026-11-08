@@ -260,7 +260,7 @@
 			<3283000 0>,
 			<3282000 0>,
 			<3282000 0>;
-		constant-charge-current-max-microamp = <500000>;
+		constant-charge-current-max-microamp = <1300000>;
 		constant-charge-voltage-max-microvolt = <4200000>;
 		precharge-current-microamp = <100000>;
 		charge-term-current-microamp = <200000>;
@@ -457,7 +457,7 @@
 				io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
 					      <&battery_thermistor>;
 				io-channel-names = "voltage", "temperature";
-				input-current-limit-microamp = <500000>;
+				input-current-limit-microamp = <1500000>;
 				shunt-resistor-micro-ohms = <68000>;
 				onnn,power-path;
 				onnn,system-voltage-microvolt = <3400000>;
