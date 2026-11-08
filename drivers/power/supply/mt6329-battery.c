@@ -7,11 +7,13 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/overflow.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/timekeeping.h>
 #include <linux/workqueue.h>
 
 #define MT6329_FGADC_CLOCK	0x15
@@ -35,6 +37,12 @@ struct mt6329_fgadc {
 	struct delayed_work work;
 	int status;
 	int charge;
+	int capacity;
+	bool soc_valid;
+	u16 soc_count;
+	u64 soc_time_ms;
+	s64 soc_delta_count;
+	int soc_origin_uah;
 };
 
 static int mt6329_fgadc_init(struct mt6329_fgadc *adc)
@@ -252,6 +260,153 @@ static const struct iio_info mt6329_fgadc_info = {
 	.read_raw = mt6329_fgadc_read_raw,
 };
 
+static int mt6329_fgadc_delta_charge(struct mt6329_fgadc *adc, s64 counts,
+				     s64 *charge)
+{
+	u64 magnitude = counts < 0 ? -(u64)counts : (u64)counts;
+	u64 value;
+
+	if (!adc->shunt_uohm || !adc->calibration_percent)
+		return -EINVAL;
+	value = mul_u64_u64_div_u64(magnitude,
+				    35986ULL * 20000 * adc->calibration_percent,
+				    10000ULL * adc->shunt_uohm);
+	if (value > S64_MAX)
+		return -ERANGE;
+	*charge = counts < 0 ? -(s64)value : (s64)value;
+
+	return 0;
+}
+
+static int mt6329_battery_track(struct mt6329_fgadc *adc, const u8 *car,
+				u64 now_ms, int full_uah, int seed, int *charge)
+{
+	u16 count = (((car[3] >> 6) | (car[2] << 2) | (car[1] << 10)) +
+		     !!(car[0] & BIT(3))) & 0xffff;
+	s64 quantum, half_wrap, delta, total, value;
+	u64 possible;
+	int maximum, ret;
+
+	if (full_uah <= 0)
+		return -ENODATA;
+	if (!adc->soc_valid) {
+		if (seed < 0)
+			return -EAGAIN;
+		if (seed > 100)
+			return -EINVAL;
+		adc->soc_origin_uah = div_s64((s64)full_uah * seed, 100);
+		adc->soc_delta_count = 0;
+		adc->soc_count = count;
+		adc->soc_time_ms = now_ms;
+		adc->soc_valid = true;
+		*charge = adc->soc_origin_uah;
+		return 0;
+	}
+	ret = mt6329_fgadc_delta_charge(adc, 2, &quantum);
+	if (ret)
+		return ret;
+	ret = mt6329_fgadc_delta_charge(adc, 32768, &half_wrap);
+	if (ret)
+		return ret;
+	ret = mt6329_fgadc_convert(adc, 0x7fff, &maximum);
+	if (ret)
+		return ret;
+	if (now_ms < adc->soc_time_ms || !quantum || !maximum)
+		goto discontinuity;
+	possible = mul_u64_u64_div_u64((u64)maximum * 1000,
+				       now_ms - adc->soc_time_ms, 3600000);
+	if (possible + quantum >= (u64)half_wrap)
+		goto discontinuity;
+	ret = mt6329_fgadc_delta_charge(adc, (s16)(count - adc->soc_count), &delta);
+	if (ret)
+		return ret;
+	if ((delta < 0 ? -delta : delta) > possible + quantum)
+		goto discontinuity;
+	if (check_add_overflow(adc->soc_delta_count, (s64)(s16)(count - adc->soc_count), &total))
+		goto discontinuity;
+	ret = mt6329_fgadc_delta_charge(adc, total, &value);
+	if (ret)
+		return ret;
+	if (check_add_overflow(value, (s64)adc->soc_origin_uah, &value))
+		goto discontinuity;
+	*charge = clamp_val(value, 0, full_uah);
+	adc->soc_delta_count = total;
+	adc->soc_count = count;
+	adc->soc_time_ms = now_ms;
+	if (value <= 0 || value >= full_uah) {
+		adc->soc_origin_uah = *charge;
+		adc->soc_delta_count = 0;
+	}
+
+	return 0;
+
+discontinuity:
+	adc->soc_valid = false;
+	return -EAGAIN;
+}
+
+static int mt6329_battery_capacity(struct power_supply *psy,
+				   enum power_supply_property prop, int *value)
+{
+	struct power_supply_battery_info *info = psy->battery_info;
+	struct mt6329_fgadc *adc = power_supply_get_drvdata(psy);
+	int raw, current_ma, voltage, temp, resistance, seed, charge, ret;
+	s64 ocv, estimate;
+	u8 car[4];
+	u64 now;
+
+	if (!info || info->charge_full_design_uah <= 0)
+		return -ENODATA;
+	guard(mutex)(&adc->lock);
+	ret = mt6329_fgadc_sample(adc, &raw, car);
+	if (ret)
+		return ret;
+	now = div_u64(ktime_get_boottime_ns(), NSEC_PER_MSEC);
+	ret = mt6329_battery_track(adc, car, now, info->charge_full_design_uah, -1, &charge);
+	if (ret == -EAGAIN) {
+		ret = mt6329_fgadc_convert(adc, raw, &current_ma);
+		if (ret)
+			return ret;
+		ret = iio_read_channel_processed(adc->voltage, &voltage);
+		if (ret < 0)
+			return ret;
+		ret = iio_read_channel_processed(adc->temperature, &temp);
+		if (ret < 0)
+			return ret;
+		if (voltage <= 0 || voltage > INT_MAX / 1000)
+			return -ERANGE;
+		voltage *= 1000;
+		ocv = voltage;
+		/* shortcut: FET loss; charger-path model pending */
+		for (int i = 0; i < 5; i++) {
+			resistance = power_supply_vbat2ri(info, ocv, current_ma > 0);
+			if (resistance <= 0)
+				return -ENODATA;
+			estimate = voltage - div_s64((s64)current_ma *
+						   ((s64)resistance + adc->shunt_uohm), 1000);
+			if (estimate <= 0 || estimate > INT_MAX)
+				return -ERANGE;
+			if (estimate == ocv)
+				break;
+			ocv = estimate;
+		}
+		seed = power_supply_batinfo_ocv2cap(info, ocv, temp / 1000);
+		if (seed < 0)
+			return -ENODATA;
+		ret = mt6329_battery_track(adc, car, now, info->charge_full_design_uah,
+					   seed, &charge);
+	}
+	if (ret)
+		return ret;
+	if (prop == POWER_SUPPLY_PROP_CHARGE_NOW)
+		*value = charge;
+	else
+		*value = div_s64((s64)charge * 100 + info->charge_full_design_uah / 2,
+				 info->charge_full_design_uah);
+
+	return 0;
+}
+
 static int mt6329_battery_get_property(struct power_supply *psy,
 				       enum power_supply_property prop,
 				       union power_supply_propval *val)
@@ -261,6 +416,9 @@ static int mt6329_battery_get_property(struct power_supply *psy,
 	int raw, current_ma, ret;
 
 	switch (prop) {
+	case POWER_SUPPLY_PROP_CAPACITY:
+	case POWER_SUPPLY_PROP_CHARGE_NOW:
+		return mt6329_battery_capacity(psy, prop, &val->intval);
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		ret = iio_read_channel_processed(adc->voltage, &raw);
 		if (ret < 0)
@@ -316,7 +474,7 @@ static void mt6329_battery_work(struct work_struct *work)
 {
 	struct mt6329_fgadc *adc = container_of(to_delayed_work(work),
 						struct mt6329_fgadc, work);
-	union power_supply_propval status, charge;
+	union power_supply_propval status, charge, capacity;
 	bool changed;
 	int ret;
 
@@ -329,6 +487,11 @@ static void mt6329_battery_work(struct work_struct *work)
 	if (!ret) {
 		changed |= adc->charge != charge.intval;
 		adc->charge = charge.intval;
+	}
+	ret = mt6329_battery_get_property(adc->battery, POWER_SUPPLY_PROP_CAPACITY, &capacity);
+	if (!ret) {
+		changed |= adc->capacity != capacity.intval;
+		adc->capacity = capacity.intval;
 	}
 	if (changed)
 		power_supply_changed(adc->battery);
@@ -348,6 +511,8 @@ static const enum power_supply_property mt6329_battery_props[] = {
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
+	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_CAPACITY,
 };
 
 static const struct power_supply_desc mt6329_battery_desc = {
