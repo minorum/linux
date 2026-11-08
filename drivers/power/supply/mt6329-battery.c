@@ -467,7 +467,7 @@ static void mt6329_battery_changed(struct power_supply *psy)
 {
 	struct mt6329_fgadc *adc = power_supply_get_drvdata(psy);
 
-	mod_delayed_work(system_wq, &adc->work, 0);
+	mod_delayed_work(system_percpu_wq, &adc->work, 0);
 }
 
 static void mt6329_battery_work(struct work_struct *work)
