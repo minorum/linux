@@ -93,6 +93,25 @@ properties:
   factory-internal-resistance-micro-ohms:
     description: battery factory internal resistance
 
+  voltage-resistance-table:
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
+    items:
+      items:
+        - description: battery terminal voltage in microvolts
+          minimum: 1
+          maximum: 2147483647
+        - description: battery internal resistance in microohms
+          minimum: 1
+          maximum: 2147483647
+    description: |
+      Battery internal resistance as a function of terminal voltage, ordered
+      by descending voltage. Equal voltages are permitted. This table applies
+      during both charging and discharging. Above the highest voltage, the
+      factory internal resistance is used; below the lowest, the final entry
+      is used. The resistance is used to estimate open-circuit voltage under
+      load.
+    minItems: 1
+
   resistance-temp-table:
     $ref: /schemas/types.yaml#/definitions/uint32-matrix
     items:
