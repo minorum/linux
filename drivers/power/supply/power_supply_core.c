@@ -1226,11 +1226,13 @@ int power_supply_vbat2ri(struct power_supply_battery_info *info,
 		high = i - 1;
 	low = i;
 
-	return fixp_linear_interpolate(vbat2ri[low].vbat_uv,
-				       vbat2ri[low].ri_uohm,
-				       vbat2ri[high].vbat_uv,
-				       vbat2ri[high].ri_uohm,
-				       vbat_uv);
+	if (high == low)
+		return vbat2ri[low].ri_uohm;
+
+	return vbat2ri[low].ri_uohm +
+		div_s64((s64)(vbat2ri[high].ri_uohm - vbat2ri[low].ri_uohm) *
+			(vbat_uv - vbat2ri[low].vbat_uv),
+			vbat2ri[high].vbat_uv - vbat2ri[low].vbat_uv);
 }
 EXPORT_SYMBOL_GPL(power_supply_vbat2ri);
 
