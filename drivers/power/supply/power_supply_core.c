@@ -726,6 +726,52 @@ struct power_supply *devm_power_supply_get_by_reference(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(devm_power_supply_get_by_reference);
 
+static int power_supply_get_vbat_ri_table(struct power_supply *psy,
+					  struct fwnode_handle *fwnode,
+					  struct power_supply_battery_info **info)
+{
+	struct power_supply_battery_info *new_info;
+	struct power_supply_vbat_ri_table *table;
+	int count, i, ret;
+
+	if (!fwnode_property_present(fwnode, "voltage-resistance-table"))
+		return 0;
+	count = fwnode_property_count_u32(fwnode, "voltage-resistance-table");
+	if (count < 0)
+		return count;
+	if (count < 2 || count % 2)
+		return -EINVAL;
+
+	u32 *data __free(kfree) = kcalloc(count, sizeof(*data), GFP_KERNEL);
+
+	if (!data)
+		return -ENOMEM;
+	ret = fwnode_property_read_u32_array(fwnode, "voltage-resistance-table", data, count);
+	if (ret)
+		return ret;
+	for (i = 0; i < count; i += 2) {
+		if (!data[i] || data[i] > INT_MAX || !data[i + 1] || data[i + 1] > INT_MAX)
+			return -EINVAL;
+		if (i && data[i] > data[i - 2])
+			return -EINVAL;
+	}
+	new_info = devm_krealloc(&psy->dev, *info,
+				 size_add(sizeof(**info), size_mul(count / 2, sizeof(*table))),
+				 GFP_KERNEL);
+	if (!new_info)
+		return -ENOMEM;
+	table = (void *)(new_info + 1);
+	for (i = 0; i < count / 2; i++) {
+		table[i].vbat_uv = data[i * 2];
+		table[i].ri_uohm = data[i * 2 + 1];
+	}
+	new_info->vbat2ri_discharging = table;
+	new_info->vbat2ri_discharging_size = count / 2;
+	*info = new_info;
+
+	return 0;
+}
+
 int power_supply_get_battery_info(struct power_supply *psy,
 				  struct power_supply_battery_info **info_out)
 {
@@ -933,6 +979,12 @@ int power_supply_get_battery_info(struct power_supply *psy,
 			table[i].ocv = propdata[i*2];
 			table[i].capacity = propdata[i*2+1];
 		}
+	}
+
+	err = power_supply_get_vbat_ri_table(psy, fwnode, &info);
+	if (err) {
+		power_supply_put_battery_info(psy, info);
+		goto out_put_node;
 	}
 
 	proplen = fwnode_property_count_u32(fwnode, "resistance-temp-table");
