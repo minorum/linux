@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/notifier.h>
+#include <linux/overflow.h>
 #include <linux/err.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
@@ -1106,25 +1107,27 @@ int power_supply_battery_info_get_prop(struct power_supply_battery_info *info,
 		return 0;
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MIN:
 		val->intval = info->temp_ambient_alert_min;
-		return 0;
+		break;
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT_ALERT_MAX:
 		val->intval = info->temp_ambient_alert_max;
-		return 0;
+		break;
 	case POWER_SUPPLY_PROP_TEMP_ALERT_MIN:
 		val->intval = info->temp_alert_min;
-		return 0;
+		break;
 	case POWER_SUPPLY_PROP_TEMP_ALERT_MAX:
 		val->intval = info->temp_alert_max;
-		return 0;
+		break;
 	case POWER_SUPPLY_PROP_TEMP_MIN:
 		val->intval = info->temp_min;
-		return 0;
+		break;
 	case POWER_SUPPLY_PROP_TEMP_MAX:
 		val->intval = info->temp_max;
-		return 0;
+		break;
 	default:
 		return -EINVAL;
 	}
+
+	return check_mul_overflow(val->intval, 10, &val->intval) ? -ERANGE : 0;
 }
 EXPORT_SYMBOL_GPL(power_supply_battery_info_get_prop);
 
