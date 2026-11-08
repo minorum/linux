@@ -39,7 +39,7 @@ static const struct regmap_config mt6329_regmap_config = {
 
 static bool mt6329_bank1_readable(struct device *dev, unsigned int reg)
 {
-	return reg == 0x15 || reg == 0x69 || reg == 0x6a ||
+	return reg == 0x15 || (reg >= 0x69 && reg <= 0x6e) ||
 	       reg == 0x78 || reg == 0x79 || reg == 0x92 || reg == 0x93;
 }
 

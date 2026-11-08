@@ -181,16 +181,6 @@
 		alert-celsius = <10 40>;
 	};
 
-	fuel-gauge {
-		compatible = "adc-battery";
-		io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
-			      <&pmic_current>,
-			      <&battery_thermistor>;
-		io-channel-names = "voltage", "current", "temperature";
-		monitored-battery = <&battery>;
-		power-supplies = <&charger>;
-	};
-
 	battery_thermistor: battery-thermistor {
 		compatible = "generic-adc-thermal";
 		#thermal-sensor-cells = <0>;
@@ -415,6 +405,11 @@
 					va2-supply = <&va2>;
 					shunt-resistor-micro-ohms = <20000>;
 					mediatek,current-calibration-percent = <101>;
+					io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
+						      <&battery_thermistor>;
+					io-channel-names = "voltage", "temperature";
+					monitored-battery = <&battery>;
+					power-supplies = <&charger>;
 				};
 
 				regulators {

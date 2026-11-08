@@ -1233,17 +1233,6 @@ config MEDIATEK_MT6370_ADC
 	  This driver can also be built as a module. If so, the module
 	  will be called "mt6370-adc".
 
-config MEDIATEK_MT6329_FGADC
-	tristate "MediaTek MT6329 fuel gauge ADC driver"
-	depends on MFD_MT6329 && REGULATOR
-	help
-	  Enable battery current measurements from the MT6329 fuel gauge ADC.
-	  The converter monitors battery charge and discharge through an
-	  external sense resistor. Board data supplies the current calibration.
-
-	  To compile this driver as a module, choose M here: the module will be
-	  called mt6329-fgadc.
-
 config MEDIATEK_MT6397_AUXADC
 	tristate "MediaTek MT6329/MT6397 PMIC AUXADC driver"
 	depends on MFD_MT6397 || MFD_MT6329

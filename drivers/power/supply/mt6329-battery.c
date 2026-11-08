@@ -2,14 +2,17 @@
 #include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/iio/iio.h>
+#include <linux/iio/consumer.h>
 #include <linux/limits.h>
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
+#include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/workqueue.h>
 
 #define MT6329_FGADC_CLOCK	0x15
 #define MT6329_FGADC_CLOCK_PDN	BIT(4)
@@ -26,6 +29,12 @@ struct mt6329_fgadc {
 	u32 shunt_uohm;
 	u32 calibration_percent;
 	bool restore_pending;
+	struct power_supply *battery;
+	struct iio_channel *voltage;
+	struct iio_channel *temperature;
+	struct delayed_work work;
+	int status;
+	int charge;
 };
 
 static int mt6329_fgadc_init(struct mt6329_fgadc *adc)
@@ -121,9 +130,31 @@ static int mt6329_fgadc_restore(struct mt6329_fgadc *adc)
 	return 0;
 }
 
-static int mt6329_fgadc_sample(struct mt6329_fgadc *adc, int *value)
+static int mt6329_fgadc_charge(struct mt6329_fgadc *adc, const u8 *car,
+			       int *value)
 {
-	unsigned int control, low, high;
+	unsigned int code = ((car[3] >> 6) | (car[2] << 2) |
+			     (car[1] << 10)) & 0xffff;
+	s64 charge;
+
+	if (!adc->shunt_uohm || !adc->calibration_percent)
+		return -EINVAL;
+	charge = code == 0 || code == 0xffff ? 0 :
+		 car[0] & BIT(3) ? (int)code - 0xffff : (int)code;
+	charge = div_s64(charge * 35986, 10);
+	charge = div_s64(charge + 5, 10000);
+	charge = div64_s64(charge * 20000, adc->shunt_uohm);
+	charge = div_s64(charge * adc->calibration_percent, 100);
+	if (charge > INT_MAX / 1000 || charge < INT_MIN / 1000)
+		return -ERANGE;
+	*value = charge * 1000;
+
+	return 0;
+}
+
+static int mt6329_fgadc_sample(struct mt6329_fgadc *adc, int *value, u8 *car)
+{
+	unsigned int control, low, high, i;
 	int ret, cleanup;
 
 	ret = mt6329_fgadc_restore(adc);
@@ -163,6 +194,14 @@ static int mt6329_fgadc_sample(struct mt6329_fgadc *adc, int *value)
 	if (ret)
 		goto restore;
 	ret = regmap_read(adc->regmap, MT6329_FGADC_CURRENT_H, &high);
+	if (ret || !car)
+		goto restore;
+	for (i = 0; i < 4; i++) {
+		ret = regmap_read(adc->regmap, 0x6b + i, &control);
+		if (ret)
+			goto restore;
+		car[i] = control;
+	}
 restore:
 	cleanup = mt6329_fgadc_restore(adc);
 	if (ret || cleanup)
@@ -182,7 +221,7 @@ static int mt6329_fgadc_read_raw(struct iio_dev *indio_dev,
 	if (mask != IIO_CHAN_INFO_PROCESSED)
 		return -EINVAL;
 	guard(mutex)(&adc->lock);
-	ret = mt6329_fgadc_sample(adc, &raw);
+	ret = mt6329_fgadc_sample(adc, &raw, NULL);
 	if (ret)
 		return ret;
 	ret = mt6329_fgadc_convert(adc, raw, val);
@@ -213,11 +252,119 @@ static const struct iio_info mt6329_fgadc_info = {
 	.read_raw = mt6329_fgadc_read_raw,
 };
 
+static int mt6329_battery_get_property(struct power_supply *psy,
+				       enum power_supply_property prop,
+				       union power_supply_propval *val)
+{
+	struct mt6329_fgadc *adc = power_supply_get_drvdata(psy);
+	u8 car[4];
+	int raw, current_ma, ret;
+
+	switch (prop) {
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		ret = iio_read_channel_processed(adc->voltage, &raw);
+		if (ret < 0)
+			return ret;
+		if (raw > INT_MAX / 1000 || raw < 0)
+			return -ERANGE;
+		val->intval = raw * 1000;
+		return 0;
+	case POWER_SUPPLY_PROP_TEMP:
+		ret = iio_read_channel_processed(adc->temperature, &raw);
+		if (ret < 0)
+			return ret;
+		val->intval = raw / 100;
+		return 0;
+	case POWER_SUPPLY_PROP_STATUS:
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
+		scoped_guard(mutex, &adc->lock) {
+			ret = mt6329_fgadc_sample(adc, &raw,
+						  prop == POWER_SUPPLY_PROP_CHARGE_COUNTER ?
+						  car : NULL);
+			if (ret)
+				return ret;
+		}
+		if (prop == POWER_SUPPLY_PROP_CHARGE_COUNTER)
+			return mt6329_fgadc_charge(adc, car, &val->intval);
+		ret = mt6329_fgadc_convert(adc, raw, &current_ma);
+		if (ret)
+			return ret;
+		if (prop == POWER_SUPPLY_PROP_CURRENT_NOW) {
+			val->intval = current_ma * 1000;
+			return 0;
+		}
+		if (current_ma) {
+			val->intval = current_ma > 0 ? POWER_SUPPLY_STATUS_CHARGING :
+						    POWER_SUPPLY_STATUS_DISCHARGING;
+			return 0;
+		}
+		return power_supply_get_property_from_supplier(psy, prop, val);
+	default:
+		return -EINVAL;
+	}
+}
+
+static void mt6329_battery_changed(struct power_supply *psy)
+{
+	struct mt6329_fgadc *adc = power_supply_get_drvdata(psy);
+
+	mod_delayed_work(system_wq, &adc->work, 0);
+}
+
+static void mt6329_battery_work(struct work_struct *work)
+{
+	struct mt6329_fgadc *adc = container_of(to_delayed_work(work),
+						struct mt6329_fgadc, work);
+	union power_supply_propval status, charge;
+	bool changed;
+	int ret;
+
+	ret = mt6329_battery_get_property(adc->battery, POWER_SUPPLY_PROP_STATUS, &status);
+	if (ret)
+		status.intval = POWER_SUPPLY_STATUS_UNKNOWN;
+	changed = adc->status != status.intval;
+	adc->status = status.intval;
+	ret = mt6329_battery_get_property(adc->battery, POWER_SUPPLY_PROP_CHARGE_COUNTER, &charge);
+	if (!ret) {
+		changed |= adc->charge != charge.intval;
+		adc->charge = charge.intval;
+	}
+	if (changed)
+		power_supply_changed(adc->battery);
+	schedule_delayed_work(&adc->work, msecs_to_jiffies(5000));
+}
+
+static void mt6329_battery_stop(void *data)
+{
+	struct mt6329_fgadc *adc = data;
+
+	disable_delayed_work_sync(&adc->work);
+}
+
+static const enum power_supply_property mt6329_battery_props[] = {
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_CHARGE_COUNTER,
+};
+
+static const struct power_supply_desc mt6329_battery_desc = {
+	.name = "mt6329-battery",
+	.type = POWER_SUPPLY_TYPE_BATTERY,
+	.properties = mt6329_battery_props,
+	.num_properties = ARRAY_SIZE(mt6329_battery_props),
+	.get_property = mt6329_battery_get_property,
+	.external_power_changed = mt6329_battery_changed,
+};
+
 static int mt6329_fgadc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct mt6329_fgadc *adc;
 	struct iio_dev *indio_dev;
+	struct power_supply_config config = {};
 	int ret, maximum;
 
 	indio_dev = devm_iio_device_alloc(dev, sizeof(*adc));
@@ -258,8 +405,57 @@ static int mt6329_fgadc_probe(struct platform_device *pdev)
 	indio_dev->channels = &mt6329_fgadc_channel;
 	indio_dev->num_channels = 1;
 
-	return devm_iio_device_register(dev, indio_dev);
+	ret = devm_iio_device_register(dev, indio_dev);
+	if (ret)
+		return ret;
+	platform_set_drvdata(pdev, adc);
+	if (!device_property_present(dev, "monitored-battery"))
+		return 0;
+	adc->voltage = devm_iio_channel_get(dev, "voltage");
+	if (IS_ERR(adc->voltage))
+		return dev_err_probe(dev, PTR_ERR(adc->voltage), "Failed to get voltage channel\n");
+	adc->temperature = devm_iio_channel_get(dev, "temperature");
+	if (IS_ERR(adc->temperature))
+		return dev_err_probe(dev, PTR_ERR(adc->temperature),
+				     "Failed to get temperature channel\n");
+	config.fwnode = dev_fwnode(dev);
+	config.drv_data = adc;
+	INIT_DELAYED_WORK(&adc->work, mt6329_battery_work);
+	disable_delayed_work_sync(&adc->work);
+	adc->battery = devm_power_supply_register(dev, &mt6329_battery_desc, &config);
+	if (IS_ERR(adc->battery))
+		return dev_err_probe(dev, PTR_ERR(adc->battery), "Failed to register battery\n");
+	ret = devm_add_action_or_reset(dev, mt6329_battery_stop, adc);
+	if (ret)
+		return ret;
+	enable_delayed_work(&adc->work);
+	schedule_delayed_work(&adc->work, 0);
+
+	return 0;
 }
+
+static int mt6329_battery_suspend(struct device *dev)
+{
+	struct mt6329_fgadc *adc = dev_get_drvdata(dev);
+
+	if (adc->battery)
+		disable_delayed_work_sync(&adc->work);
+	return 0;
+}
+
+static int mt6329_battery_resume(struct device *dev)
+{
+	struct mt6329_fgadc *adc = dev_get_drvdata(dev);
+
+	if (adc->battery) {
+		enable_delayed_work(&adc->work);
+		schedule_delayed_work(&adc->work, 0);
+	}
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(mt6329_battery_pm_ops,
+				mt6329_battery_suspend, mt6329_battery_resume);
 
 static const struct of_device_id mt6329_fgadc_of_match[] = {
 	{ .compatible = "mediatek,mt6329-fgadc" },
@@ -272,9 +468,11 @@ static struct platform_driver mt6329_fgadc_driver = {
 	.driver = {
 		.name = "mt6329-fgadc",
 		.of_match_table = mt6329_fgadc_of_match,
+		.pm = pm_sleep_ptr(&mt6329_battery_pm_ops),
 	},
 };
 module_platform_driver(mt6329_fgadc_driver);
 
 MODULE_DESCRIPTION("MediaTek MT6329 fuel gauge ADC driver");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("IIO_CONSUMER");

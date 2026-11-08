@@ -136,3 +136,4 @@ obj-$(CONFIG_FUEL_GAUGE_MM8013)	+= mm8013.o
 obj-$(CONFIG_MACSMC_POWER)	+= macsmc-power.o
 obj-$(CONFIG_CHARGER_MAX77759)	+= max77759_charger.o
 obj-$(CONFIG_CHARGER_NCP1851)	+= ncp1851-charger.o
+obj-$(CONFIG_MEDIATEK_MT6329_FGADC) += mt6329-battery.o

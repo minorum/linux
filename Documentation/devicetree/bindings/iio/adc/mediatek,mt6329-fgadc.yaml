@@ -13,6 +13,18 @@ description:
   Battery current converter within the MT6329 PMIC. Current is positive
   into the battery and negative during discharge. The converter uses
   an external sense resistor and board-specific current calibration.
+  With voltage and temperature inputs, it also monitors accumulated charge
+  and registers the battery power supply.
+
+allOf:
+  - $ref: /schemas/power/supply/power-supply.yaml#
+  - if:
+      required:
+        - monitored-battery
+    then:
+      required:
+        - io-channels
+        - io-channel-names
 
 properties:
   compatible:
@@ -31,6 +43,20 @@ properties:
   mediatek,current-calibration-percent:
     description: Board current gain correction, with 100 representing unity.
     minimum: 1
+
+  io-channels:
+    items:
+      - description: Battery terminal voltage.
+      - description: Battery temperature.
+
+  io-channel-names:
+    items:
+      - const: voltage
+      - const: temperature
+
+  monitored-battery: true
+
+  power-supplies: true
 
 required:
   - compatible

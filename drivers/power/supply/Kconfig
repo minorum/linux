@@ -393,6 +393,17 @@ config CHARGER_AXP20X
 	  This driver can also be built as a module. If so, the module will be
 	  called axp20x_ac_power.
 
+config MEDIATEK_MT6329_FGADC
+	tristate "MediaTek MT6329 fuel gauge ADC driver"
+	depends on MFD_MT6329 && REGULATOR && IIO
+	help
+	  Enable battery current and charge-counter measurements from MT6329.
+	  The converter monitors battery charge and discharge through an
+	  external sense resistor. Board data supplies the current calibration.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called mt6329-battery.
+
 config BATTERY_AXP20X
 	tristate "X-Powers AXP20X battery driver"
 	depends on MFD_AXP20X
