@@ -16,7 +16,8 @@ description:
 
   The voltage is expected to be measured between the battery terminals
   and mandatory. The optional current/power channel is expected to
-  monitor the current/power flowing out of the battery. Last but not
+  monitor the current/power at the battery. Current must be signed,
+  positive into the battery and negative during discharge. Last but not
   least the temperature channel is supposed to measure the battery
   temperature.
 
