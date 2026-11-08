@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/cleanup.h>
+#include <linux/delay.h>
 #include <linux/iio/iio.h>
 #include <linux/limits.h>
 #include <linux/math64.h>
@@ -8,7 +9,10 @@
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 
+#define MT6329_FGADC_CLOCK	0x15
+#define MT6329_FGADC_CLOCK_PDN	BIT(4)
 #define MT6329_FGADC_MODE		0x69
 #define MT6329_FGADC_CONTROL	0x6a
 #define MT6329_FGADC_CURRENT_H	0x78
@@ -23,6 +27,51 @@ struct mt6329_fgadc {
 	u32 calibration_percent;
 	bool restore_pending;
 };
+
+static int mt6329_fgadc_init(struct mt6329_fgadc *adc)
+{
+	unsigned int value;
+	int ret;
+
+	ret = regmap_read(adc->regmap, MT6329_FGADC_CONTROL, &value);
+	if (ret)
+		return ret;
+	if (value)
+		return -EBUSY;
+	ret = regmap_read_poll_timeout(adc->power, 0xc8, value,
+				       (value & (BIT(7) | BIT(4) | BIT(0))) ==
+				       (BIT(7) | BIT(0)), 1000, 50000);
+	if (ret)
+		return ret;
+	ret = regmap_clear_bits(adc->regmap, MT6329_FGADC_CLOCK,
+				MT6329_FGADC_CLOCK_PDN);
+	if (ret)
+		return ret;
+	ret = regmap_read(adc->regmap, MT6329_FGADC_CLOCK, &value);
+	if (ret)
+		return ret;
+	if (value & MT6329_FGADC_CLOCK_PDN)
+		return -EIO;
+	ret = regmap_read(adc->regmap, MT6329_FGADC_MODE, &value);
+	if (ret)
+		return ret;
+	if (value != 0x29) {
+		ret = regmap_write(adc->regmap, MT6329_FGADC_MODE, 0x28);
+		if (ret)
+			return ret;
+		ret = regmap_write(adc->regmap, MT6329_FGADC_MODE, 0x29);
+		if (ret)
+			return ret;
+	}
+	ret = regmap_read(adc->regmap, MT6329_FGADC_MODE, &value);
+	if (ret)
+		return ret;
+	if (value != 0x29)
+		return -EIO;
+	fsleep(50000);
+
+	return 0;
+}
 
 static int mt6329_fgadc_convert(struct mt6329_fgadc *adc, unsigned int raw,
 				int *value)
@@ -80,16 +129,15 @@ static int mt6329_fgadc_sample(struct mt6329_fgadc *adc, int *value)
 	ret = mt6329_fgadc_restore(adc);
 	if (ret)
 		return ret;
-	/* shortcut: inherited converter setup, replace after power sequencing proof */
 	ret = regmap_read(adc->power, 0xc8, &control);
 	if (ret)
 		return ret;
-	if (!(control & BIT(0)))
+	if ((control & (BIT(7) | BIT(4) | BIT(0))) != (BIT(7) | BIT(0)))
 		return -EOPNOTSUPP;
-	ret = regmap_read(adc->regmap, 0x15, &control);
+	ret = regmap_read(adc->regmap, MT6329_FGADC_CLOCK, &control);
 	if (ret)
 		return ret;
-	if (control & BIT(4))
+	if (control & MT6329_FGADC_CLOCK_PDN)
 		return -EOPNOTSUPP;
 	ret = regmap_read(adc->regmap, MT6329_FGADC_MODE, &control);
 	if (ret)
@@ -191,10 +239,18 @@ static int mt6329_fgadc_probe(struct platform_device *pdev)
 	ret = mt6329_fgadc_convert(adc, 0x7fff, &maximum);
 	if (ret)
 		return ret;
+	ret = devm_regulator_get_enable_read_voltage(dev, "va2");
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "Failed to enable VA2\n");
+	if (ret != 2500000)
+		return dev_err_probe(dev, -EOPNOTSUPP, "Unsupported VA2 voltage\n");
 	mutex_init(&adc->lock);
 	ret = devm_add_action_or_reset(dev, mt6329_fgadc_cleanup, adc);
 	if (ret)
 		return ret;
+	ret = mt6329_fgadc_init(adc);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to start converter\n");
 
 	indio_dev->name = "mt6329-fgadc";
 	indio_dev->modes = INDIO_DIRECT_MODE;

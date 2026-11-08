@@ -8,6 +8,7 @@
 
 #define MT6329_VUSB 0x9b
 #define MT6329_VMC  0xa7
+#define MT6329_VA2  0xc8
 
 static bool mt6329_readable(struct device *dev, unsigned int reg)
 {
@@ -15,7 +16,7 @@ static bool mt6329_readable(struct device *dev, unsigned int reg)
 	       reg == 0x33 || reg == 0x34 ||
 	       reg == MT6329_VUSB || reg == MT6329_VMC ||
 	       reg == 0x38 || reg == 0xe8 || reg == 0xe9 ||
-	       reg == 0xc8 || reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
+	       reg == MT6329_VA2 || reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
 }
 
 static bool mt6329_writeable(struct device *dev, unsigned int reg)
@@ -23,7 +24,7 @@ static bool mt6329_writeable(struct device *dev, unsigned int reg)
 	return reg == 0x21 || reg == 0x2e || reg == 0x30 ||
 	       reg == 0x33 || reg == 0x34 ||
 	       reg == MT6329_VUSB || reg == MT6329_VMC ||
-	       reg == 0x38 || reg == 0xe8 || reg == 0xe9;
+	       reg == 0x38 || reg == MT6329_VA2 || reg == 0xe8 || reg == 0xe9;
 }
 
 static const struct regmap_config mt6329_regmap_config = {
@@ -44,7 +45,7 @@ static bool mt6329_bank1_readable(struct device *dev, unsigned int reg)
 
 static bool mt6329_bank1_writeable(struct device *dev, unsigned int reg)
 {
-	return reg == 0x6a;
+	return reg == 0x15 || reg == 0x69 || reg == 0x6a;
 }
 
 static const struct regmap_config mt6329_bank1_regmap_config = {

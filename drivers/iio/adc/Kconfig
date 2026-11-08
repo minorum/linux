@@ -1235,7 +1235,7 @@ config MEDIATEK_MT6370_ADC
 
 config MEDIATEK_MT6329_FGADC
 	tristate "MediaTek MT6329 fuel gauge ADC driver"
-	depends on MFD_MT6329
+	depends on MFD_MT6329 && REGULATOR
 	help
 	  Enable battery current measurements from the MT6329 fuel gauge ADC.
 	  The converter monitors battery charge and discharge through an

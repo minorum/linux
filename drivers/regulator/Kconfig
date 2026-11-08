@@ -891,10 +891,10 @@ config REGULATOR_MT6311
 	  through regulator interface.
 
 config REGULATOR_MT6329
-	tristate "MediaTek MT6329 VUSB and VMC regulators"
+	tristate "MediaTek MT6329 regulators"
 	depends on MFD_MT6329
 	help
-	  Support the VUSB and VMC regulators of the MT6329 PMIC.
+	  Support the VUSB, VMC and VA2 regulators of the MT6329 PMIC.
 
 config REGULATOR_MT6315
 	tristate "MediaTek MT6315 PMIC"

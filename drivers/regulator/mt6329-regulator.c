@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
 
 #define MT6329_VUSB 0x9b
 #define MT6329_VMC  0xa7
+#define MT6329_VA2  0xc8
 
 static const unsigned int mt6329_vmc_voltages[] = {
 	1300000, 1500000, 1800000, 2500000, 2800000, 3000000, 3300000, 3300000,
+};
+
+static const unsigned int mt6329_va2_voltages[] = {
+	2500000, 2800000,
 };
 
 static int mt6329_check(struct regmap *map)
@@ -64,6 +70,15 @@ static const struct regulator_ops mt6329_vmc_ops = {
 	.set_voltage_sel = regulator_set_voltage_sel_regmap,
 };
 
+static const struct regulator_ops mt6329_va2_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+	.get_status = mt6329_get_status,
+	.list_voltage = regulator_list_voltage_table,
+	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+};
+
 static const struct regulator_desc mt6329_regulators[] = {
 	{
 		.name = "vusb",
@@ -93,16 +108,35 @@ static const struct regulator_desc mt6329_regulators[] = {
 		.enable_reg = MT6329_VMC,
 		.enable_mask = BIT(0),
 	},
+	{
+		.name = "va2",
+		.of_match = "va2",
+		.regulators_node = "regulators",
+		.id = 2,
+		.type = REGULATOR_VOLTAGE,
+		.owner = THIS_MODULE,
+		.ops = &mt6329_va2_ops,
+		.n_voltages = ARRAY_SIZE(mt6329_va2_voltages),
+		.volt_table = mt6329_va2_voltages,
+		.vsel_reg = MT6329_VA2,
+		.vsel_mask = BIT(4),
+		.enable_reg = MT6329_VA2,
+		.enable_mask = BIT(0),
+	},
 };
 
 static int mt6329_probe(struct platform_device *pdev)
 {
 	struct regulator_config config = { .dev = pdev->dev.parent };
+	struct fwnode_handle *regulators __free(fwnode_handle) =
+		device_get_named_child_node(config.dev, "regulators");
 	struct regulator_dev *rdev;
 	struct regmap *map;
 	unsigned int i;
 	int ret;
 
+	if (!regulators)
+		return -ENODEV;
 	map = dev_get_regmap(pdev->dev.parent, "power");
 	if (!map)
 		return -ENODEV;
@@ -112,6 +146,12 @@ static int mt6329_probe(struct platform_device *pdev)
 				     "Unsupported PMIC identity or control mode\n");
 	config.regmap = map;
 	for (i = 0; i < ARRAY_SIZE(mt6329_regulators); i++) {
+		struct fwnode_handle *node __free(fwnode_handle) =
+			fwnode_get_named_child_node(regulators,
+						    mt6329_regulators[i].of_match);
+
+		if (!node || !fwnode_device_is_available(node))
+			continue;
 		rdev = devm_regulator_register(&pdev->dev, &mt6329_regulators[i], &config);
 		if (IS_ERR(rdev))
 			return dev_err_probe(&pdev->dev, PTR_ERR(rdev),
@@ -135,5 +175,5 @@ static struct platform_driver mt6329_driver = {
 };
 module_platform_driver(mt6329_driver);
 
-MODULE_DESCRIPTION("MediaTek MT6329 VUSB and VMC regulators");
+MODULE_DESCRIPTION("MediaTek MT6329 regulators");
 MODULE_LICENSE("GPL");
