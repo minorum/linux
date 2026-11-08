@@ -193,6 +193,15 @@ static int ncp1851_health(struct ncp1851 *chip)
 	return POWER_SUPPLY_HEALTH_GOOD;
 }
 
+static int ncp1851_charge_code(struct ncp1851 *chip, int input)
+{
+	unsigned int limit = ncp1851_input_limits[input];
+
+	if (limit < ncp1851_ichg.min)
+		return 0;
+	return min(chip->ichg, (limit - ncp1851_ichg.min) / ncp1851_ichg.step);
+}
+
 static int ncp1851_configure(struct ncp1851 *chip, int input)
 {
 	int ret;
@@ -208,21 +217,23 @@ static int ncp1851_configure(struct ncp1851 *chip, int input)
 	if (ret)
 		return ret;
 	ret = regmap_update_bits(chip->regmap, NCP1851_IBAT, 0x7f,
-				 (chip->ieoc << 4) | chip->ichg);
+				 (chip->ieoc << 4) | ncp1851_charge_code(chip, input));
 	if (ret)
 		return ret;
 	return regmap_update_bits(chip->regmap, NCP1851_CTRL2, 0xef,
-				 (chip->power_path ? BIT(5) : 0) | BIT(1));
+				 (chip->power_path ? BIT(5) : 0) | BIT(1) |
+				 (input == 3 ? BIT(0) : 0));
 }
 
 static bool ncp1851_configured(struct ncp1851 *chip, int input)
 {
 	return (chip->regs[NCP1851_VREG] & 0x3f) == chip->vreg &&
-	       (chip->regs[NCP1851_IBAT] & 0x7f) == ((chip->ieoc << 4) | chip->ichg) &&
+	       (chip->regs[NCP1851_IBAT] & 0x7f) ==
+		((chip->ieoc << 4) | ncp1851_charge_code(chip, input)) &&
 	       (chip->regs[NCP1851_MISC] & 0x7f) ==
 		((chip->iweak << 5) | (chip->vsys << 2) | input) &&
 	       (chip->regs[NCP1851_CTRL2] & 0xef) ==
-		((chip->power_path ? BIT(5) : 0) | BIT(1)) &&
+		((chip->power_path ? BIT(5) : 0) | BIT(1) | (input == 3 ? BIT(0) : 0)) &&
 	       (chip->regs[NCP1851_CTRL1] & 0xbc) == NCP1851_TJ_WARN;
 }
 
@@ -491,7 +502,12 @@ static int ncp1851_get_property(struct power_supply *psy, enum power_supply_prop
 		val->intval = ncp1851_input_limits[chip->regs[NCP1851_MISC] & 3];
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
-		val->intval = ncp1851_ichg.min + chip->ichg * ncp1851_ichg.step;
+		if ((chip->regs[NCP1851_IBAT] & 0x0f) > ncp1851_ichg.max_sel) {
+			ret = -ERANGE;
+			break;
+		}
+		val->intval = ncp1851_ichg.min +
+			(chip->regs[NCP1851_IBAT] & 0x0f) * ncp1851_ichg.step;
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
 		val->intval = ncp1851_vreg.min + chip->vreg * ncp1851_vreg.step;
