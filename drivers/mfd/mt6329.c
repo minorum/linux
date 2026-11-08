@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/clk.h>
 #include <linux/i2c.h>
 #include <linux/mfd/core.h>
 #include <linux/module.h>
@@ -71,6 +72,7 @@ static int mt6329_disable_charger(struct regmap *regmap)
 static int mt6329_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
+	struct clk *clock;
 	struct regmap *regmap;
 	unsigned int low, high;
 	int ret;
@@ -92,6 +94,9 @@ static int mt6329_probe(struct i2c_client *i2c)
 		if (ret)
 			return dev_err_probe(dev, ret, "Failed to disable internal charger\n");
 	}
+	clock = devm_clk_get_optional_enabled(dev, NULL);
+	if (IS_ERR(clock))
+		return dev_err_probe(dev, PTR_ERR(clock), "Failed to enable reference clock\n");
 
 	return devm_mfd_add_devices(dev, PLATFORM_DEVID_AUTO, mt6329_cells,
 				    ARRAY_SIZE(mt6329_cells), NULL, 0, NULL);
