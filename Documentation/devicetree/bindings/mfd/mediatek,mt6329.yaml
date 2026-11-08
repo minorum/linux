@@ -19,6 +19,9 @@ properties:
     const: mediatek,mt6329
   reg:
     const: 0x60
+  clocks:
+    maxItems: 1
+    description: External 32.768 kHz reference clock.
   mediatek,external-charger:
     type: boolean
     description:
