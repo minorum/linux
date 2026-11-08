@@ -18,9 +18,10 @@
 #include <linux/iio/consumer.h>
 #include <linux/iio/types.h>
 #include <linux/of.h>
-#include <linux/devm-helpers.h>
+#include <linux/workqueue.h>
 
 #define JITTER_DEFAULT 10 /* hope 10ms is enough */
+#define STATUS_POLL_INTERVAL 5000
 
 enum gab_chan_type {
 	GAB_VOLTAGE = 0,
@@ -59,7 +60,7 @@ static void gab_ext_power_changed(struct power_supply *psy)
 {
 	struct gab *adc_bat = to_generic_bat(psy);
 
-	schedule_delayed_work(&adc_bat->bat_work, msecs_to_jiffies(0));
+	mod_delayed_work(system_wq, &adc_bat->bat_work, msecs_to_jiffies(0));
 }
 
 static const enum power_supply_property gab_props[] = {
@@ -103,14 +104,35 @@ static int gab_read_channel(struct gab *adc_bat, enum gab_chan_type channel,
 	return 0;
 }
 
+static int gab_read_status(struct gab *adc_bat)
+{
+	int current_ua, ret;
+
+	if (!adc_bat->channel[GAB_CURRENT])
+		return adc_bat->status;
+	ret = gab_read_channel(adc_bat, GAB_CURRENT, &current_ua);
+	if (ret)
+		return ret;
+	if (current_ua > 0)
+		return POWER_SUPPLY_STATUS_CHARGING;
+	if (current_ua < 0)
+		return POWER_SUPPLY_STATUS_DISCHARGING;
+
+	return adc_bat->status;
+}
+
 static int gab_get_property(struct power_supply *psy,
 		enum power_supply_property psp, union power_supply_propval *val)
 {
 	struct gab *adc_bat = to_generic_bat(psy);
+	int ret;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		val->intval = adc_bat->status;
+		ret = gab_read_status(adc_bat);
+		if (ret < 0)
+			return ret;
+		val->intval = ret;
 		return 0;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		return gab_read_channel(adc_bat, GAB_VOLTAGE, &val->intval);
@@ -130,7 +152,7 @@ static void gab_work(struct work_struct *work)
 	union power_supply_propval val;
 	struct gab *adc_bat;
 	struct delayed_work *delayed_work;
-	int status, supplied;
+	int status, supplied, ret;
 
 	delayed_work = to_delayed_work(work);
 	adc_bat = container_of(delayed_work, struct gab, bat_work);
@@ -149,18 +171,28 @@ static void gab_work(struct work_struct *work)
 	else
 		adc_bat->status = POWER_SUPPLY_STATUS_UNKNOWN;
 
+	ret = gab_read_status(adc_bat);
+	adc_bat->status = ret < 0 ? POWER_SUPPLY_STATUS_UNKNOWN : ret;
 	if (status != adc_bat->status)
 		power_supply_changed(adc_bat->psy);
+	if (adc_bat->channel[GAB_CURRENT])
+		schedule_delayed_work(&adc_bat->bat_work,
+				      msecs_to_jiffies(STATUS_POLL_INTERVAL));
 }
 
 static irqreturn_t gab_charged(int irq, void *dev_id)
 {
 	struct gab *adc_bat = dev_id;
 
-	schedule_delayed_work(&adc_bat->bat_work,
-			      msecs_to_jiffies(JITTER_DEFAULT));
+	mod_delayed_work(system_wq, &adc_bat->bat_work,
+			 msecs_to_jiffies(JITTER_DEFAULT));
 
 	return IRQ_HANDLED;
+}
+
+static void gab_stop_work(void *data)
+{
+	disable_delayed_work_sync(data);
 }
 
 static int gab_probe(struct platform_device *pdev)
@@ -241,11 +273,12 @@ static int gab_probe(struct platform_device *pdev)
 	psy_desc->properties = properties;
 	psy_desc->num_properties = index;
 
+	INIT_DELAYED_WORK(&adc_bat->bat_work, gab_work);
 	adc_bat->psy = devm_power_supply_register(&pdev->dev, psy_desc, &psy_cfg);
 	if (IS_ERR(adc_bat->psy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(adc_bat->psy), "Failed to register power-supply device\n");
 
-	ret = devm_delayed_work_autocancel(&pdev->dev, &adc_bat->bat_work, gab_work);
+	ret = devm_add_action_or_reset(&pdev->dev, gab_stop_work, &adc_bat->bat_work);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Failed to register delayed work\n");
 
@@ -273,7 +306,7 @@ static int __maybe_unused gab_suspend(struct device *dev)
 {
 	struct gab *adc_bat = dev_get_drvdata(dev);
 
-	cancel_delayed_work_sync(&adc_bat->bat_work);
+	disable_delayed_work_sync(&adc_bat->bat_work);
 	adc_bat->status = POWER_SUPPLY_STATUS_UNKNOWN;
 	return 0;
 }
@@ -282,6 +315,7 @@ static int __maybe_unused gab_resume(struct device *dev)
 {
 	struct gab *adc_bat = dev_get_drvdata(dev);
 
+	enable_delayed_work(&adc_bat->bat_work);
 	/* Schedule timer to check current status */
 	schedule_delayed_work(&adc_bat->bat_work,
 			      msecs_to_jiffies(JITTER_DEFAULT));
