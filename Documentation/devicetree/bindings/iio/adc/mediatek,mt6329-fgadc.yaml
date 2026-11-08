@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/iio/adc/mediatek,mt6329-fgadc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6329 fuel gauge ADC
+
+maintainers:
+  - Michal Andrzejczak <mit.mis@gmail.com>
+
+description:
+  Battery current converter within the MT6329 PMIC. Current is positive
+  into the battery and negative during discharge. The converter uses
+  an external sense resistor and board-specific current calibration.
+
+properties:
+  compatible:
+    const: mediatek,mt6329-fgadc
+
+  '#io-channel-cells':
+    const: 0
+
+  shunt-resistor-micro-ohms:
+    description: Battery current sense resistance in micro-ohms.
+    minimum: 1
+
+  mediatek,current-calibration-percent:
+    description: Board current gain correction, with 100 representing unity.
+    minimum: 1
+
+required:
+  - compatible
+  - '#io-channel-cells'
+  - shunt-resistor-micro-ohms
+  - mediatek,current-calibration-percent
+
+additionalProperties: false
+
+examples:
+  - |
+    current-sensor {
+        compatible = "mediatek,mt6329-fgadc";
+        #io-channel-cells = <0>;
+        shunt-resistor-micro-ohms = <20000>;
+        mediatek,current-calibration-percent = <101>;
+    };

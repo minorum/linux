@@ -28,6 +28,8 @@ properties:
       Battery charging uses an external charger. Disable the internal
       charger, current DAC and charger watchdog before enabling PMIC
       function devices.
+  current-sensor:
+    $ref: /schemas/iio/adc/mediatek,mt6329-fgadc.yaml#
   adc:
     $ref: /schemas/iio/adc/mediatek,mt6359-auxadc.yaml#
     properties:
