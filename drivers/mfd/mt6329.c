@@ -36,6 +36,26 @@ static const struct regmap_config mt6329_regmap_config = {
 	.writeable_reg = mt6329_writeable,
 };
 
+static bool mt6329_bank1_readable(struct device *dev, unsigned int reg)
+{
+	return reg == 0x92 || reg == 0x93;
+}
+
+static bool mt6329_bank1_writeable(struct device *dev, unsigned int reg)
+{
+	return false;
+}
+
+static const struct regmap_config mt6329_bank1_regmap_config = {
+	.name = "bank1",
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = 0x93,
+	.cache_type = REGCACHE_NONE,
+	.readable_reg = mt6329_bank1_readable,
+	.writeable_reg = mt6329_bank1_writeable,
+};
+
 static const struct mfd_cell mt6329_cells[] = {
 	{ .name = "mt6329-regulator" },
 	{
@@ -72,6 +92,7 @@ static int mt6329_disable_charger(struct regmap *regmap)
 static int mt6329_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
+	struct i2c_client *bank1;
 	struct clk *clock;
 	struct regmap *regmap;
 	unsigned int low, high;
@@ -97,6 +118,16 @@ static int mt6329_probe(struct i2c_client *i2c)
 	clock = devm_clk_get_optional_enabled(dev, NULL);
 	if (IS_ERR(clock))
 		return dev_err_probe(dev, PTR_ERR(clock), "Failed to enable reference clock\n");
+
+	bank1 = devm_i2c_new_dummy_device(dev, i2c->adapter, 0x61);
+	if (IS_ERR(bank1))
+		return PTR_ERR(bank1);
+	regmap = devm_regmap_init_i2c(bank1, &mt6329_bank1_regmap_config);
+	if (IS_ERR(regmap))
+		return PTR_ERR(regmap);
+	ret = regmap_attach_dev(dev, regmap, &mt6329_bank1_regmap_config);
+	if (ret)
+		return ret;
 
 	return devm_mfd_add_devices(dev, PLATFORM_DEVID_AUTO, mt6329_cells,
 				    ARRAY_SIZE(mt6329_cells), NULL, 0, NULL);

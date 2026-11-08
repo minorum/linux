@@ -12,7 +12,6 @@
 #include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
-#include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/math.h>
 #include <linux/module.h>
@@ -550,15 +549,10 @@ static void mt6329_auxadc_cleanup(void *data)
 
 static int mt6329_auxadc_init(struct device *dev, struct mt6397_auxadc *adc)
 {
-#if IS_REACHABLE(CONFIG_I2C)
-	struct i2c_client *client;
-	struct i2c_client *calibration;
-	unsigned int low, high;
-	int trim0, trim1, ret;
+	struct regmap *calibration;
+	unsigned int low, high, trim0, trim1;
+	int ret;
 
-	client = i2c_verify_client(dev->parent);
-	if (!client)
-		return -ENODEV;
 	adc->regmap = dev_get_regmap(dev->parent, "power");
 	if (!adc->regmap)
 		return -ENODEV;
@@ -570,15 +564,15 @@ static int mt6329_auxadc_init(struct device *dev, struct mt6397_auxadc *adc)
 		return ret;
 	if ((high << 8 | low) != 0x1029)
 		return -ENODEV;
-	calibration = devm_i2c_new_dummy_device(dev, client->adapter, 0x61);
-	if (IS_ERR(calibration))
-		return PTR_ERR(calibration);
-	trim0 = i2c_smbus_read_byte_data(calibration, 0x92);
-	if (trim0 < 0)
-		return trim0;
-	trim1 = i2c_smbus_read_byte_data(calibration, 0x93);
-	if (trim1 < 0)
-		return trim1;
+	calibration = dev_get_regmap(dev->parent, "bank1");
+	if (!calibration)
+		return -ENODEV;
+	ret = regmap_read(calibration, 0x92, &trim0);
+	if (ret)
+		return ret;
+	ret = regmap_read(calibration, 0x93, &trim1);
+	if (ret)
+		return ret;
 	adc->gain = trim0 & 0x7f;
 	if (adc->gain > 64)
 		adc->gain -= 128;
@@ -587,9 +581,6 @@ static int mt6329_auxadc_init(struct device *dev, struct mt6397_auxadc *adc)
 		adc->offset -= 64;
 
 	return 0;
-#else
-	return -EOPNOTSUPP;
-#endif
 }
 
 static int mt6397_auxadc_probe(struct platform_device *pdev)
