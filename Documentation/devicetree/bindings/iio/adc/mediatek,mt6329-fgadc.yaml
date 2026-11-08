@@ -21,6 +21,9 @@ properties:
   '#io-channel-cells':
     const: 0
 
+  va2-supply:
+    description: Analog supply for the current converter.
+
   shunt-resistor-micro-ohms:
     description: Battery current sense resistance in micro-ohms.
     minimum: 1
@@ -32,6 +35,7 @@ properties:
 required:
   - compatible
   - '#io-channel-cells'
+  - va2-supply
   - shunt-resistor-micro-ohms
   - mediatek,current-calibration-percent
 
@@ -42,6 +46,7 @@ examples:
     current-sensor {
         compatible = "mediatek,mt6329-fgadc";
         #io-channel-cells = <0>;
+        va2-supply = <&va2>;
         shunt-resistor-micro-ohms = <20000>;
         mediatek,current-calibration-percent = <101>;
     };

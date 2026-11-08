@@ -39,6 +39,17 @@ properties:
   regulators:
     type: object
     properties:
+      va2:
+        type: object
+        $ref: /schemas/regulator/regulator.yaml#
+        properties:
+          regulator-min-microvolt:
+            minimum: 2500000
+            maximum: 2800000
+          regulator-max-microvolt:
+            minimum: 2500000
+            maximum: 2800000
+        unevaluatedProperties: false
       vusb:
         type: object
         $ref: /schemas/regulator/regulator.yaml#
