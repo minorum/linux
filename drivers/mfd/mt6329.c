@@ -15,7 +15,7 @@ static bool mt6329_readable(struct device *dev, unsigned int reg)
 	       reg == 0x33 || reg == 0x34 ||
 	       reg == MT6329_VUSB || reg == MT6329_VMC ||
 	       reg == 0x38 || reg == 0xe8 || reg == 0xe9 ||
-	       reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
+	       reg == 0xc8 || reg == 0xdc || reg == 0xdd || reg == 0xe0 || reg == 0xe1;
 }
 
 static bool mt6329_writeable(struct device *dev, unsigned int reg)
@@ -38,12 +38,13 @@ static const struct regmap_config mt6329_regmap_config = {
 
 static bool mt6329_bank1_readable(struct device *dev, unsigned int reg)
 {
-	return reg == 0x92 || reg == 0x93;
+	return reg == 0x15 || reg == 0x69 || reg == 0x6a ||
+	       reg == 0x78 || reg == 0x79 || reg == 0x92 || reg == 0x93;
 }
 
 static bool mt6329_bank1_writeable(struct device *dev, unsigned int reg)
 {
-	return false;
+	return reg == 0x6a;
 }
 
 static const struct regmap_config mt6329_bank1_regmap_config = {
@@ -61,6 +62,10 @@ static const struct mfd_cell mt6329_cells[] = {
 	{
 		.name = "mt6329-auxadc",
 		.of_compatible = "mediatek,mt6329-auxadc",
+	},
+	{
+		.name = "mt6329-fgadc",
+		.of_compatible = "mediatek,mt6329-fgadc",
 	},
 };
 

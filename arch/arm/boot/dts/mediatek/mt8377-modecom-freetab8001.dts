@@ -95,8 +95,9 @@
 	fuel-gauge {
 		compatible = "adc-battery";
 		io-channels = <&pmic_adc MT6329_AUXADC_ISENSE>,
+			      <&pmic_current>,
 			      <&battery_thermistor>;
-		io-channel-names = "voltage", "temperature";
+		io-channel-names = "voltage", "current", "temperature";
 		monitored-battery = <&battery>;
 		power-supplies = <&charger>;
 	};
@@ -317,6 +318,13 @@
 				pmic_adc: adc {
 					compatible = "mediatek,mt6329-auxadc";
 					#io-channel-cells = <1>;
+				};
+
+				pmic_current: current-sensor {
+					compatible = "mediatek,mt6329-fgadc";
+					#io-channel-cells = <0>;
+					shunt-resistor-micro-ohms = <20000>;
+					mediatek,current-calibration-percent = <101>;
 				};
 
 				regulators {
