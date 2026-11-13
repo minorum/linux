@@ -41,6 +41,7 @@ struct mt6628_mac {
 	bool peer_created;
 	bool associated;
 	bool bss_configured;
+	bool pm_connected;
 	bool channel_owned;
 	unsigned long channel_deadline;
 	u8 multicast[200];
@@ -514,6 +515,7 @@ static int mt6628_mac_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *v
 
 		mac->rx_generation++;
 		WRITE_ONCE(mac->peer_created, false);
+		mac->pm_connected = false;
 		while ((skb = skb_dequeue(&mac->tx)))
 			ieee80211_free_txskb(hw, skb);
 		command[0] = mac->peer;
@@ -544,6 +546,8 @@ static void mt6628_mac_bss_changed(struct ieee80211_hw *hw, struct ieee80211_vif
 	mutex_lock(&mac->mutex);
 	if (mac->associated && !vif->cfg.assoc)
 		mac->rx_generation++;
+	if (!vif->cfg.assoc)
+		mac->pm_connected = false;
 	if (mac->peer_created && (vif->cfg.assoc || mac->bss_configured)) {
 		mac->basic = mt6628_mac_rates(info->basic_rates);
 		ret = mt6628_mac_bss(mac, vif->cfg.assoc);
@@ -557,6 +561,17 @@ static void mt6628_mac_bss_changed(struct ieee80211_hw *hw, struct ieee80211_vif
 			if (!ret)
 				ret = mt6628_mac_release_channel(mac);
 			mac->associated = !ret;
+		}
+		if (!ret && mac->associated && !mac->pm_connected &&
+		    (changed & BSS_CHANGED_BEACON_INFO) && info->dtim_period &&
+		    info->beacon_int && vif->cfg.aid) {
+			u8 command[12] = {};
+
+			command[1] = info->dtim_period;
+			put_unaligned_le16(vif->cfg.aid, command + 2);
+			put_unaligned_le16(info->beacon_int, command + 4);
+			ret = mt6628_sdio_set(mac->dev, 0x1a, command, sizeof(command));
+			mac->pm_connected = !ret;
 		}
 	}
 	mutex_unlock(&mac->mutex);
