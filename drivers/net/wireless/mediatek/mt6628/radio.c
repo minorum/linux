@@ -10,6 +10,8 @@
 
 #include "runtime.h"
 
+#define MT6628_TX_RESULT_FLUSHED 5
+
 enum mt6628_join_state {
 	MT6628_JOIN_IDLE,
 	MT6628_JOIN_CHANNEL,
@@ -854,7 +856,8 @@ static int mt6628_scan(struct wiphy *wiphy, struct cfg80211_scan_request *reques
 	    request->ie_len > 600 || (request->ie_len && !request->ie) ||
 	    !request->n_channels || request->n_channels > 14)
 		return -EINVAL;
-	if ((request->flags & ~NL80211_SCAN_FLAG_FLUSH) || request->duration ||
+	if ((request->flags & ~(NL80211_SCAN_FLAG_FLUSH |
+			       NL80211_SCAN_FLAG_COLOCATED_6GHZ)) || request->duration ||
 	    request->duration_mandatory || request->no_cck || request->scan_6ghz ||
 	    request->rates[NL80211_BAND_2GHZ] != BIT(12) - 1 ||
 	    !is_broadcast_ether_addr(request->bssid))
@@ -1359,8 +1362,13 @@ static void mt6628_join_event(struct mt6628_radio *radio, struct sk_buff *skb)
 				radio->join_state, packet[8], radio->join_tx, packet[9]);
 			if ((radio->join_state == MT6628_JOIN_AUTH ||
 			     radio->join_state == MT6628_JOIN_ASSOC) &&
-			    packet[8] == radio->join_tx && packet[9])
-				ret = -EREMOTEIO;
+			    packet[8] == radio->join_tx && packet[9]) {
+				if (packet[9] <= MT6628_TX_RESULT_FLUSHED) {
+					mt6628_join_fail(radio);
+					return;
+				}
+				ret = -EPROTO;
+			}
 			break;
 		case 0x13:
 			if (radio->join_state != MT6628_JOIN_ACTIVATE ||

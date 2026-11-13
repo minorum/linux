@@ -5,6 +5,8 @@
 #include <linux/firmware.h>
 #include <linux/types.h>
 
+#include "frame.h"
+
 struct sdio_func;
 struct device;
 
@@ -39,6 +41,7 @@ struct mt6628_sdio_status {
 extern const u8 mt6628_sdio_tx_max[6];
 
 int mt6628_fw_validate(const struct firmware *fw);
+int mt6628_patch_validate(const struct firmware *fw, const struct firmware *patch);
 int mt6628_init_download(u8 *buf, size_t capacity, const u8 *data,
 			 size_t len, u32 address, u8 sequence);
 int mt6628_init_result(const u8 *buf, size_t len, u8 sequence);
@@ -48,7 +51,8 @@ int mt6628_mcu_event(const u8 *buf, size_t len, u8 event, u8 sequence);
 int mt6628_sdio_decode_status(const u8 *buf, size_t len,
 			      struct mt6628_sdio_status *status);
 int mt6628_sdio_return_credits(u8 credits[6], const u8 returned[6]);
-int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw);
+int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw,
+			      const struct firmware *patch);
 int mt6628_sdio_bootstrap(struct sdio_func *func);
 int mt6628_sdio_get_info(struct sdio_func *func, struct mt6628_fw_info *info,
 			 u8 credits[6]);

@@ -13,6 +13,7 @@
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/property.h>
+#include <linux/regmap.h>
 #include <linux/serdev.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
@@ -714,9 +715,51 @@ static const struct serdev_device_ops mt6628_serdev_ops = {
 	.write_wakeup = serdev_device_write_wakeup,
 };
 
+static int mt6628_regmap_read(void *context, unsigned int reg,
+			      unsigned int *value)
+{
+	struct mt6628 *ctx = context;
+	int ret;
+
+	mutex_lock(&ctx->lock);
+	ret = ctx->powered ? mt6628_read_reg(ctx, reg, value) : -EHOSTDOWN;
+	mutex_unlock(&ctx->lock);
+	return ret;
+}
+
+static bool mt6628_regmap_writeable(struct device *dev, unsigned int reg)
+{
+	return false;
+}
+
+static const struct regmap_range mt6628_read_ranges[] = {
+	regmap_reg_range(0x00200000, 0x00216584),
+	regmap_reg_range(0x50000148, 0x50000148),
+	regmap_reg_range(0x80000008, 0x80000008),
+	regmap_reg_range(0xf0098400, 0xf00a1b94),
+};
+
+static const struct regmap_access_table mt6628_read_table = {
+	.yes_ranges = mt6628_read_ranges,
+	.n_yes_ranges = ARRAY_SIZE(mt6628_read_ranges),
+};
+
+static const struct regmap_config mt6628_regmap_config = {
+	.name = "wmt",
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.reg_read = mt6628_regmap_read,
+	.rd_table = &mt6628_read_table,
+	.writeable_reg = mt6628_regmap_writeable,
+	.cache_type = REGCACHE_NONE,
+	.can_sleep = true,
+};
+
 static int mt6628_probe(struct serdev_device *serdev)
 {
 	struct device *dev = &serdev->dev;
+	struct regmap *regmap;
 	struct mt6628 *ctx;
 	u32 antenna_mode;
 	unsigned int i;
@@ -783,6 +826,11 @@ static int mt6628_probe(struct serdev_device *serdev)
 	mutex_unlock(&ctx->lock);
 	if (ret)
 		goto release;
+	regmap = devm_regmap_init(dev, NULL, ctx, &mt6628_regmap_config);
+	if (IS_ERR(regmap)) {
+		ret = PTR_ERR(regmap);
+		goto off;
+	}
 	ctx->pwrseq.dev = dev;
 	ctx->pwrseq.ops = &mt6628_pwrseq_ops;
 	ctx->pwrseq.owner = THIS_MODULE;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/jiffies.h>
+#include <linux/delay.h>
 #include <linux/etherdevice.h>
 #include <linux/if_vlan.h>
 #include <linux/mmc/core.h>
@@ -8,6 +9,7 @@
 #include <linux/unaligned.h>
 
 #include "runtime.h"
+#include "wmt-rx.h"
 
 struct mt6628_tx_info {
 	unsigned long deadline;
@@ -187,14 +189,11 @@ unlock:
 	if (wire >= 512)
 		wire = roundup(wire, 512);
 	memset(dev->tx_buf, 0, wire);
-	put_unaligned_le16(16 + selected->len, dev->tx_buf);
-	dev->tx_buf[2] = ETH_HLEN;
-	dev->tx_buf[3] = tc << 2;
-	dev->tx_buf[4] = ETH_HLEN;
-	dev->tx_buf[10] = tc == 5 ? 0xff : dev->data_peer;
-	dev->tx_buf[11] = 0x20 | (tc == 1 && more ? 3 : 0);
 	ret = skb_copy_bits(selected, 0, dev->tx_buf + 16, selected->len);
-	if (ret) {
+	if (!ret)
+		ret = mt6628_ethernet_tx_packet(dev->tx_buf, wire, dev->tx_buf + 16,
+						selected->len, dev->data_peer, tc, more);
+	if (ret < 0) {
 		dev_core_stats_tx_dropped_inc(netdev);
 		dev_kfree_skb_any(selected);
 		return work + 1;
@@ -238,7 +237,7 @@ static int mt6628_runtime_packet(const u8 *packet, unsigned int count)
 	if (!type)
 		return count - offset >= 14 ? 0 : -EINVAL;
 	if (count - offset < 24 || (packet[4] >> 2) > count - offset ||
-	    (get_unaligned_le16(packet + offset) & 0xf))
+	    (get_unaligned_le16(packet + offset) & 3))
 		return -EINVAL;
 	return 0;
 }
@@ -247,6 +246,7 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 			     const struct mt6628_sdio_status *status)
 {
 	unsigned int i, len = 0, offset = 0;
+	u32 generation = mt6628_radio_rx_generation(dev);
 	int ret;
 
 	for (i = 0; i < status->rx_count[port]; i++)
@@ -257,6 +257,10 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 		len = roundup(len, 512);
 	if (len > 37888)
 		return -EMSGSIZE;
+	dev->rx_snapshot->count = 0;
+	if (!port && dev->wmt && dev->info.firmware_version == 0x0101 && dev->wiphy)
+		mt6628_wmt_rx_capture(dev->wmt, status->rx_len[port],
+				      status->rx_count[port], dev->rx_snapshot);
 	ret = sdio_readsb(dev->func, dev->rx_buf, port ? 0x34 : 0x30, len);
 	if (ret)
 		return ret;
@@ -275,8 +279,12 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 		}
 		if (!ret && (get_unaligned_le16(packet + 2) & 3))
 			mt6628_radio_rx(dev, packet, count);
-		else if (!ret)
+		else if (!ret) {
+			if (mt6628_wmt_rx_matches(dev->rx_snapshot, i, packet, count))
+				mt6628_radio_control_rx(dev, &dev->rx_snapshot->entries[i],
+						packet, count, generation);
 			mt6628_data_rx(dev, packet, count);
+		}
 		offset += ALIGN(count + 4, 4);
 	}
 	return status->rx_count[port];
@@ -287,7 +295,7 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 	struct mt6628_sdio_status status;
 	struct mt6628_tx_info *info;
 	struct sk_buff *skb;
-	unsigned int wire;
+	unsigned int wire, tc;
 	int ret, work, port;
 
 	ret = sdio_readsb(dev->func, dev->status_buf, 0x10, 88);
@@ -319,7 +327,15 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 	}
 	if (atomic_read(&dev->error))
 		return work;
-	skb = dev->credits[4] ? skb_dequeue(&dev->tx) : NULL;
+	skb = skb_peek(&dev->tx);
+	if (skb) {
+		if (skb->len < 4)
+			return -EPROTO;
+		tc = (skb->data[3] >> 2) & 15;
+		if (tc != 1 && tc != 4)
+			return -EPROTO;
+		skb = dev->credits[tc] ? skb_dequeue(&dev->tx) : NULL;
+	}
 	if (!skb) {
 		ret = mt6628_data_tx(dev);
 		return ret < 0 ? ret : work + ret;
@@ -332,11 +348,11 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 	wire = skb->len >= 512 ? roundup(skb->len, 512) : skb->len;
 	memset(dev->tx_buf, 0, wire);
 	memcpy(dev->tx_buf, skb->data, skb->len);
-	ret = sdio_writesb(dev->func, 0x2c, dev->tx_buf, wire);
+	ret = sdio_writesb(dev->func, tc == 4 ? 0x2c : 0x28, dev->tx_buf, wire);
 	dev_kfree_skb(skb);
 	if (ret)
 		return ret;
-	dev->credits[4]--;
+	dev->credits[tc]--;
 	complete(&dev->command_done);
 	ret = mt6628_data_tx(dev);
 	return ret < 0 ? ret : work + 1 + ret;
@@ -376,9 +392,9 @@ static void mt6628_runtime_work(struct work_struct *work)
 	}
 	queue_delayed_work(system_percpu_wq, &dev->io_work, msecs_to_jiffies(10));
 out:
-	sdio_release_host(dev->func);
 	if (ret < 0)
 		mt6628_sdio_fault(dev, ret);
+	sdio_release_host(dev->func);
 	ret = atomic_read(&dev->error);
 	if (ret && ret != -ESHUTDOWN) {
 		sdio_claim_host(dev->func);
@@ -423,7 +439,10 @@ int mt6628_sdio_start(struct mt6628_dev *dev)
 		dev->rx_buf = devm_kmalloc(&dev->func->dev, 37888, GFP_KERNEL);
 	if (!dev->tx_buf)
 		dev->tx_buf = devm_kmalloc(&dev->func->dev, 4096, GFP_KERNEL);
-	if (!dev->status_buf || !dev->rx_buf || !dev->tx_buf) {
+	if (!dev->rx_snapshot)
+		dev->rx_snapshot = devm_kmalloc(&dev->func->dev,
+					       sizeof(*dev->rx_snapshot), GFP_KERNEL);
+	if (!dev->status_buf || !dev->rx_buf || !dev->tx_buf || !dev->rx_snapshot) {
 		mt6628_sdio_fault(dev, -ENOMEM);
 		return -ENOMEM;
 	}
@@ -458,6 +477,43 @@ static int mt6628_sdio_submit(struct mt6628_dev *dev, struct sk_buff *skb)
 					 msecs_to_jiffies(1000)))
 		mt6628_sdio_fault(dev, -ETIMEDOUT);
 	return atomic_read(&dev->error);
+}
+
+int mt6628_sdio_drain(struct mt6628_dev *dev)
+{
+	unsigned long end;
+	bool idle;
+	int ret;
+
+	if (!READ_ONCE(dev->initialized))
+		return -ESHUTDOWN;
+	mutex_lock(&dev->command_mutex);
+	end = jiffies + msecs_to_jiffies(1000);
+	for (;;) {
+		ret = atomic_read(&dev->error);
+		if (ret)
+			break;
+		sdio_claim_host(dev->func);
+		ret = atomic_read(&dev->error);
+		if (!ret && READ_ONCE(dev->data_enabled))
+			ret = -EBUSY;
+		idle = !ret && skb_queue_empty(&dev->tx) &&
+			skb_queue_empty(&dev->data_tx) &&
+			!memcmp(dev->credits, mt6628_sdio_tx_max, sizeof(dev->credits));
+		sdio_release_host(dev->func);
+		if (ret || idle)
+			break;
+		if (time_after_eq(jiffies, end)) {
+			ret = -ETIMEDOUT;
+			break;
+		}
+		mod_delayed_work(system_percpu_wq, &dev->io_work, 0);
+		usleep_range(1000, 2000);
+	}
+	if (ret)
+		mt6628_sdio_fault(dev, ret);
+	mutex_unlock(&dev->command_mutex);
+	return ret;
 }
 
 int mt6628_sdio_set_seq(struct mt6628_dev *dev, u8 command,
@@ -501,8 +557,8 @@ int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 	return mt6628_sdio_set_seq(dev, command, data, len, NULL);
 }
 
-int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
-		     u8 peer, u8 token, unsigned long deadline)
+static int mt6628_sdio_frame(struct mt6628_dev *dev, const void *frame, size_t len,
+			     u8 peer, u8 token, unsigned long deadline, bool native)
 {
 	struct sk_buff *skb;
 	struct mt6628_tx_info *info;
@@ -511,9 +567,9 @@ int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
 
 	if (!READ_ONCE(dev->initialized))
 		return -ESHUTDOWN;
-	if (len > 1536)
+	if (len > (native ? MT6628_NATIVE_MAX_FRAME : 1518))
 		return -EMSGSIZE;
-	if (len < 24 || !frame || peer >= 20 || (get_unaligned_le16(frame) & 0xf))
+	if (len < (native ? 24 : ETH_HLEN) || !frame || peer >= 20)
 		return -EINVAL;
 	mutex_lock(&dev->command_mutex);
 	ret = atomic_read(&dev->error);
@@ -529,16 +585,12 @@ int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
 		goto unlock;
 	}
 	packet = skb_put(skb, ALIGN(16 + len, 4));
-	memset(packet, 0, skb->len);
-	put_unaligned_le16(16 + len, packet);
-	packet[2] = 20;
-	packet[3] = 0xd0;
-	packet[4] = 24;
-	packet[5] = 0x80;
-	packet[10] = peer;
-	packet[12] = token;
-	packet[13] = 5;
-	memcpy(packet + 16, frame, len);
+	ret = native ? mt6628_native_tx_packet(packet, skb->len, frame, len, peer, token) :
+		mt6628_ethernet_tx_packet(packet, skb->len, frame, len, peer, 1, false);
+	if (ret < 0) {
+		dev_kfree_skb(skb);
+		goto unlock;
+	}
 	info = (void *)skb->cb;
 	info->management = true;
 	info->deadline = deadline;
@@ -546,6 +598,30 @@ int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
 unlock:
 	mutex_unlock(&dev->command_mutex);
 	return ret;
+}
+
+int mt6628_sdio_native(struct mt6628_dev *dev, const void *frame, size_t len,
+		       u8 peer, u8 token, unsigned long deadline)
+{
+	return mt6628_sdio_frame(dev, frame, len, peer, token, deadline, true);
+}
+
+int mt6628_sdio_ethernet(struct mt6628_dev *dev, const void *frame, size_t len,
+			 u8 peer, unsigned long deadline)
+{
+	return mt6628_sdio_frame(dev, frame, len, peer, 0, deadline, false);
+}
+
+int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
+		     u8 peer, u8 token, unsigned long deadline)
+{
+	if (!READ_ONCE(dev->initialized))
+		return -ESHUTDOWN;
+	if (len > 1536)
+		return -EMSGSIZE;
+	if (len < 24 || !frame || peer >= 20 || (get_unaligned_le16(frame) & 0xf))
+		return -EINVAL;
+	return mt6628_sdio_native(dev, frame, len, peer, token, deadline);
 }
 
 int mt6628_sdio_stop(struct mt6628_dev *dev)

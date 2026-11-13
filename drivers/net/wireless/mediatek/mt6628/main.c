@@ -95,6 +95,9 @@ static int mt6628_probe(struct sdio_func *func,
 	if (!dev)
 		return -ENOMEM;
 	dev->func = func;
+	ret = mt6628_wmt_init(dev);
+	if (ret)
+		return dev_err_probe(&func->dev, ret, "WMT transport unavailable\n");
 	ret = mt6628_read_factory(&func->dev, &dev->factory);
 	if (ret)
 		return dev_err_probe(&func->dev, ret, "factory calibration failed\n");
@@ -108,7 +111,7 @@ static int mt6628_probe(struct sdio_func *func,
 		mt6628_remove(func);
 		return dev_err_probe(&func->dev, ret, "radio registration failed\n");
 	}
-	dev_info(&func->dev, "firmware %04x peer %04x; association pending\n",
+	dev_info(&func->dev, "firmware %04x peer %04x; native mac80211 station\n",
 		 dev->info.firmware_version, dev->info.peer_version);
 	return 0;
 }

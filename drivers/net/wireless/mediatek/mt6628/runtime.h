@@ -11,8 +11,13 @@
 
 #include "mt6628.h"
 
+struct mt6628_wmt_rx;
+struct mt6628_wmt_rx_entry;
+
 struct mt6628_dev {
 	struct sdio_func *func;
+	struct regmap *wmt;
+	struct mt6628_wmt_rx *rx_snapshot;
 	struct mt6628_fw_info info;
 	struct mt6628_factory factory;
 	struct wiphy *wiphy;
@@ -38,6 +43,8 @@ struct mt6628_dev {
 };
 
 int mt6628_sdio_start(struct mt6628_dev *dev);
+int mt6628_sdio_drain(struct mt6628_dev *dev);
+int mt6628_wmt_init(struct mt6628_dev *dev);
 int mt6628_hw_start(struct mt6628_dev *dev);
 int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 		    const void *data, size_t len);
@@ -45,6 +52,10 @@ int mt6628_sdio_set_seq(struct mt6628_dev *dev, u8 command,
 			const void *data, size_t len, u8 *sequence);
 int mt6628_sdio_mgmt(struct mt6628_dev *dev, const void *frame, size_t len,
 		     u8 peer, u8 token, unsigned long deadline);
+int mt6628_sdio_native(struct mt6628_dev *dev, const void *frame, size_t len,
+		       u8 peer, u8 token, unsigned long deadline);
+int mt6628_sdio_ethernet(struct mt6628_dev *dev, const void *frame, size_t len,
+			 u8 peer, unsigned long deadline);
 int mt6628_sdio_stop(struct mt6628_dev *dev);
 void mt6628_data_start(struct mt6628_dev *dev, struct net_device *netdev,
 		       u8 peer, u8 channel);
@@ -56,6 +67,10 @@ void mt6628_sdio_fault(struct mt6628_dev *dev, int error);
 int mt6628_radio_register(struct mt6628_dev *dev);
 void mt6628_radio_unregister(struct mt6628_dev *dev);
 void mt6628_radio_rx(struct mt6628_dev *dev, const u8 *packet, size_t len);
+u32 mt6628_radio_rx_generation(struct mt6628_dev *dev);
+void mt6628_radio_control_rx(struct mt6628_dev *dev,
+			     const struct mt6628_wmt_rx_entry *entry,
+			     const u8 *packet, size_t len, u32 generation);
 void mt6628_radio_error(struct mt6628_dev *dev, int error);
 
 #endif

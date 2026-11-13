@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-only
 config MT6628
-	tristate "MediaTek MT6628 SDIO bring-up"
-	depends on MMC && CFG80211
+	tristate "MediaTek MT6628 SDIO"
+	depends on MMC && MAC80211
 	select CRC32
 	select FW_LOADER
+	select REGMAP
 	help
-	  Initialize WLAN firmware and radio policy on MediaTek MT6628 SDIO devices.
-	  This driver is under development. Station interfaces and scanning
-	  are available; association and packet delivery are pending.
+	  Station-only legacy 2.4 GHz support for MediaTek MT6628 SDIO devices.
+	  Uses mac80211 management with vendor firmware.
+	  This driver is under development.
 
 	  To compile this driver as a module, choose M here. The module
 	  will be called mt6628.

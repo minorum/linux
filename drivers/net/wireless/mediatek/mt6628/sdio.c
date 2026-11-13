@@ -123,14 +123,120 @@ static int mt6628_sdio_result(struct sdio_func *func, u8 sequence, u8 *buf)
 	return mt6628_init_result(buf, len, sequence);
 }
 
-int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw)
+static int mt6628_sdio_patch_xfer(struct sdio_func *func, const struct firmware *patch,
+				  u8 *credits, u8 *sequence, u8 *buf,
+				  unsigned int index, bool set, u32 *value)
+{
+	const u8 *entry;
+	u32 address, len;
+	int ret;
+
+	if (index >= MT6628_PATCH_WORDS)
+		return -EINVAL;
+	entry = patch->data + MT6628_PATCH_HEADER_SIZE + index * MT6628_PATCH_ENTRY_SIZE;
+	address = get_unaligned_le32(entry);
+	ret = mt6628_sdio_credit(func, credits);
+	if (ret)
+		return ret;
+	memset(buf, 0, 20);
+	put_unaligned_le16(20, buf);
+	buf[4] = 3;
+	buf[5] = ++*sequence;
+	buf[8] = set;
+	put_unaligned_le32(address, buf + 12);
+	if (set)
+		put_unaligned_le32(get_unaligned_le32(entry + 8), buf + 16);
+	ret = sdio_writesb(func, 0x28, buf, 20);
+	if (ret)
+		return ret;
+	(*credits)--;
+	ret = mt6628_sdio_poll(func, 0x50, 0xffff, 1000);
+	if (ret)
+		return ret;
+	len = sdio_readl(func, 0x50, &ret) & 0xffff;
+	if (ret)
+		return ret;
+	if (len != 8 && len != 12)
+		return -EPROTO;
+	ret = sdio_readsb(func, buf, 0x30, len);
+	if (ret)
+		return ret;
+	if (len == 8) {
+		ret = mt6628_init_result(buf, len, *sequence);
+		return ret ? ret : (set ? 0 : -EPROTO);
+	}
+	if (get_unaligned_le16(buf) != 12 || buf[2] != 2 || buf[3] != *sequence ||
+	    get_unaligned_le32(buf + 4) != address ||
+	    (set && get_unaligned_le32(buf + 8) != get_unaligned_le32(entry + 8)))
+		return -EPROTO;
+	if (value)
+		*value = get_unaligned_le32(buf + 8);
+	return 0;
+}
+
+static int mt6628_sdio_apply_patch(struct sdio_func *func, const struct firmware *patch,
+				   u8 *credits, u8 *sequence, u8 *buf)
+{
+	unsigned long end = jiffies + msecs_to_jiffies(10000);
+	unsigned int checked = 0, acknowledged = 0, verified = 0, i;
+	u32 value = 0;
+	int ret = 0;
+
+	for (i = 0; i < MT6628_PATCH_WORDS; i++) {
+		const u8 *entry = patch->data + MT6628_PATCH_HEADER_SIZE +
+				  i * MT6628_PATCH_ENTRY_SIZE;
+
+		if (time_after_eq(jiffies, end)) {
+			ret = -ETIMEDOUT;
+			goto out;
+		}
+		ret = mt6628_sdio_patch_xfer(func, patch, credits, sequence, buf, i, false, &value);
+		if (!ret && value != get_unaligned_le32(entry + 4))
+			ret = -EBADMSG;
+		if (ret)
+			goto out;
+		checked++;
+	}
+	for (i = 0; i < MT6628_PATCH_WORDS; i++) {
+		const u8 *entry = patch->data + MT6628_PATCH_HEADER_SIZE +
+				  i * MT6628_PATCH_ENTRY_SIZE;
+
+		if (time_after_eq(jiffies, end)) {
+			ret = -ETIMEDOUT;
+			goto out;
+		}
+		ret = mt6628_sdio_patch_xfer(func, patch, credits, sequence, buf, i, true, NULL);
+		if (ret)
+			goto out;
+		acknowledged++;
+		if (time_after_eq(jiffies, end)) {
+			ret = -ETIMEDOUT;
+			goto out;
+		}
+		ret = mt6628_sdio_patch_xfer(func, patch, credits, sequence, buf, i, false, &value);
+		if (!ret && value != get_unaligned_le32(entry + 8))
+			ret = -EBADMSG;
+		if (ret)
+			goto out;
+		verified++;
+	}
+	if (time_after_eq(jiffies, end))
+		ret = -ETIMEDOUT;
+out:
+	dev_dbg(&func->dev, "native patch result=%d checked=%u acknowledged=%u verified=%u\n",
+		ret, checked, acknowledged, verified);
+	return ret;
+}
+
+int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw,
+			      const struct firmware *patch)
 {
 	u8 credits = 8, sequence = 0;
 	u32 value, count, i;
 	u8 *buf;
 	int ret;
 
-	ret = mt6628_fw_validate(fw);
+	ret = patch ? mt6628_patch_validate(fw, patch) : mt6628_fw_validate(fw);
 	if (ret)
 		return ret;
 	if (func->cur_blksize != 512)
@@ -203,6 +309,13 @@ int mt6628_sdio_load_firmware(struct sdio_func *func, const struct firmware *fw)
 			done += len;
 		}
 	}
+	if (patch) {
+		ret = mt6628_sdio_apply_patch(func, patch, &credits, &sequence, buf);
+		if (ret)
+			goto out;
+		dev_info(&func->dev, "native patch verified (%u words)\n",
+			 (unsigned int)MT6628_PATCH_WORDS);
+	}
 	ret = mt6628_sdio_credit(func, &credits);
 	if (ret)
 		goto out;
@@ -253,7 +366,7 @@ int mt6628_sdio_bootstrap(struct sdio_func *func)
 	if (!ret)
 		ret = sdio_set_block_size(func, 512);
 	if (!ret)
-		ret = mt6628_sdio_load_firmware(func, fw);
+		ret = mt6628_sdio_load_firmware(func, fw, NULL);
 	if (ret) {
 		err = sdio_disable_func(func);
 		if (err)
