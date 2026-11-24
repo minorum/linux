@@ -187,6 +187,31 @@ static void mtk8250_dma_enable(struct uart_8250_port *up)
 	data->rx_pos = 0;
 	mtk8250_rx_dma(up);
 }
+
+static int mt83778250_handle_irq(struct uart_port *port)
+{
+	struct uart_8250_port *up = up_to_u8250p(port);
+	struct mtk8250_data *data = port->private_data;
+	unsigned int iir;
+
+	guard(serial8250_rpm)(up);
+	iir = serial_in(up, UART_IIR);
+	if (up->dma && data->rx_status == DMA_RX_RUNNING) {
+		switch (iir & 0x3f) {
+		case UART_IIR_RX_TIMEOUT:
+			/* Reading DMA_EN clears the UART timeout in VFIFO mode. */
+			serial_in(up, MTK_UART_DMA_EN);
+			return 1;
+		case UART_IIR_RLSI:
+			serial_in(up, UART_LSR);
+			return 1;
+		case UART_IIR_RDI:
+			return 1;
+		}
+	}
+
+	return serial8250_handle_irq(port, iir);
+}
 #endif
 
 static int mtk8250_startup(struct uart_port *port)
@@ -196,8 +221,7 @@ static int mtk8250_startup(struct uart_port *port)
 	struct mtk8250_data *data = port->private_data;
 
 	/* disable DMA for console */
-	if (uart_console(port))
-		up->dma = NULL;
+	up->dma = uart_console(port) ? NULL : data->dma;
 
 	if (up->dma) {
 		data->rx_status = DMA_RX_START;
@@ -216,8 +240,10 @@ static void mtk8250_shutdown(struct uart_port *port)
 	int irq = data->rx_wakeup_irq;
 
 #ifdef CONFIG_SERIAL_8250_DMA
-	if (up->dma)
+	if (up->dma) {
 		data->rx_status = DMA_RX_SHUTDOWN;
+		serial_out(up, MTK_UART_DMA_EN, 0);
+	}
 #endif
 
 	serial8250_do_shutdown(port);
@@ -573,6 +599,8 @@ static int mtk8250_probe(struct platform_device *pdev)
 #ifdef CONFIG_SERIAL_8250_DMA
 	if (data->dma)
 		uart.dma = data->dma;
+	if (of_device_is_compatible(pdev->dev.of_node, "mediatek,mt8377-uart"))
+		uart.port.handle_irq = mt83778250_handle_irq;
 #endif
 
 	if (is_of_node(fwnode)) {

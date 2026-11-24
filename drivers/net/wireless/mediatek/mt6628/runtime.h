@@ -46,6 +46,7 @@ int mt6628_sdio_start(struct mt6628_dev *dev);
 int mt6628_sdio_drain(struct mt6628_dev *dev);
 int mt6628_wmt_init(struct mt6628_dev *dev);
 int mt6628_hw_start(struct mt6628_dev *dev);
+void mt6628_hw_stop(struct mt6628_dev *dev);
 int mt6628_sdio_set(struct mt6628_dev *dev, u8 command,
 		    const void *data, size_t len);
 int mt6628_sdio_set_seq(struct mt6628_dev *dev, u8 command,

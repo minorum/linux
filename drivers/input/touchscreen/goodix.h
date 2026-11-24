@@ -8,6 +8,9 @@
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
 #include <linux/regulator/consumer.h>
+#include <linux/workqueue.h>
+
+#include <drm/drm_panel.h>
 
 /* Register defines */
 #define GOODIX_REG_MISCTL_DSP_CTL		0x4010
@@ -95,6 +98,11 @@ struct goodix_ts_data {
 	bool load_cfg_from_disk;
 	int pen_input_registered;
 	struct completion firmware_loading_complete;
+	struct drm_panel_follower panel_follower;
+	struct work_struct panel_work;
+	bool follows_panel;
+	bool panel_initialized;
+	bool panel_irq_active;
 	unsigned long irq_flags;
 	enum goodix_irq_pin_access_method irq_pin_access_method;
 	unsigned int contact_size;

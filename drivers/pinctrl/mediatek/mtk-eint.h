@@ -31,6 +31,8 @@ struct mtk_eint_regs {
 	unsigned int	dbnc_ctrl;
 	unsigned int	dbnc_set;
 	unsigned int	dbnc_clr;
+	unsigned int	pol_per_pin;
+	unsigned int	pol_per_pin_mask;
 };
 
 struct mtk_eint_hw {
@@ -62,6 +64,7 @@ struct mtk_eint_xt {
 			  struct gpio_chip **gpio_chip);
 	int (*get_gpio_state)(void *data, unsigned long eint_n);
 	int (*set_gpio_as_eint)(void *data, unsigned long eint_n);
+	void (*restore_gpio_mux)(void *data, unsigned long eint_n);
 };
 
 struct mtk_eint {

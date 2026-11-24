@@ -48,6 +48,7 @@ properties:
           - mediatek,mt6795-uart-dma
           - mediatek,mt6835-uart-dma
           - mediatek,mt6985-uart-dma
+          - mediatek,mt8377-uart-dma
 
   reg:
     minItems: 1

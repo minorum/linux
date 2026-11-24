@@ -96,6 +96,8 @@ struct mtk_chan {
 
 	void __iomem *base;
 	unsigned int irq;
+	u32 rx_irq_clear;
+	bool rx_keep_enabled;
 
 	unsigned int rx_status;
 };
@@ -164,8 +166,9 @@ static void mtk_uart_apdma_start_tx(struct mtk_chan *c)
 	wpt = mtk_uart_apdma_read(c, VFF_WPT);
 
 	wpt += c->desc->avail_len;
-	if ((wpt & VFF_RING_SIZE) == vff_sz)
-		wpt = (wpt & VFF_RING_WRAP) ^ VFF_RING_WRAP;
+	if ((wpt & VFF_RING_SIZE) >= vff_sz)
+		wpt = ((wpt & VFF_RING_SIZE) - vff_sz) |
+		      ((wpt & VFF_RING_WRAP) ^ VFF_RING_WRAP);
 
 	/* Let DMA start moving data */
 	mtk_uart_apdma_write(c, VFF_WPT, wpt);
@@ -189,7 +192,7 @@ static void mtk_uart_apdma_start_rx(struct mtk_chan *c)
 		mtk_uart_apdma_write(c, VFF_LEN, vff_sz);
 		mtk_uart_apdma_write(c, VFF_THRE, VFF_RX_THRE(vff_sz));
 		mtk_uart_apdma_write(c, VFF_RPT, 0);
-		mtk_uart_apdma_write(c, VFF_INT_FLAG, VFF_RX_INT_CLR_B);
+		mtk_uart_apdma_write(c, VFF_INT_FLAG, c->rx_irq_clear);
 
 		if (mtkd->support_ext_addr)
 			mtk_uart_apdma_write(c, VFF_ADDR2, upper_32_bits(d->addr));
@@ -208,18 +211,19 @@ static void mtk_uart_apdma_tx_handler(struct mtk_chan *c)
 	mtk_uart_apdma_write(c, VFF_EN, VFF_EN_CLR_B);
 }
 
-static void mtk_uart_apdma_rx_handler(struct mtk_chan *c)
+static bool mtk_uart_apdma_rx_handler(struct mtk_chan *c)
 {
 	struct mtk_uart_apdma_desc *d = c->desc;
 	unsigned int len, wg, rg;
 	int cnt;
 
-	mtk_uart_apdma_write(c, VFF_INT_FLAG, VFF_RX_INT_CLR_B);
+	mtk_uart_apdma_write(c, VFF_INT_FLAG, c->rx_irq_clear);
 
-	if (!mtk_uart_apdma_read(c, VFF_VALID_SIZE))
-		return;
+	if (!d || !mtk_uart_apdma_read(c, VFF_VALID_SIZE))
+		return false;
 
-	mtk_uart_apdma_write(c, VFF_EN, VFF_EN_CLR_B);
+	if (!c->rx_keep_enabled)
+		mtk_uart_apdma_write(c, VFF_EN, VFF_EN_CLR_B);
 	mtk_uart_apdma_write(c, VFF_INT_EN, VFF_INT_EN_CLR_B);
 
 	len = c->cfg.src_port_window_size;
@@ -234,8 +238,14 @@ static void mtk_uart_apdma_rx_handler(struct mtk_chan *c)
 	if ((rg ^ wg) & VFF_RING_WRAP)
 		cnt += len;
 
+	if (cnt <= 0 || cnt > d->avail_len) {
+		c->rx_status = d->avail_len;
+		return true;
+	}
+
 	c->rx_status = d->avail_len - cnt;
 	mtk_uart_apdma_write(c, VFF_RPT, wg);
+	return true;
 }
 
 static void mtk_uart_apdma_chan_complete_handler(struct mtk_chan *c)
@@ -256,11 +266,13 @@ static irqreturn_t mtk_uart_apdma_irq_handler(int irq, void *dev_id)
 	unsigned long flags;
 
 	spin_lock_irqsave(&c->vc.lock, flags);
-	if (c->dir == DMA_DEV_TO_MEM)
-		mtk_uart_apdma_rx_handler(c);
-	else if (c->dir == DMA_MEM_TO_DEV)
+	if (c->dir == DMA_DEV_TO_MEM) {
+		if (mtk_uart_apdma_rx_handler(c))
+			mtk_uart_apdma_chan_complete_handler(c);
+	} else if (c->dir == DMA_MEM_TO_DEV) {
 		mtk_uart_apdma_tx_handler(c);
-	mtk_uart_apdma_chan_complete_handler(c);
+		mtk_uart_apdma_chan_complete_handler(c);
+	}
 	spin_unlock_irqrestore(&c->vc.lock, flags);
 
 	return IRQ_HANDLED;
@@ -274,10 +286,8 @@ static int mtk_uart_apdma_alloc_chan_resources(struct dma_chan *chan)
 	int ret;
 
 	ret = pm_runtime_resume_and_get(mtkd->ddev.dev);
-	if (ret < 0) {
-		pm_runtime_put_noidle(chan->device->dev);
+	if (ret < 0)
 		return ret;
-	}
 
 	mtk_uart_apdma_write(c, VFF_ADDR, 0);
 	mtk_uart_apdma_write(c, VFF_THRE, 0);
@@ -300,8 +310,10 @@ static int mtk_uart_apdma_alloc_chan_resources(struct dma_chan *chan)
 	if (mtkd->support_ext_addr)
 		mtk_uart_apdma_write(c, VFF_ADDR2, VFF_ADDR2_CLR_B);
 
+	return 0;
+
 err_pm:
-	pm_runtime_put_noidle(mtkd->ddev.dev);
+	pm_runtime_put_sync(mtkd->ddev.dev);
 	return ret;
 }
 
@@ -335,10 +347,7 @@ static enum dma_status mtk_uart_apdma_tx_status(struct dma_chan *chan,
 	return ret;
 }
 
-/*
- * dmaengine_prep_slave_single will call the function. and sglen is 1.
- * 8250 uart using one ring buffer, and deal with one sg.
- */
+/* An 8250 TX transfer can span both ends of the same circular buffer. */
 static struct dma_async_tx_descriptor *mtk_uart_apdma_prep_slave_sg
 	(struct dma_chan *chan, struct scatterlist *sgl,
 	unsigned int sglen, enum dma_transfer_direction dir,
@@ -346,16 +355,31 @@ static struct dma_async_tx_descriptor *mtk_uart_apdma_prep_slave_sg
 {
 	struct mtk_chan *c = to_mtk_uart_apdma_chan(chan);
 	struct mtk_uart_apdma_desc *d;
+	unsigned int len;
 
-	if (!is_slave_direction(dir) || sglen != 1)
+	if (!is_slave_direction(dir) || !sglen || sglen > 2)
 		return NULL;
+
+	len = sg_dma_len(sgl);
+	if (sglen == 2) {
+		struct scatterlist *wrap = sg_next(sgl);
+		unsigned int ring_size = c->cfg.dst_port_window_size;
+		dma_addr_t ring_base = c->cfg.dst_addr;
+
+		if (dir != DMA_MEM_TO_DEV || len > ring_size ||
+		    sg_dma_address(sgl) != ring_base + ring_size - len ||
+		    sg_dma_address(wrap) != ring_base ||
+		    sg_dma_len(wrap) > ring_size - len)
+			return NULL;
+		len += sg_dma_len(wrap);
+	}
 
 	/* Now allocate and setup the descriptor */
 	d = kzalloc_obj(*d, GFP_NOWAIT);
 	if (!d)
 		return NULL;
 
-	d->avail_len = sg_dma_len(sgl);
+	d->avail_len = len;
 	d->addr = sg_dma_address(sgl);
 	c->dir = dir;
 
@@ -425,19 +449,26 @@ static int mtk_uart_apdma_terminate_all(struct dma_chan *chan)
 	mtk_uart_apdma_write(c, VFF_INT_EN, VFF_INT_EN_CLR_B);
 
 	if (c->dir == DMA_DEV_TO_MEM)
-		mtk_uart_apdma_write(c, VFF_INT_FLAG, VFF_RX_INT_CLR_B);
+		mtk_uart_apdma_write(c, VFF_INT_FLAG, c->rx_irq_clear);
 	else if (c->dir == DMA_MEM_TO_DEV)
 		mtk_uart_apdma_write(c, VFF_INT_FLAG, VFF_TX_INT_CLR_B);
 
 	synchronize_irq(c->irq);
 
 	spin_lock_irqsave(&c->vc.lock, flags);
+	c->desc = NULL;
+	c->rx_status = 0;
 	vchan_get_all_descriptors(&c->vc, &head);
 	spin_unlock_irqrestore(&c->vc.lock, flags);
 
 	vchan_dma_desc_free_list(&c->vc, &head);
 
 	return 0;
+}
+
+static void mtk_uart_apdma_synchronize(struct dma_chan *chan)
+{
+	vchan_synchronize(&to_mtk_uart_apdma_chan(chan)->vc);
 }
 
 static int mtk_uart_apdma_device_pause(struct dma_chan *chan)
@@ -472,6 +503,7 @@ static const struct of_device_id mtk_uart_apdma_match[] = {
 	{ .compatible = "mediatek,mt6795-uart-dma", .data = (void *)33 },
 	{ .compatible = "mediatek,mt6835-uart-dma", .data = (void *)34 },
 	{ .compatible = "mediatek,mt6985-uart-dma", .data = (void *)35 },
+	{ .compatible = "mediatek,mt8377-uart-dma", .data = (void *)32 },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, mtk_uart_apdma_match);
@@ -514,6 +546,7 @@ static int mtk_uart_apdma_probe(struct platform_device *pdev)
 	mtkd->ddev.device_config = mtk_uart_apdma_slave_config;
 	mtkd->ddev.device_pause = mtk_uart_apdma_device_pause;
 	mtkd->ddev.device_terminate_all = mtk_uart_apdma_terminate_all;
+	mtkd->ddev.device_synchronize = mtk_uart_apdma_synchronize;
 	mtkd->ddev.src_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE);
 	mtkd->ddev.dst_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE);
 	mtkd->ddev.directions = BIT(DMA_DEV_TO_MEM) | BIT(DMA_MEM_TO_DEV);
@@ -547,6 +580,9 @@ static int mtk_uart_apdma_probe(struct platform_device *pdev)
 		if (rc < 0)
 			goto err_no_dma;
 		c->irq = rc;
+		/* MT8377 clears RX flags by writing zero, like TX. */
+		c->rx_keep_enabled = of_device_is_compatible(np, "mediatek,mt8377-uart-dma");
+		c->rx_irq_clear = c->rx_keep_enabled ? 0 : VFF_RX_INT_CLR_B;
 	}
 
 	pm_runtime_enable(&pdev->dev);

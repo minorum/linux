@@ -86,6 +86,12 @@ static int mt6628_stp_rx(struct mt6628_stp *stp, u8 byte)
 	if (stp->used < 4)
 		return 0;
 	if (stp->used == 4) {
+		/* A stray byte can precede the start of a full WMT frame. */
+		if (stp->full && (stp->data[1] & 0xc0) == 0x80 &&
+		    (stp->data[2] & 0xf0) == 0x40) {
+			memmove(stp->data, stp->data + 1, --stp->used);
+			return 0;
+		}
 		stp->length = (stp->data[1] & 0xf) << 8 | stp->data[2];
 		if (stp->length > MT6628_STP_MAX)
 			return -EMSGSIZE;
@@ -93,8 +99,14 @@ static int mt6628_stp_rx(struct mt6628_stp *stp, u8 byte)
 		    (!stp->full || stp->data[1] || (stp->data[0] & 0x38)))
 			return -EPROTO;
 		if (stp->data[3] != (stp->full ?
-		    (u8)(stp->data[0] + stp->data[1] + stp->data[2]) : 0))
+		    (u8)(stp->data[0] + stp->data[1] + stp->data[2]) : 0)) {
+			/* A bad standalone ACK must not change the sequence state. */
+			if (!stp->length) {
+				stp->used = 0;
+				return 0;
+			}
 			return -EBADMSG;
+		}
 	}
 	size = stp->length ? stp->length + 6 : 4;
 	if (stp->used < size)
@@ -191,6 +203,10 @@ static size_t mt6628_receive(struct serdev_device *serdev, const u8 *data,
 	for (i = 0; i < count; i++) {
 		ret = mt6628_stp_rx(&ctx->stp, data[i]);
 		if (ret < 0) {
+			if (ctx->stp.full && ctx->stp.used == 4 &&
+			    (ctx->stp.data[1] & 0xf0) == 0x50 &&
+			    !ctx->stp.data[3] && ctx->stp.length)
+				ret = -EREMOTEIO;
 			ctx->rx_error = ret;
 			break;
 		}

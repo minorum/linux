@@ -181,12 +181,57 @@ static void mtk_eint_ack(struct irq_data *d)
 	writel(mask, reg);
 }
 
+/* Early EINT uses one polarity register per line and has no both-edge mode. */
+static int mtk_eint_set_type_per_pin(struct irq_data *d, unsigned int type)
+{
+	struct mtk_eint *eint = irq_data_get_irq_chip_data(d);
+	const struct mtk_eint_pin *pin = &eint->pins[d->hwirq];
+	u32 mask = BIT(pin->index % 32);
+	void __iomem *reg;
+	bool enabled;
+	u32 value;
+
+	switch (type) {
+	case IRQ_TYPE_EDGE_RISING:
+	case IRQ_TYPE_EDGE_FALLING:
+	case IRQ_TYPE_LEVEL_HIGH:
+	case IRQ_TYPE_LEVEL_LOW:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	enabled = eint->cur_mask[pin->instance][pin->index / 32] & mask;
+	if (enabled)
+		mtk_eint_mask(d);
+
+	reg = eint->base[pin->instance] + eint->regs->pol_per_pin +
+	      pin->index * sizeof(u32);
+	value = readl(reg) & ~eint->regs->pol_per_pin_mask;
+	if (type & (IRQ_TYPE_EDGE_RISING | IRQ_TYPE_LEVEL_HIGH))
+		value |= eint->regs->pol_per_pin_mask;
+	writel(value, reg);
+
+	reg = mtk_eint_get_offset(eint, d->hwirq, type & IRQ_TYPE_LEVEL_MASK ?
+				  eint->regs->sens_set : eint->regs->sens_clr);
+	writel(mask, reg);
+	mtk_eint_ack(d);
+
+	if (enabled)
+		mtk_eint_unmask(d);
+
+	return 0;
+}
+
 static int mtk_eint_set_type(struct irq_data *d, unsigned int type)
 {
 	struct mtk_eint *eint = irq_data_get_irq_chip_data(d);
 	bool masked;
 	unsigned int mask = BIT(eint->pins[d->hwirq].index & 0x1f);
 	void __iomem *reg;
+
+	if (eint->regs->pol_per_pin_mask)
+		return mtk_eint_set_type_per_pin(d, type);
 
 	if (((type & IRQ_TYPE_EDGE_BOTH) && (type & IRQ_TYPE_LEVEL_MASK)) ||
 	    ((type & IRQ_TYPE_LEVEL_MASK) == IRQ_TYPE_LEVEL_MASK)) {
@@ -286,6 +331,7 @@ static int mtk_eint_irq_request_resources(struct irq_data *d)
 
 	err = eint->gpio_xlate->set_gpio_as_eint(eint->pctl, d->hwirq);
 	if (err < 0) {
+		gpiochip_unlock_as_irq(gpio_c, gpio_n);
 		dev_err(eint->dev, "Can not eint mode\n");
 		return err;
 	}
@@ -302,6 +348,8 @@ static void mtk_eint_irq_release_resources(struct irq_data *d)
 	eint->gpio_xlate->get_gpio_n(eint->pctl, d->hwirq, &gpio_n,
 				     &gpio_c);
 
+	if (eint->gpio_xlate->restore_gpio_mux)
+		eint->gpio_xlate->restore_gpio_mux(eint->pctl, d->hwirq);
 	gpiochip_unlock_as_irq(gpio_c, gpio_n);
 }
 
@@ -367,6 +415,9 @@ static void mtk_eint_irq_handler(struct irq_desc *desc)
 		for (j = 0; j < eint->base_pin_num[i]; j += 32) {
 			port = j >> 5;
 			status = readl(eint->base[i] + port * 4 + eint->regs->stat);
+			if (eint->regs->pol_per_pin_mask)
+				status &= READ_ONCE(eint->cur_mask[i][port]) |
+					  READ_ONCE(eint->wake_mask[i][port]);
 			while (status) {
 				shift = __ffs(status);
 				status &= ~BIT(shift);
@@ -555,7 +606,7 @@ int mtk_eint_do_init(struct mtk_eint *eint, struct mtk_eint_pin *eint_pin)
 		}
 	} else {
 		size = eint->hw->ap_num * sizeof(struct mtk_eint_pin);
-		eint->pins = devm_kmalloc(eint->dev, size, GFP_KERNEL);
+		eint->pins = devm_kzalloc(eint->dev, size, GFP_KERNEL);
 		if (!eint->pins)
 			goto err_pins;
 

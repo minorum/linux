@@ -21,6 +21,7 @@
 #define CLK_MT8377_I2C0		9
 #define CLK_MT8377_MSDC3		10
 #define CLK_MT8377_UART2		11
-#define CLK_MT8377_PERI_NR_CLK	12
+#define CLK_MT8377_APDMA		12
+#define CLK_MT8377_PERI_NR_CLK	13
 
 #endif

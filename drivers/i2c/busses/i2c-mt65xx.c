@@ -1344,68 +1344,113 @@ static irqreturn_t mtk_i2c_irq(int irqno, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static s32 mtk_i2c_smbus_fifo(struct i2c_adapter *adap, u16 address,
-			      unsigned short flags, char direction, u8 command,
-			      int protocol, union i2c_smbus_data *data)
+#define MT6577_I2C_FIFO_DEPTH 8
+#define MT6577_I2C_FIFO_EMPTY BIT(0)
+#define MT6577_I2C_FIFO_IRQS (I2C_HS_NACKERR | I2C_ACKERR | I2C_TRANSAC_COMP)
+
+static const struct i2c_adapter_quirks mt6577_i2c_fifo_quirks = {
+	.flags = I2C_AQ_COMB_WRITE_THEN_READ | I2C_AQ_NO_ZERO_LEN,
+	.max_write_len = MT6577_I2C_FIFO_DEPTH,
+	.max_read_len = MT6577_I2C_FIFO_DEPTH,
+	.max_comb_1st_msg_len = MT6577_I2C_FIFO_DEPTH,
+	.max_comb_2nd_msg_len = MT6577_I2C_FIFO_DEPTH,
+};
+
+static int mtk_i2c_transfer_fifo(struct i2c_adapter *adap, struct i2c_msg *msgs,
+				 int num)
 {
 	struct mtk_i2c *i2c = i2c_get_adapdata(adap);
-	bool reading = direction == I2C_SMBUS_READ;
-	u16 status, control, length;
-	int ret;
+	struct i2c_msg *rx = NULL;
+	bool combined = num == 2;
+	u16 status, control, length, start;
+	int ret, i;
 
-	if (flags || protocol != I2C_SMBUS_BYTE_DATA || !data)
-		return -EOPNOTSUPP;
-	if (address < 0x08 || address > 0x77 ||
-	    (direction != I2C_SMBUS_READ && direction != I2C_SMBUS_WRITE))
-		return -EINVAL;
+	/* The adapter quirks constrain the message count, directions and lengths. */
+	for (i = 0; i < num; i++)
+		if (msgs[i].flags & ~(I2C_M_RD | I2C_M_DMA_SAFE))
+			return -EOPNOTSUPP;
+
+	if (combined)
+		rx = &msgs[1];
+	else if (msgs[0].flags & I2C_M_RD)
+		rx = &msgs[0];
+
 	ret = clk_bulk_enable(I2C_MT65XX_CLK_MAX, i2c->clocks);
 	if (ret)
 		return ret;
-	if ((mtk_i2c_readw(i2c, OFFSET_INTR_MASK) & 7) ||
-	    (mtk_i2c_readw(i2c, OFFSET_INTR_STAT) & 7) ||
-	    (mtk_i2c_readw(i2c, OFFSET_START) & 1) ||
-	    !(mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & 1)) {
+	if ((mtk_i2c_readw(i2c, OFFSET_INTR_MASK) & MT6577_I2C_FIFO_IRQS) ||
+	    (mtk_i2c_readw(i2c, OFFSET_INTR_STAT) & MT6577_I2C_FIFO_IRQS) ||
+	    (mtk_i2c_readw(i2c, OFFSET_START) & I2C_TRANSAC_START) ||
+	    !(mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & MT6577_I2C_FIFO_EMPTY)) {
 		ret = -EBUSY;
 		goto disable;
 	}
+
 	mtk_i2c_writew(i2c, i2c->timing_reg, OFFSET_TIMING);
-	mtk_i2c_writew(i2c, i2c->use_push_pull ? 0 : 3, OFFSET_IO_CONFIG);
+	mtk_i2c_writew(i2c, i2c->use_push_pull ? I2C_IO_CONFIG_PUSH_PULL :
+		       I2C_IO_CONFIG_OPEN_DRAIN, OFFSET_IO_CONFIG);
 	mtk_i2c_writew(i2c, mtk_i2c_readw(i2c, OFFSET_HS) & ~1, OFFSET_HS);
 	control = mtk_i2c_readw(i2c, OFFSET_CONTROL);
-	mtk_i2c_writew(i2c, (control & ~0x7e) | (reading ? 0x3a : 0x28),
-		       OFFSET_CONTROL);
-	mtk_i2c_writew(i2c, address << 1, OFFSET_SLAVE_ADDR);
-	length = mtk_i2c_readw(i2c, OFFSET_TRANSFER_LEN) & ~0x1fff;
-	mtk_i2c_writew(i2c, length | (reading ? 0x101 : 2), OFFSET_TRANSFER_LEN);
-	mtk_i2c_writew(i2c, reading ? 2 : 1, OFFSET_TRANSAC_LEN);
-	mtk_i2c_writew(i2c, 1, OFFSET_FIFO_ADDR_CLR);
-	writeb(command, i2c->base);
-	if (!reading)
-		writeb(data->byte, i2c->base);
-	writel(1, i2c->base + 0x24);
-	ret = read_poll_timeout(mtk_i2c_readw, status, status & 7, 20, 100000,
+	control &= ~(I2C_CONTROL_RS | I2C_CONTROL_DMA_EN |
+		     I2C_CONTROL_DIR_CHANGE | I2C_CONTROL_TRANSFER_LEN_CHANGE);
+	control |= I2C_CONTROL_CLK_EXT_EN | I2C_CONTROL_ACKERR_DET_EN;
+	if (combined)
+		control |= I2C_CONTROL_DIR_CHANGE | I2C_CONTROL_RS;
+	mtk_i2c_writew(i2c, control, OFFSET_CONTROL);
+
+	mtk_i2c_writew(i2c, i2c_8bit_addr_from_msg(msgs), OFFSET_SLAVE_ADDR);
+	length = mtk_i2c_readw(i2c, OFFSET_TRANSFER_LEN) & ~GENMASK(12, 0);
+	length |= msgs[0].len;
+	if (combined)
+		length |= rx->len << 8;
+	mtk_i2c_writew(i2c, length, OFFSET_TRANSFER_LEN);
+	mtk_i2c_writew(i2c, num, OFFSET_TRANSAC_LEN);
+	mtk_i2c_writew(i2c, I2C_FIFO_ADDR_CLR, OFFSET_FIFO_ADDR_CLR);
+
+	if (!(msgs[0].flags & I2C_M_RD))
+		for (i = 0; i < msgs[0].len; i++)
+			writeb(msgs[0].buf[i], i2c->base);
+
+	writel(I2C_TRANSAC_START, i2c->base + 0x24);
+	ret = read_poll_timeout(mtk_i2c_readw, status,
+				status & MT6577_I2C_FIFO_IRQS, 20, 100000,
 				false, i2c, OFFSET_INTR_STAT);
-	if (!ret && (status & 6))
+	if (ret)
+		goto disable;
+
+	/* A NACK can be visible while the controller is still sending STOP. */
+	ret = read_poll_timeout(mtk_i2c_readw, start,
+				!(start & I2C_TRANSAC_START), 20, 100000,
+				false, i2c, OFFSET_START);
+	if (ret)
+		goto disable;
+
+	if (status & (I2C_HS_NACKERR | I2C_ACKERR))
 		ret = -ENXIO;
-	if (!ret && reading) {
-		if (mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & 1)
-			ret = -EIO;
-		else
-			data->byte = readb(i2c->base);
+	if (!ret && rx) {
+		for (i = 0; i < rx->len; i++) {
+			if (mtk_i2c_readw(i2c, OFFSET_FIFO_STAT) & MT6577_I2C_FIFO_EMPTY) {
+				ret = -EIO;
+				break;
+			}
+			rx->buf[i] = readb(i2c->base);
+		}
 	}
-	mtk_i2c_writew(i2c, status & 7, OFFSET_INTR_STAT);
+	mtk_i2c_writew(i2c, I2C_FIFO_ADDR_CLR, OFFSET_FIFO_ADDR_CLR);
+	mtk_i2c_writew(i2c, MT6577_I2C_FIFO_IRQS, OFFSET_INTR_STAT);
+
 disable:
 	clk_bulk_disable(I2C_MT65XX_CLK_MAX, i2c->clocks);
-	return ret;
+	return ret ?: num;
 }
 
 static u32 mtk_i2c_fifo_functionality(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_SMBUS_BYTE_DATA;
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_BYTE_DATA;
 }
 
 static const struct i2c_algorithm mtk_i2c_fifo_algorithm = {
-	.smbus_xfer = mtk_i2c_smbus_fifo,
+	.xfer = mtk_i2c_transfer_fifo,
 	.functionality = mtk_i2c_fifo_functionality,
 };
 
@@ -1476,6 +1521,7 @@ static int mtk_i2c_fifo_probe(struct platform_device *pdev, struct mtk_i2c *i2c)
 	i2c->adap.dev.parent = dev;
 	i2c->adap.dev.of_node = dev->of_node;
 	i2c->adap.algo = &mtk_i2c_fifo_algorithm;
+	i2c->adap.quirks = &mt6577_i2c_fifo_quirks;
 	strscpy(i2c->adap.name, I2C_DRV_NAME, sizeof(i2c->adap.name));
 	i2c_set_adapdata(&i2c->adap, i2c);
 	ret = i2c_add_adapter(&i2c->adap);

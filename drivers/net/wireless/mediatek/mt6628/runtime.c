@@ -258,9 +258,12 @@ static int mt6628_runtime_rx(struct mt6628_dev *dev, unsigned int port,
 	if (len > 37888)
 		return -EMSGSIZE;
 	dev->rx_snapshot->count = 0;
-	if (!port && dev->wmt && dev->info.firmware_version == 0x0101 && dev->wiphy)
-		mt6628_wmt_rx_capture(dev->wmt, status->rx_len[port],
-				      status->rx_count[port], dev->rx_snapshot);
+	if (!port && dev->wmt && dev->info.firmware_version == 0x0101 && dev->wiphy) {
+		ret = mt6628_wmt_rx_capture(dev->wmt, status->rx_len[port],
+					   status->rx_count[port], dev->rx_snapshot);
+		if (ret == -EREMOTEIO)
+			return ret;
+	}
 	ret = sdio_readsb(dev->func, dev->rx_buf, port ? 0x34 : 0x30, len);
 	if (ret)
 		return ret;
@@ -310,7 +313,9 @@ static int mt6628_runtime_step(struct mt6628_dev *dev)
 			32, dev->status_buf + 16, 32, dev->status_buf + 48);
 		return ret;
 	}
-	if (status.isr & (BIT(3) | BIT(31)))
+	if (status.isr & BIT(31))
+		return -EREMOTEIO;
+	if (status.isr & BIT(3))
 		return -EIO;
 	work = mt6628_sdio_return_credits(dev->credits, status.tx);
 	if (work < 0) {

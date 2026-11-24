@@ -89,7 +89,9 @@ static const struct mtk_desc_pin mt8377_pins[] = {
 	MT8377_PIN(72),
 	MT8377_PIN(73),
 	MT8377_PIN(74),
-	MT8377_PIN(75),
+	MTK_PIN(PINCTRL_PIN(75, "GPIO75"), NULL, "mt8377",
+		MTK_EINT_FUNCTION(1, 6), MTK_FUNCTION(0, "GPIO75"),
+		MTK_FUNCTION(1, "EINT6")),
 	MT8377_PIN(76),
 	MT8377_PIN(77),
 	MT8377_PIN(78),
@@ -269,8 +271,22 @@ static const struct mtk_desc_pin mt8377_pins[] = {
 	MT8377_PIN(231),
 };
 
+static struct mtk_eint_regs mt8377_eint_regs = {
+	.stat = 0x00,
+	.ack = 0x08,
+	.mask_set = 0x20,
+	.mask_clr = 0x28,
+	.sens_set = 0x38,
+	.sens_clr = 0x40,
+	.dom_en = 0x60,
+	.pol_per_pin = 0x80,
+	.pol_per_pin_mask = BIT(11),
+};
+
 static const struct mtk_pinctrl_devdata mt8377_data = {
 	.pins = mt8377_pins,
+	.eint_regs = &mt8377_eint_regs,
+	.eint_hw = { .ap_num = 32, .ports = 1 },
 	.npins = ARRAY_SIZE(mt8377_pins),
 	.dir_offset = 0x000,
 	.ies_offset = MTK_PINCTRL_NOT_SUPPORT,

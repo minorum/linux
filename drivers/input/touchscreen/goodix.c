@@ -165,71 +165,106 @@ static const struct dmi_system_id inverted_x_screen[] = {
  *
  * @client: i2c device.
  * @reg: the register to read from.
- * @buf: raw write data buffer.
- * @len: length of the buffer to write
+ * @buf: buffer to receive register data.
+ * @len: number of bytes to read.
  */
 int goodix_i2c_read(struct i2c_client *client, u16 reg, u8 *buf, int len)
 {
-	struct i2c_msg msgs[2];
-	__be16 wbuf = cpu_to_be16(reg);
+	const struct i2c_adapter_quirks *quirks = client->adapter->quirks;
+	unsigned int limit = U16_MAX;
+	__be16 addr;
+	struct i2c_msg msgs[] = {
+		{ .addr = client->addr, .len = sizeof(addr), .buf = (u8 *)&addr },
+		{ .addr = client->addr, .flags = I2C_M_RD },
+	};
 	int ret;
 
-	msgs[0].flags = 0;
-	msgs[0].addr  = client->addr;
-	msgs[0].len   = 2;
-	msgs[0].buf   = (u8 *)&wbuf;
+	if (len < 0 || (unsigned int)len > U16_MAX + 1U - reg)
+		return -EINVAL;
 
-	msgs[1].flags = I2C_M_RD;
-	msgs[1].addr  = client->addr;
-	msgs[1].len   = len;
-	msgs[1].buf   = buf;
+	if (quirks) {
+		u16 max_read = quirks->flags & I2C_AQ_COMB ?
+			quirks->max_comb_2nd_msg_len : quirks->max_read_len;
 
-	ret = i2c_transfer(client->adapter, msgs, 2);
-	if (ret >= 0)
-		ret = (ret == ARRAY_SIZE(msgs) ? 0 : -EIO);
+		if (max_read)
+			limit = max_read;
+	}
 
-	if (ret)
-		dev_err(&client->dev, "Error reading %d bytes from 0x%04x: %d\n",
-			len, reg, ret);
-	return ret;
+	while (len > 0) {
+		unsigned int count = min_t(unsigned int, len, limit);
+
+		addr = cpu_to_be16(reg);
+		msgs[1].len = count;
+		msgs[1].buf = buf;
+		ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+		if (ret != ARRAY_SIZE(msgs)) {
+			ret = ret < 0 ? ret : -EIO;
+			dev_err(&client->dev, "Error reading %u bytes from 0x%04x: %d\n",
+				count, reg, ret);
+			return ret;
+		}
+
+		reg += count;
+		buf += count;
+		len -= count;
+	}
+
+	return 0;
 }
 
 /**
  * goodix_i2c_write - write data to a register of the i2c slave device.
- *
  * @client: i2c device.
  * @reg: the register to write to.
  * @buf: raw data buffer to write.
- * @len: length of the buffer to write
+ * @len: length of the buffer to write.
  */
 int goodix_i2c_write(struct i2c_client *client, u16 reg, const u8 *buf, int len)
 {
+	const struct i2c_adapter_quirks *quirks = client->adapter->quirks;
+	unsigned int limit = U16_MAX;
+	struct i2c_msg msg = { .addr = client->addr };
 	u8 *addr_buf;
-	struct i2c_msg msg;
-	int ret;
+	int ret = 0;
 
-	addr_buf = kmalloc(len + 2, GFP_KERNEL);
+	if (len < 0 || (unsigned int)len > U16_MAX + 1U - reg)
+		return -EINVAL;
+	if (!len)
+		return 0;
+	if (quirks && quirks->max_write_len)
+		limit = quirks->max_write_len;
+	if (limit <= sizeof(__be16))
+		return -EOPNOTSUPP;
+	limit -= sizeof(__be16);
+
+	addr_buf = kmalloc(min_t(unsigned int, len, limit) + sizeof(__be16),
+			   GFP_KERNEL);
 	if (!addr_buf)
 		return -ENOMEM;
-
-	addr_buf[0] = reg >> 8;
-	addr_buf[1] = reg & 0xFF;
-	memcpy(&addr_buf[2], buf, len);
-
-	msg.flags = 0;
-	msg.addr = client->addr;
 	msg.buf = addr_buf;
-	msg.len = len + 2;
 
-	ret = i2c_transfer(client->adapter, &msg, 1);
-	if (ret >= 0)
-		ret = (ret == 1 ? 0 : -EIO);
+	while (len > 0) {
+		unsigned int count = min_t(unsigned int, len, limit);
 
+		put_unaligned_be16(reg, addr_buf);
+		memcpy(addr_buf + sizeof(__be16), buf, count);
+		msg.len = count + sizeof(__be16);
+		ret = i2c_transfer(client->adapter, &msg, 1);
+		if (ret != 1) {
+			ret = ret < 0 ? ret : -EIO;
+			dev_err(&client->dev, "Error writing %u bytes to 0x%04x: %d\n",
+				count, reg, ret);
+			goto free_buf;
+		}
+
+		reg += count;
+		buf += count;
+		len -= count;
+	}
+	ret = 0;
+
+free_buf:
 	kfree(addr_buf);
-
-	if (ret)
-		dev_err(&client->dev, "Error writing %d bytes to 0x%04x: %d\n",
-			len, reg, ret);
 	return ret;
 }
 
@@ -1261,6 +1296,28 @@ retry_read_config:
 	return 0;
 }
 
+static int goodix_apply_config(struct goodix_ts_data *ts, const struct firmware *cfg)
+{
+	int error;
+
+	if (ts->firmware_name) {
+		if (!cfg)
+			return -ENOENT;
+
+		error = goodix_check_cfg(ts, cfg->data, cfg->size);
+		if (error)
+			return error;
+
+		memcpy(ts->config, cfg->data, cfg->size);
+	} else if (cfg) {
+		error = goodix_send_cfg(ts, cfg->data, cfg->size);
+		if (error)
+			return error;
+	}
+
+	return goodix_configure_dev(ts);
+}
+
 /**
  * goodix_config_cb - Callback to finish device init
  *
@@ -1273,27 +1330,8 @@ retry_read_config:
 static void goodix_config_cb(const struct firmware *cfg, void *ctx)
 {
 	struct goodix_ts_data *ts = ctx;
-	int error;
 
-	if (ts->firmware_name) {
-		if (!cfg)
-			goto err_release_cfg;
-
-		error = goodix_check_cfg(ts, cfg->data, cfg->size);
-		if (error)
-			goto err_release_cfg;
-
-		memcpy(ts->config, cfg->data, cfg->size);
-	} else if (cfg) {
-		/* send device configuration to the firmware */
-		error = goodix_send_cfg(ts, cfg->data, cfg->size);
-		if (error)
-			goto err_release_cfg;
-	}
-
-	goodix_configure_dev(ts);
-
-err_release_cfg:
+	goodix_apply_config(ts, cfg);
 	release_firmware(cfg);
 	complete_all(&ts->firmware_loading_complete);
 }
@@ -1306,10 +1344,167 @@ static void goodix_disable_regulators(void *arg)
 	regulator_disable(ts->avdd28);
 }
 
+static int goodix_identify(struct goodix_ts_data *ts)
+{
+	struct i2c_client *client = ts->client;
+	int error;
+
+reset:
+	if (ts->reset_controller_at_probe) {
+		/* reset the controller */
+		error = goodix_reset(ts);
+		if (error)
+			return error;
+	}
+
+	error = goodix_i2c_test(client);
+	if (error) {
+		if (!ts->reset_controller_at_probe &&
+		    ts->irq_pin_access_method != IRQ_PIN_ACCESS_NONE) {
+			/* Retry after a controller reset */
+			ts->reset_controller_at_probe = true;
+			goto reset;
+		}
+		dev_err(&client->dev, "I2C communication failure: %d\n", error);
+		return error;
+	}
+
+	error = goodix_firmware_check(ts);
+	if (error)
+		return error;
+
+	error = goodix_read_version(ts);
+	if (error)
+		return error;
+
+	ts->chip = goodix_get_chip_data(ts->id);
+	return 0;
+
+}
+
+static void goodix_get_config_name(struct goodix_ts_data *ts)
+{
+	const char *name;
+
+	if (device_property_read_string(&ts->client->dev, "goodix,config-name", &name))
+		snprintf(ts->cfg_name, sizeof(ts->cfg_name), "goodix_%s_cfg.bin", ts->id);
+	else
+		snprintf(ts->cfg_name, sizeof(ts->cfg_name), "goodix/%s", name);
+}
+
+static int goodix_panel_init(struct goodix_ts_data *ts)
+{
+	struct device *dev = &ts->client->dev;
+	const struct firmware *cfg = NULL;
+	void *group;
+	int error;
+
+	group = devres_open_group(dev, NULL, GFP_KERNEL);
+	if (!group)
+		return -ENOMEM;
+
+	error = goodix_identify(ts);
+	if (error)
+		goto release_group;
+
+	if (ts->load_cfg_from_disk) {
+		goodix_get_config_name(ts);
+		error = request_firmware_direct(&cfg, ts->cfg_name, dev);
+		if (error && error != -ENOENT)
+			goto release_group;
+	}
+
+	error = goodix_apply_config(ts, cfg);
+	release_firmware(cfg);
+	if (error)
+		goto release_group;
+
+	devres_remove_group(dev, group);
+	ts->panel_initialized = true;
+	return 0;
+
+release_group:
+	devres_release_group(dev, group);
+	ts->pen_input_registered = 0;
+	return error;
+}
+
+static int goodix_panel_restart(struct goodix_ts_data *ts)
+{
+	u8 version;
+	int error;
+
+	error = goodix_reset(ts);
+	if (error)
+		return error;
+	error = goodix_firmware_check(ts);
+	if (error)
+		return error;
+
+	if (!ts->firmware_name) {
+		error = goodix_i2c_read(ts->client, ts->chip->config_addr, &version, 1);
+		if (error)
+			return error;
+		if (version != ts->config[0]) {
+			error = goodix_send_cfg(ts, ts->config, ts->chip->config_len);
+			if (error)
+				return error;
+		}
+	}
+
+	return goodix_request_irq(ts);
+}
+
+static void goodix_panel_work(struct work_struct *work)
+{
+	struct goodix_ts_data *ts = container_of(work, struct goodix_ts_data, panel_work);
+	int error;
+
+	if (ts->panel_initialized)
+		error = goodix_panel_restart(ts);
+	else
+		error = goodix_panel_init(ts);
+	if (error) {
+		dev_err(&ts->client->dev, "Panel power-on failed: %d\n", error);
+		return;
+	}
+
+	ts->panel_irq_active = true;
+}
+
+static int goodix_panel_prepared(struct drm_panel_follower *follower)
+{
+	struct goodix_ts_data *ts = container_of(follower, struct goodix_ts_data, panel_follower);
+
+	schedule_work(&ts->panel_work);
+	return 0;
+}
+
+static int goodix_panel_unpreparing(struct drm_panel_follower *follower)
+{
+	struct goodix_ts_data *ts = container_of(follower, struct goodix_ts_data, panel_follower);
+
+	cancel_work_sync(&ts->panel_work);
+	if (ts->panel_irq_active) {
+		goodix_free_irq(ts);
+		ts->panel_irq_active = false;
+		goodix_ts_report_pen_up(ts);
+		goodix_ts_release_keys(ts);
+		input_mt_sync_frame(ts->input_dev);
+		input_sync(ts->input_dev);
+	}
+
+	return gpiod_direction_output(ts->gpiod_rst, 0);
+}
+
+static const struct drm_panel_follower_funcs goodix_panel_follower_funcs = {
+	.panel_prepared = goodix_panel_prepared,
+	.panel_unpreparing = goodix_panel_unpreparing,
+};
+
 static int goodix_ts_probe(struct i2c_client *client)
 {
 	struct goodix_ts_data *ts;
-	const char *cfg_name;
 	int error;
 
 	dev_dbg(&client->dev, "I2C Address: 0x%02x\n", client->addr);
@@ -1355,47 +1550,22 @@ static int goodix_ts_probe(struct i2c_client *client)
 	if (error)
 		return error;
 
-reset:
-	if (ts->reset_controller_at_probe) {
-		/* reset the controller */
-		error = goodix_reset(ts);
-		if (error)
-			return error;
+	if (drm_is_panel_follower(&client->dev)) {
+		if (!client->irq || ts->irq_pin_access_method != IRQ_PIN_ACCESS_GPIO)
+			return -EOPNOTSUPP;
+
+		ts->follows_panel = true;
+		ts->panel_follower.funcs = &goodix_panel_follower_funcs;
+		INIT_WORK(&ts->panel_work, goodix_panel_work);
+		return drm_panel_add_follower(&client->dev, &ts->panel_follower);
 	}
 
-	error = goodix_i2c_test(client);
-	if (error) {
-		if (!ts->reset_controller_at_probe &&
-		    ts->irq_pin_access_method != IRQ_PIN_ACCESS_NONE) {
-			/* Retry after a controller reset */
-			ts->reset_controller_at_probe = true;
-			goto reset;
-		}
-		dev_err(&client->dev, "I2C communication failure: %d\n", error);
-		return error;
-	}
-
-	error = goodix_firmware_check(ts);
+	error = goodix_identify(ts);
 	if (error)
 		return error;
-
-	error = goodix_read_version(ts);
-	if (error)
-		return error;
-
-	ts->chip = goodix_get_chip_data(ts->id);
 
 	if (ts->load_cfg_from_disk) {
-		/* update device config */
-		error = device_property_read_string(&client->dev,
-						    "goodix,config-name",
-						    &cfg_name);
-		if (!error)
-			snprintf(ts->cfg_name, sizeof(ts->cfg_name),
-				 "goodix/%s", cfg_name);
-		else
-			snprintf(ts->cfg_name, sizeof(ts->cfg_name),
-				 "goodix_%s_cfg.bin", ts->id);
+		goodix_get_config_name(ts);
 
 		error = request_firmware_nowait(THIS_MODULE, true, ts->cfg_name,
 						&client->dev, GFP_KERNEL, ts,
@@ -1421,7 +1591,9 @@ static void goodix_ts_remove(struct i2c_client *client)
 {
 	struct goodix_ts_data *ts = i2c_get_clientdata(client);
 
-	if (ts->load_cfg_from_disk)
+	if (ts->follows_panel)
+		drm_panel_remove_follower(&ts->panel_follower);
+	else if (ts->load_cfg_from_disk)
 		wait_for_completion(&ts->firmware_loading_complete);
 }
 
@@ -1430,6 +1602,9 @@ static int goodix_suspend(struct device *dev)
 	struct i2c_client *client = to_i2c_client(dev);
 	struct goodix_ts_data *ts = i2c_get_clientdata(client);
 	int error;
+
+	if (ts->follows_panel)
+		return 0;
 
 	if (ts->load_cfg_from_disk)
 		wait_for_completion(&ts->firmware_loading_complete);
@@ -1478,6 +1653,9 @@ static int goodix_resume(struct device *dev)
 	struct goodix_ts_data *ts = i2c_get_clientdata(client);
 	u8 config_ver;
 	int error;
+
+	if (ts->follows_panel)
+		return 0;
 
 	if (ts->irq_pin_access_method == IRQ_PIN_ACCESS_NONE) {
 		goodix_enable_irq(ts);

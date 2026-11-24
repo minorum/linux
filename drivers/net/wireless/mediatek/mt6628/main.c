@@ -3,12 +3,13 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/module.h>
+#include <linux/pm.h>
 
 #include "runtime.h"
 
 static void mt6628_remove(struct sdio_func *func);
 
-static void mt6628_hw_stop(struct mt6628_dev *dev)
+void mt6628_hw_stop(struct mt6628_dev *dev)
 {
 	struct sdio_func *func = dev->func;
 	int ret;
@@ -127,6 +128,25 @@ static void mt6628_remove(struct sdio_func *func)
 	sdio_set_drvdata(func, NULL);
 }
 
+static int mt6628_suspend(struct device *device)
+{
+	struct mt6628_dev *dev = sdio_get_drvdata(dev_to_sdio_func(device));
+
+	/* The wiphy child has quiesced before MMC powers the card off. */
+	mt6628_hw_stop(dev);
+	return 0;
+}
+
+static int mt6628_resume(struct device *device)
+{
+	struct mt6628_dev *dev = sdio_get_drvdata(dev_to_sdio_func(device));
+
+	/* Restore the firmware before the wiphy child resumes. */
+	return mt6628_hw_start(dev);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(mt6628_pm_ops, mt6628_suspend, mt6628_resume);
+
 static const struct sdio_device_id mt6628_ids[] = {
 	{ SDIO_DEVICE(0x037a, 0x6628) },
 	{}
@@ -138,6 +158,7 @@ static struct sdio_driver mt6628_driver = {
 	.id_table = mt6628_ids,
 	.probe = mt6628_probe,
 	.remove = mt6628_remove,
+	.drv.pm = pm_sleep_ptr(&mt6628_pm_ops),
 };
 module_sdio_driver(mt6628_driver);
 

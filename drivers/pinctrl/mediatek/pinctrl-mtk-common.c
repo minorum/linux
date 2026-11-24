@@ -1021,10 +1021,25 @@ static int mtk_xt_set_gpio_as_eint(void *data, unsigned long eint_n)
 	return 0;
 }
 
+static void mtk_xt_restore_gpio_mux(void *data, unsigned long eint_n)
+{
+	struct mtk_pinctrl *pctl = data;
+	const struct mtk_desc_pin *pin;
+
+	if (!pctl->eint->regs->pol_per_pin_mask)
+		return;
+
+	pin = mtk_find_pin_by_eint_num(pctl, eint_n);
+	if (pin)
+		mtk_pmx_set_mode(pctl->pctl_dev, pin->pin.number,
+				 mtk_pmx_find_gpio_mode(pctl, pin->pin.number));
+}
+
 static const struct mtk_eint_xt mtk_eint_xt = {
 	.get_gpio_n = mtk_xt_get_gpio_n,
 	.get_gpio_state = mtk_xt_get_gpio_state,
 	.set_gpio_as_eint = mtk_xt_set_gpio_as_eint,
+	.restore_gpio_mux = mtk_xt_restore_gpio_mux,
 };
 
 static int mtk_eint_init(struct mtk_pinctrl *pctl, struct platform_device *pdev)
@@ -1040,11 +1055,14 @@ static int mtk_eint_init(struct mtk_pinctrl *pctl, struct platform_device *pdev)
 
 	pctl->eint->nbase = 1;
 	/* mtk-eint expects an array */
-	pctl->eint->base = devm_kzalloc(pctl->dev, sizeof(pctl->eint->base), GFP_KERNEL);
+	pctl->eint->base = devm_kzalloc(pctl->dev, sizeof(*pctl->eint->base), GFP_KERNEL);
 	if (!pctl->eint->base)
 		return -ENOMEM;
 
-	pctl->eint->base[0] = devm_platform_ioremap_resource(pdev, 0);
+	if (pctl->devdata->eint_regs && pctl->devdata->eint_regs->pol_per_pin_mask)
+		pctl->eint->base[0] = devm_platform_ioremap_resource_byname(pdev, "eint");
+	else
+		pctl->eint->base[0] = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(pctl->eint->base[0]))
 		return PTR_ERR(pctl->eint->base[0]);
 
@@ -1152,7 +1170,9 @@ int mtk_pctrl_init(struct platform_device *pdev,
 		return -EINVAL;
 
 	/* Only initialize EINT if we have EINT pins */
-	if (data->eint_hw.ap_num > 0) {
+	if (data->eint_hw.ap_num > 0 &&
+	    (!data->eint_regs || !data->eint_regs->pol_per_pin_mask ||
+	     of_property_read_bool(np, "interrupt-controller"))) {
 		ret = mtk_eint_init(pctl, pdev);
 		if (ret)
 			return ret;

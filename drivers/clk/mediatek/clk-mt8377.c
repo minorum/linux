@@ -221,6 +221,8 @@ static const struct mtk_gate mt8377_peri_gates[] = {
 		 &mt8377_peri_regs, 28, &mtk_clk_gate_ops_no_setclr),
 	GATE_MTK(CLK_MT8377_UART2, "mt8377_uart2", "mt8377_pwm_ref",
 		 &mt8377_peri_regs, 26, &mtk_clk_gate_ops_no_setclr),
+	GATE_MTK(CLK_MT8377_APDMA, "mt8377_apdma", NULL,
+		 &mt8377_peri_regs, 12, &mtk_clk_gate_ops_no_setclr),
 };
 
 struct mt8377_peri {

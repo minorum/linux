@@ -29,7 +29,13 @@ properties:
       - mediatek,mt8516-pinctrl
 
   reg:
-    maxItems: 1
+    minItems: 1
+    maxItems: 2
+
+  reg-names:
+    items:
+      - const: gpio
+      - const: eint
 
   pins-are-numbered:
     $ref: /schemas/types.yaml#/definitions/flag
@@ -66,6 +72,9 @@ properties:
   "#interrupt-cells":
     const: 2
 
+  "#address-cells":
+    const: 0
+
 required:
   - compatible
   - gpio-controller
@@ -73,6 +82,30 @@ required:
 
 allOf:
   - $ref: pinctrl.yaml#
+  - if:
+      properties:
+        compatible:
+          enum:
+            - mediatek,mt8377-pinctrl
+            - mediatek,mt6577-pinctrl
+      required:
+        - interrupt-controller
+    then:
+      properties:
+        reg:
+          minItems: 2
+        interrupts:
+          maxItems: 1
+      required:
+        - reg
+        - reg-names
+        - interrupts
+        - "#interrupt-cells"
+    else:
+      properties:
+        reg:
+          maxItems: 1
+        reg-names: false
 
 patternProperties:
   'pins$':

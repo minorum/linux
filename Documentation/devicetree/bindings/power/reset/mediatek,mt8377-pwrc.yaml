@@ -12,8 +12,8 @@ maintainers:
 description:
   The RTC controls the PMIC PWRBB signal through its BBPU register.
   Its protected 16-bit registers are accessed over MMIO with a four-byte
-  stride. This node owns the RTC register block for system power-off and
-  the optional 32.768 kHz output clock.
+  stride. This node owns the RTC register block for the calendar,
+  alarm, system power-off and the optional 32.768 kHz output clock.
 
 properties:
   compatible:
@@ -23,6 +23,10 @@ properties:
 
   reg:
     maxItems: 1
+
+  interrupts:
+    maxItems: 1
+    description: RTC alarm interrupt.
 
   '#clock-cells':
     const: 0

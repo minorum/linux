@@ -65,7 +65,7 @@
 		gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
 	};
 
-	panel {
+	panel: panel {
 		compatible = "modecom,freetab8001-display";
 		modecom,control-gpios = <&pio 100 GPIO_ACTIVE_HIGH>,
 					<&pio 66 GPIO_ACTIVE_HIGH>,
@@ -318,6 +318,7 @@
 		rtc_clock: power-controller@c1003000 {
 			compatible = "mediatek,mt8377-pwrc";
 			reg = <0xc1003000 0x7c>;
+			interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_LOW>;
 			#clock-cells = <0>;
 		};
 
@@ -381,6 +382,23 @@
 			#clock-cells = <1>;
 		};
 
+		apdma: dma-controller@c1001400 {
+			compatible = "mediatek,mt8377-uart-dma";
+			reg = <0xc1001400 0x80>, <0xc1001480 0x80>,
+			      <0xc1001500 0x80>, <0xc1001580 0x80>,
+			      <0xc1001600 0x80>, <0xc1001680 0x80>;
+			interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 66 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 67 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 68 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 69 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 70 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&pericfg CLK_MT8377_APDMA>;
+			clock-names = "apdma";
+			dma-requests = <6>;
+			#dma-cells = <1>;
+		};
+
 		pwm: pwm@c1008000 {
 			compatible = "mediatek,mt8377-pwm";
 			reg = <0xc1008000 0x210>;
@@ -395,19 +413,26 @@
 		};
 
 		uart2: serial@c100b000 {
-			compatible = "mediatek,mt6577-uart";
+			compatible = "mediatek,mt8377-uart", "mediatek,mt6577-uart";
 			reg = <0xc100b000 0x100>;
 			interrupt-parent = <&sysirq>;
 			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_LOW>;
 			clocks = <&pericfg CLK_MT8377_UART2>,
 				 <&pericfg CLK_MT8377_UART2>;
 			clock-names = "baud", "bus";
+			dmas = <&apdma 4>, <&apdma 5>;
+			dma-names = "tx", "rx";
 			status = "disabled";
 		};
 
 		pio: pinctrl@c0005000 {
 			compatible = "mediatek,mt8377-pinctrl";
-			reg = <0xc0005000 0x1000>;
+			reg = <0xc0005000 0x1000>, <0xc000c000 0x100>;
+			reg-names = "gpio", "eint";
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			#address-cells = <0>;
+			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
 			gpio-controller;
 			#gpio-cells = <2>;
 		};
@@ -448,6 +473,17 @@
 			clock-frequency = <100000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			touchscreen@14 {
+				compatible = "goodix,gt911";
+				reg = <0x14>;
+				interrupt-parent = <&pio>;
+				interrupts = <6 IRQ_TYPE_EDGE_FALLING>;
+				irq-gpios = <&pio 75 GPIO_ACTIVE_HIGH>;
+				reset-gpios = <&pio 86 GPIO_ACTIVE_HIGH>;
+				panel = <&panel>;
+				touchscreen-swapped-x-y;
+			};
 
 			charger: charger@36 {
 				compatible = "onnn,ncp1851";

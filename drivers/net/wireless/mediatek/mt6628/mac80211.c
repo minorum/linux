@@ -38,6 +38,7 @@ struct mt6628_mac {
 	u16 basic;
 	u8 phy;
 	bool started;
+	atomic_t restart_pending;
 	bool peer_created;
 	bool associated;
 	bool bss_configured;
@@ -843,6 +844,29 @@ static void mt6628_mac_filter(struct ieee80211_hw *hw, unsigned int changed,
 		mt6628_sdio_fault(mac->dev, ret);
 }
 
+static void mt6628_mac_stop(struct ieee80211_hw *hw, bool suspend);
+
+static int mt6628_mac_recover(struct mt6628_mac *mac)
+{
+	if (mac->vif)
+		ieee80211_hw_restart_disconnect(mac->vif);
+	mt6628_mac_stop(mac->hw, false);
+
+	mac->vif = NULL;
+	mac->peer_created = false;
+	mac->associated = false;
+	mac->bss_configured = false;
+	mac->pm_connected = false;
+	mac->channel_owned = false;
+	mac->channel_deadline = 0;
+	memset(mac->keys, 0, sizeof(mac->keys));
+	mac->pending_keys = 0;
+	eth_zero_addr(mac->pending_ptk);
+
+	mt6628_hw_stop(mac->dev);
+	return mt6628_hw_start(mac->dev);
+}
+
 static int mt6628_mac_start(struct ieee80211_hw *hw)
 {
 	struct mt6628_mac *mac = hw->priv;
@@ -850,6 +874,9 @@ static int mt6628_mac_start(struct ieee80211_hw *hw)
 	unsigned long flags;
 	int ret = atomic_read(&mac->dev->error);
 
+	if (ret == -EREMOTEIO && atomic_read(&mac->restart_pending))
+		ret = mt6628_mac_recover(mac);
+	atomic_set(&mac->restart_pending, 0);
 	if (ret)
 		return ret;
 	mutex_lock(&mac->mutex);
@@ -1208,7 +1235,14 @@ void mt6628_radio_error(struct mt6628_dev *dev, int error)
 	mac = mt6628_mac_priv(dev->wiphy);
 	mac->event_result = error;
 	complete(&mac->event_done);
-	ieee80211_stop_queues(mac->hw);
+	if (error == -EREMOTEIO) {
+		if (!atomic_cmpxchg(&mac->restart_pending, 0, 1)) {
+			dev_warn(&dev->func->dev, "firmware assert, restarting Wi-Fi\n");
+			ieee80211_restart_hw(mac->hw);
+		}
+	} else {
+		ieee80211_stop_queues(mac->hw);
+	}
 }
 
 int mt6628_radio_register(struct mt6628_dev *dev)
